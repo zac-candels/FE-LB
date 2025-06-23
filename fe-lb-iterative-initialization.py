@@ -10,11 +10,11 @@ import fem_lbm_lib as fl
 
 
 T = 10.0 
-num_steps = 100
+num_steps = 1000
 dt = T / num_steps
 tau = 1.0
 Q = 9
-F_np = np.array([3.0, 0.0])
+F_np = np.array([0.01, 0.0])
 alpha = ( 2/dt + 1/tau )
 rho_wall = 1.0
 u_wall = (0.0, 0.0)
@@ -172,13 +172,14 @@ while abs(delta_f) > tol:
     for k in range(Q):
         J_vec = fl.compute_collision(f_list_n[k].vector(), f_eq[k].vector(), tau)
         
-        S_vec = fl.compute_force(u0_fn, F_np, k, dt, tau)
+        S_vec = fl.compute_force(u0_fn, F_np, k, dt, tau, V)
         
         rhs = A_mat * f_list_n[k].vector()
         
         rhs.axpy(-dt, B_mats[k]*f_list_n[k].vector())
         rhs.axpy(-dt, C_mats[k]*f_list_n[k].vector())
         rhs.axpy(dt, J_vec)
+        #rhs.axpy(dt, S_vec)
         
         rhs_vec = rhs.get_local()
         
@@ -202,7 +203,7 @@ while abs(delta_f) > tol:
 u = fe.Function(V)
 rhs = [fe.Function(V).vector() for _ in range(Q)]
     
-for n in range( int(T) ):
+for n in range( 12 ):
     # First, compute rho
     rho.vector().zero()
     
@@ -218,7 +219,11 @@ for n in range( int(T) ):
     F_fn.vector().set_local(F_np.flatten())
     F_fn.vector().apply("insert")
     
-    u = fl.compute_velocity(f_list_n, rho, fl.disc_vel, F_fn, dt)
+    F_np = np.array([0.00, 0.0])  # Your force vector
+    F_const = fe.Constant(F_np)  # Convert to FEniCS Constant
+    F_proj = fe.project(F_const, V_vec) 
+    
+    u = fl.compute_velocity(f_list_n, rho, fl.disc_vel, F_proj, dt)
     
     u_fn = fe.project(u, V_vec)
     
@@ -233,14 +238,15 @@ for n in range( int(T) ):
         
     for k in range(Q):
         J_vec = fl.compute_collision(f_list_n[k].vector(), f_eq[k].vector(), tau)
-        S_vec = fl.compute_force(u0_fn, F_np, k, dt, tau)
+        S_vec = fl.compute_force(u_fn, F_np, k, dt, tau, V)
         
         rhs[k].zero()
-        rhs[k].axpy(1.0, f_list_n[k].vector())
+        rhs[k] = A_mat * f_list_n[k].vector()
         
         rhs[k].axpy(-dt, B_mats[k]*f_list_n[k].vector())
         rhs[k].axpy(-dt, C_mats[k]*f_list_n[k].vector())
         rhs[k].axpy(dt, J_vec)
+        #rhs[k].axpy(dt, S_vec)
         
         
     # Apply boundary conditions and solve 
@@ -259,47 +265,56 @@ for n in range( int(T) ):
         
     
     for k in range(Q):
+        bcs_k = []
+        if k in incoming_upper:
+            bc_upper = fe.DirichletBC(V, f_eq_wall[k], upper_wall)
+            bcs_k.append(bc_upper)
+        if k in incoming_lower:
+            bc_lower = fe.DirichletBC(V, f_eq_wall[k], lower_wall)
+            bcs_k.append(bc_lower)
+        rhs_k = rhs[k].copy()
         for bc in bcs_k:
-            bc.apply(A_mat, rhs[k])
-            fe.solve(A_mat, f_list_np1[k].vector(), rhs[k])
-            f_list_n[k].assign(f_list_np1[k])
+            bc.apply(A_mat, rhs_k)
+        fe.solve(A_mat, f_list_np1[k].vector(), rhs_k)
+        f_list_n[k].assign(f_list_np1[k])
+            
             
         
-# u = fl.compute_velocity(f_list_n, rho, fl.disc_vel, F_fn, dt)   
-# u_fn = fe.project(u, V_vec)
+u = fl.compute_velocity(f_list_n, rho, fl.disc_vel, F_fn, dt)   
+u_fn = fe.project(u, V_vec)
 
-# import matplotlib.pyplot as plt
-# import dolfin as fe
+import matplotlib.pyplot as plt
+import dolfin as fe
 
-# # Define parameters based on your mesh
-# Lx = mesh.coordinates()[:, 0].max()
-# Ly = mesh.coordinates()[:, 1].max()
-# x_mid = Lx / 2.0  # Midpoint along x
+# Define parameters based on your mesh
+Lx = mesh.coordinates()[:, 0].max()
+Ly = mesh.coordinates()[:, 1].max()
+x_mid = Lx / 2.0  # Midpoint along x
 
-# # Sample points along vertical line at x = Lx/2
-# n_points = 100
-# y_vals = np.linspace(0, Ly, n_points)
-# u_x_vals = []
+# Sample points along vertical line at x = Lx/2
+n_points = 100
+y_vals = np.linspace(0, Ly, n_points)
+u_x_vals = []
 
-# for y in y_vals:
-#     point = fe.Point(x_mid, y)
-#     try:
-#         u_vec = u_fn(point)
-#         u_x_vals.append(u_vec[0])
-#     except RuntimeError:
-#         # May occur if point is outside domain due to rounding
-#         u_x_vals.append(np.nan)
+for y in y_vals:
+    point = fe.Point(x_mid, y)
+    try:
+        u_vec = u_fn(point)
+        u_x_vals.append(u_vec[0])
+    except RuntimeError:
+        # May occur if point is outside domain due to rounding
+        u_x_vals.append(np.nan)
 
-# # Plot the profile
-# plt.figure(figsize=(6, 4))
-# plt.plot(u_x_vals, y_vals, label="Computed $u_x(y)$")
-# plt.xlabel("Horizontal velocity $u_x$")
-# plt.ylabel("Vertical coordinate $y$")
-# plt.title("Poiseuille Flow Velocity Profile at $x = L_x/2$")
-# plt.grid(True)
-# plt.legend()
-# plt.tight_layout()
-# plt.show()
+# Plot the profile
+plt.figure(figsize=(6, 4))
+plt.plot(u_x_vals, y_vals, label="Computed $u_x(y)$")
+plt.xlabel("Horizontal velocity $u_x$")
+plt.ylabel("Vertical coordinate $y$")
+plt.title("Poiseuille Flow Velocity Profile at $x = L_x/2$")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
     
     
     

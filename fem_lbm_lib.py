@@ -71,9 +71,9 @@ def compute_collision(fk_vec, fk_eq_vec, tau=1.0):
     return J_vec
 
 
-def compute_force(u, F, k, dt, tau):
+def compute_force(u, F, k, dt, tau, V_f):
     """
-    Compute S_k at the DoFs for the k-th velocity direction in D2Q9.
+    Compute the force source term S_k as a FEniCS vector compatible with the LBM finite element solver.
 
     Args:
         u: Function (vector-valued, dim=2) for macroscopic velocity.
@@ -81,44 +81,46 @@ def compute_force(u, F, k, dt, tau):
         k: Index of the D2Q9 direction (0 ≤ k ≤ 8).
         dt: Time step
         tau: Relaxation time
+        V_f: Function space for the f_k distribution function (e.g., same as f_list_n[k].function_space())
 
     Returns:
-        NumPy array with values of S_k at each DoF.
+        A PETSc vector (dolfin.Vector) with values of S_k projected onto V_f.
     """
-    V = u.function_space().sub(0).collapse()
-    mesh = V.mesh()
-    dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
+    mesh = V_f.mesh()
 
-    u_vals = np.array([u(x) for x in dof_coords])  # shape: (n_dof, 2)
-
-    # Evaluate forcing field F at each point
-    if isinstance(F, fe.Function) or isinstance(F, fe.Expression):
-        F_vals = np.array([F(x) for x in dof_coords])
-    else:
-        F_vals = np.tile(np.asarray(F), (len(dof_coords), 1))  # broadcast constant force
-
-    disc_vel_k = disc_vel[k]  # D2Q9 velocity vector for direction k
-    weights_k = weights[k]  # corresponding weight
+    # Discrete velocity and weight for direction k
+    c_k = disc_vel[k]
+    w_k = weights[k]
     cs2 = 1.0 / 3.0
-    prefactor = (1.0 - dt / (2.0 * tau)) * weights_k
+    prefactor = (1.0 - dt / (2.0 * tau)) * w_k
 
-    # Compute dot products for each term
-    S_vals = []
+    # Define a FEniCS Expression to represent S_k(x)
+    if isinstance(F, fe.Function) or isinstance(F, fe.Expression):
+        F_expr = F
+    else:
+        F_expr = fe.Constant(F)
 
-    for i in range(len(dof_coords)):
-        u_i = u_vals[i]
-        F_i = F_vals[i]
+    # Define the full symbolic expression of the force term at each point
+    x = fe.SpatialCoordinate(mesh)
+    u_expr = fe.interpolate(u, u.function_space())
 
-        c_dot_F = np.dot(disc_vel_k, F_i)
-        c_dot_u = np.dot(disc_vel_k, u_i)
-        u_dot_F = np.dot(u_i, F_i)
-        cuF_term = (np.dot(disc_vel_k, F_i)) / cs2
-        second_term = ((np.outer(disc_vel_k, disc_vel_k) - cs2 * np.identity(2)) @ u_i) @ F_i / cs2**2
+    c_dot_F = c_k[0] * F_expr[0] + c_k[1] * F_expr[1]
+    c_dot_u = c_k[0] * u_expr[0] + c_k[1] * u_expr[1]
+    u_dot_F = u_expr[0] * F_expr[0] + u_expr[1] * F_expr[1]
 
-        S_ki = prefactor * (cuF_term + second_term)
-        S_vals.append(S_ki)
+    # Build tensor expression for (c_k ⊗ c_k - cs2 * I)
+    c_tensor = fe.as_matrix([ [fe.Constant(c_k[i]*c_k[j]) for j in range(2) ]\
+                             for i in range(2)])
+    identity = fe.Identity(2)
+    second_term_tensor = (c_tensor - cs2 * identity)
 
-    return np.array(S_vals)
+    second_term = fe.dot(second_term_tensor * u_expr, F_expr) / cs2**2
+    S_expr = prefactor * (c_dot_F / cs2 + second_term)
+
+    # Project the scalar source expression to the same function space as f_k
+    S_proj = fe.project(S_expr, V_f)
+
+    return S_proj.vector()
 
 
 def compute_feq(rho, u_expr, k):
