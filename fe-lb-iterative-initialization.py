@@ -3,19 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import fem_lbm_lib as fl
 
+
 # Simulating Poiseuille flow by solving the lattice Boltzmann 
 # equation using the finite element method, using D2Q9.
-
-# Our velocity set is the following:
-# c_1 = (1, 0), w_1 = 1/9
-# c_2 = (0, 1), w_2 = 1/9
-# c_3 = (-1, 0), w_3 = 1/9
-# c_4 = (0, -1), w_4 = 1/9
-# c_5 = (1, 1), w_5 = 1/36
-# c_6 = (-1, 1), w_6 = 1/36
-# c_7 = (-1, -1), w_7 = 1/36
-# c_8 = (1, -1), w_8 = 1/36
-# c_9 = (0, 0), w_9 = 4/9
 
 
 
@@ -58,15 +48,15 @@ V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 # equilibrium values and then use an iterative procedure to 
 # get the right density.
 
-f0_D = fe.Expression( "(4/9)*rho", degree = 2, rho = 1.0)
-f1_D = fe.Expression( "(1/9)*rho", degree = 2, rho = 1.0)
-f2_D = fe.Expression( "(1/9)*rho", degree = 2, rho = 1.0)
-f3_D = fe.Expression( "(1/9)*rho", degree = 2, rho = 1.0)
-f4_D = fe.Expression( "(1/9)*rho", degree = 2, rho = 1.0)
-f5_D = fe.Expression( "(1/36)*rho", degree = 2, rho = 1.0)
-f6_D = fe.Expression( "(1/36)*rho", degree = 2, rho = 1.0)
-f7_D = fe.Expression( "(1/36)*rho", degree = 2, rho = 1.0)
-f8_D = fe.Expression( "(1/36)*rho", degree = 2, rho = 1.0)
+f0_D = fe.Expression( "(4./9.)*dens", degree = 2, dens = 1.0)
+f1_D = fe.Expression( "(1./9.)*dens", degree = 2, dens = 1.0)
+f2_D = fe.Expression( "(1./9.)*dens", degree = 2, dens = 1.0)
+f3_D = fe.Expression( "(1./9.)*dens", degree = 2, dens = 1.0)
+f4_D = fe.Expression( "(1./9.)*dens", degree = 2, dens = 1.0)
+f5_D = fe.Expression( "(1./36.)*dens", degree = 2, dens = 1.0)
+f6_D = fe.Expression( "(1./36.)*dens", degree = 2, dens = 1.0)
+f7_D = fe.Expression( "(1./36.)*dens", degree = 2, dens = 1.0)
+f8_D = fe.Expression( "(1./36.)*dens", degree = 2, dens = 1.0)
 
 
 def boundary(x, on_boundary):
@@ -123,6 +113,12 @@ B_mats = []
 C_mats = []
 J_vecs = []
 
+# Get local matrix (copy, as dense)
+dense_array = A_mat.array()
+
+# Compute condition number
+condition_number = np.linalg.cond(dense_array)
+
 for k in range(Q):
     if( fl.disc_vel[k][0] != 0):
         B_mat = fe.assemble( fl.disc_vel[k][0]*fe.grad(f_fn)[0]*v*fe.dx )
@@ -168,12 +164,14 @@ while abs(delta_f) > tol:
     # Step 2: Update f_eq using current rho and fixed u0
     for k in range(Q):
         f_eq[k].vector().set_local( fl.compute_feq(rho, u0, k) )
+        A = f_eq[k].vector().vec().getArray()
         
     delta_f = 0.0 
     
     # Step 3: update f_k
     for k in range(Q):
         J_vec = fl.compute_collision(f_list_n[k].vector(), f_eq[k].vector(), tau)
+        
         S_vec = fl.compute_force(u0_fn, F_np, k, dt, tau)
         
         rhs = fe.Vector(f_list_n[k].vector())
@@ -183,10 +181,15 @@ while abs(delta_f) > tol:
         rhs.axpy(-dt, C_mats[k]*f_list_n[k].vector())
         rhs.axpy(dt, J_vec)
         
+        rhs_vec = rhs.get_local()
+        
+        
         f_list_new = fe.Vector(f_list_n[k].vector())
         fe.solve(A_mat, f_list_new, rhs)
         
-        delta_f = np.linalg.norm(f_list_new - f_list_n[k].vector() )#max(delta_f, np.linalg.norm(f_list_new - f_list_n[k].vector(), ord=np.Inf))
+        arr = np.array(f_list_new.get_local())
+        
+        delta_f = max(delta_f, np.linalg.norm(f_list_new - f_list_n[k].vector(), ord=np.inf))
         
         f_list_n[k].vector()[:] = f_list_new
         
@@ -199,8 +202,6 @@ while abs(delta_f) > tol:
 
 u = fe.Function(V)
 rhs = [fe.Function(V).vector() for _ in range(Q)]
-f1_vec, f2_vec, f3_vec, f4_vec, f5_vec = 0, 0, 0, 0, 0
-feq1_vec, feq2_vec, feq3_vec, feq4_vec, feq5_vec = 0, 0, 0, 0, 0
     
 for n in range( int(T) ):
     # First, compute rho
@@ -209,8 +210,6 @@ for n in range( int(T) ):
     for k in range(Q):
         
         rho.vector().axpy(1.0, f_list_n[k].vector())
-        
-    density = rho.vector().vec().getArray()
         
     # Then, compute u
     
@@ -227,12 +226,6 @@ for n in range( int(T) ):
     # Update f_eq
     for k in range(Q):
         f_eq[k].vector().set_local( fl.compute_feq(rho, u, k) )
-        
-    feq1_vec = f_eq[1].vector().vec().getArray()
-    feq2_vec = f_eq[2].vector().vec().getArray()
-    feq3_vec = f_eq[3].vector().vec().getArray()
-    feq4_vec = f_eq[4].vector().vec().getArray()
-    feq5_vec = f_eq[5].vector().vec().getArray()
         
     f_eq_wall = [fe.Constant(fl.weights[k]*rho_wall) for k in range(Q)]
     
@@ -272,12 +265,6 @@ for n in range( int(T) ):
             fe.solve(A_mat, f_list_np1[k].vector(), rhs[k])
             f_list_n[k].assign(f_list_np1[k])
             
-    f1_vec = f_list_np1[1].vector().vec().getArray()
-    f2_vec = f_list_np1[2].vector().vec().getArray()
-    f3_vec = f_list_np1[3].vector().vec().getArray()
-    f4_vec = f_list_np1[4].vector().vec().getArray()
-    f5_vec = f_list_np1[5].vector().vec().getArray()
-    f6_vec = f_list_np1[6].vector().vec().getArray()
         
 # u = fl.compute_velocity(f_list_n, rho, fl.disc_vel, F_fn, dt)   
 # u_fn = fe.project(u, V_vec)
