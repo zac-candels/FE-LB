@@ -174,8 +174,7 @@ while abs(delta_f) > tol:
         
         S_vec = fl.compute_force(u0_fn, F_np, k, dt, tau)
         
-        rhs = fe.Vector(f_list_n[k].vector())
-        rhs *= 1.0 
+        rhs = A_mat * f_list_n[k].vector()
         
         rhs.axpy(-dt, B_mats[k]*f_list_n[k].vector())
         rhs.axpy(-dt, C_mats[k]*f_list_n[k].vector())
