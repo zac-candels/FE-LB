@@ -336,7 +336,14 @@ for n in range(num_steps):
     fe.project(w[8]*sum(fj for fj in f_list_n), V, function=f8_upper_func)
     
 
+u_expr = vel(f_list_n) / rho(f_list_n)
 
+# Project into vector space and plot
+u = fe.project(u_expr, V_vec)
+fe.plot(u, title="Velocity field at final time")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.show()
 
 
 
