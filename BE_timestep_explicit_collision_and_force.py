@@ -25,10 +25,17 @@ u_wall = (0.0, 0.0)
 c_s = 1/np.sqrt(3)
 
 # D2Q9 lattice velocities
-xi = np.array([
-    [0,0], [1, 0], [0, 1], [-1, 0], [0, -1],
-    [1, 1], [-1, 1], [-1, -1], [1, -1]
-])
+xi = [
+    fe.Constant(( 0.0,  0.0)),
+    fe.Constant(( 1.0,  0.0)),
+    fe.Constant(( 0.0,  1.0)),
+    fe.Constant((-1.0,  0.0)),
+    fe.Constant(( 0.0, -1.0)),
+    fe.Constant(( 1.0,  1.0)),
+    fe.Constant((-1.0,  1.0)),
+    fe.Constant((-1.0, -1.0)),
+    fe.Constant(( 1.0, -1.0)),
+]
 
 # Corresponding weights
 w = np.array([
@@ -63,7 +70,7 @@ f0, f1, f2 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
 f3, f4, f5 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
 f6, f7, f8 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
 
-f = [f0, f1, f2, f3, f4, f5, f6, f7, f8]
+f_list = [f0, f1, f2, f3, f4, f5, f6, f7, f8]
 
 v = fe.TestFunction(V)
 
@@ -72,31 +79,37 @@ f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
 f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
 f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
 
-f_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
+f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 
 
 # Define density
-def rho(f):
-    return f[0] + f[1] + f[2] + f[3] + f[4] + f[5] + f[6] + f[7] + f[8]
+def rho(f_list):
+    return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
+        + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
 # Define velocity
-def vel(f):
-    velocity = f[0]*xi[0] + f[1]*xi[1] + f[2]*xi[2] + f[3]*xi[3] + f[4]*xi[4]\
-        + f[5]*xi[5] + f[6]*xi[6] + f[7]*xi[7] + f[8]*xi[8]
+def vel(f_list):
+    velocity = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
+        + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
+            + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
     return velocity
 
 # Define equilibrium distribution
-def f_equil(vel_idx):
-    prefactor = xi[vel_idx] * rho 
-    U_dot_ci = np.dot( vel, xi[vel_idx] )
-    second_term = U_dot_ci / c_s**2
-    third_term = U_dot_ci**2 / ( 2 * c_s**4 )
-    fourth_term = np.dot( vel, vel ) / (2 * c_s**2 )
-    return prefactor * (1 + second_term + third_term - fourth_term)
+def f_equil(f_list, vel_idx):
+    rho_expr = sum(fj for fj in f_list)
+    u_expr   = vel(f_list) / rho_expr    
+    ci       = xi[vel_idx]
+    ci_dot_u = fe.dot(ci, u_expr)
+    return w[vel_idx] * rho_expr * (
+        1
+        + ci_dot_u / c_s**2
+        + ci_dot_u**2 / (2*c_s**4)
+        - fe.dot(u_expr, u_expr) / (2*c_s**2)
+    )
 
 # Define collision operator
-def coll_op(f, vel_idx):
-    return ( f[vel_idx] - f_equil(vel_idx) ) / tau
+def coll_op(f_list, vel_idx):
+    return ( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / tau
 
 def body_Force(vel, vel_idx, Force_density):
     prefactor = (1 - dt/( 2 * tau) )*w[vel_idx]
@@ -120,56 +133,6 @@ def body_Force(vel, vel_idx, Force_density):
         * Force_density[1]
     
     return prefactor * ( first_term + second_term + third_term + fourth_term )
-    
-    
-    
-
-# Define boundary conditions.
-
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
-# Since we are applying equilibrium boundary conditions 
-# and assuming no slip on solid walls, f_i^{eq} reduces to
-# \rho * w_i
-
-tol = 1e-14
-def Bdy_Lower(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 0, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-f5_lower = fe.Expression("rho*w_5", degree = 2, rho = rho(f), w_5 = w[5])
-f2_lower = fe.Expression("rho*w_2", degree = 2, rho = rho(f), w_2 = w[2])
-f6_lower = fe.Expression("rho*w_6", degree = 2, rho = rho(f), w_6 = w[6])
-
-bc_f5 = fe.DirichletBC(V, f5_lower, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower, Bdy_Lower)
-
-# Similarly, we will define boundary conditions for f_7, f_4, and f_8
-# at the upper wall. Once again, boundary conditions simply reduce
-# to \rho * w_i
-
-tol = 1e-14
-def Bdy_Upper(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 1, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-f7_upper = fe.Expression("rho*w_7", degree = 2, rho = rho(f), w_7 = w[7])
-f4_upper = fe.Expression("rho*w_4", degree = 2, rho = rho(f), w_4 = w[4])
-f8_upper = fe.Expression("rho*w_8", degree = 2, rho = rho(f), w_8 = w[8])
-
-bc_f7 = fe.DirichletBC(V, f7_upper, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper, Bdy_Upper)
 
 
 # Interpolate initial conditions. Since here we are taking 
@@ -201,48 +164,115 @@ f4_n, f5_n = fe.interpolate(f4_0, V), fe.interpolate(f5_0, V)
 f6_n, f7_n = fe.interpolate(f6_0, V), fe.interpolate(f7_0, V)
 f8_n = fe.interpolate(f8_0, V)
 
-f_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
+f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
+
+# Define boundary conditions.
+
+# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
+# Since we are applying equilibrium boundary conditions 
+# and assuming no slip on solid walls, f_i^{eq} reduces to
+# \rho * w_i
+
+tol = 1e-14
+def Bdy_Lower(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[1], 0, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+    
+rho_expr = sum( fk for fk in f_list_n )
+ 
+f5_lower = w[5] * rho_expr
+f2_lower = w[2] * rho_expr 
+f6_lower = w[6] * rho_expr
+
+f5_lower_func = fe.Function(V)
+f2_lower_func = fe.Function(V)
+f6_lower_func = fe.Function(V)
+
+fe.project( f5_lower, V, function=f5_lower_func )
+fe.project( f2_lower, V, function=f2_lower_func )
+fe.project( f6_lower, V, function=f6_lower_func )
+
+bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
+bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
+bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
+
+# Similarly, we will define boundary conditions for f_7, f_4, and f_8
+# at the upper wall. Once again, boundary conditions simply reduce
+# to \rho * w_i
+
+tol = 1e-14
+def Bdy_Upper(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[1], 1, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+
+rho_expr = sum( fk for fk in f_list_n )
+ 
+f7_upper = w[7] * rho_expr
+f4_upper = w[4] * rho_expr 
+f8_upper = w[8] * rho_expr
+
+f7_upper_func = fe.Function(V)
+f4_upper_func = fe.Function(V)
+f8_upper_func = fe.Function(V)
+
+fe.project( f7_upper, V, function=f7_upper_func )
+fe.project( f4_upper, V, function=f4_upper_func )
+fe.project( f8_upper, V, function=f8_upper_func )
+
+bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
+bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
+bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 
 # Define variational problems
 a0 = f0 * v * fe.dx + dt*fe.dot( xi[0], fe.grad(f0) ) * v * fe.dx 
-L0 = ( f0_n + dt*coll_op(f0_n, 0)\
-      + dt * body_Force( vel(f_n), 0, Force_density) ) * v * fe.dx 
+L0 = ( f0_n + dt*coll_op(f_list_n, 0)\
+      + dt * body_Force( vel(f_list_n), 0, Force_density) ) * v * fe.dx 
 
 a1 = f0 * v * fe.dx + dt*fe.dot( xi[1], fe.grad(f1) ) * v * fe.dx 
-L1 = ( f1_n + dt*coll_op(f1_n, 1)\
-      + dt * body_Force( vel(f_n), 1, Force_density) ) * v * fe.dx 
+L1 = ( f1_n + dt*coll_op(f_list_n, 1)\
+      + dt * body_Force( vel(f_list_n), 1, Force_density) ) * v * fe.dx 
 
 a2 = f2 * v * fe.dx + dt*fe.dot( xi[2], fe.grad(f2) ) * v * fe.dx 
-L2 = ( f2_n + dt*coll_op(f2_n, 2)\
-      + dt * body_Force( vel(f_n), 2, Force_density) ) * v * fe.dx 
+L2 = ( f2_n + dt*coll_op(f_list_n, 2)\
+      + dt * body_Force( vel(f_list_n), 2, Force_density) ) * v * fe.dx 
 
 a3 = f3 * v * fe.dx + dt*fe.dot( xi[3], fe.grad(f3) ) * v * fe.dx 
-L3 = ( f3_n + dt*coll_op(f3_n, 3)\
-      + dt * body_Force( vel(f_n), 3, Force_density) ) * v * fe.dx  
+L3 = ( f3_n + dt*coll_op(f_list_n, 3)\
+      + dt * body_Force( vel(f_list_n), 3, Force_density) ) * v * fe.dx  
 
 a4 = f4 * v * fe.dx + dt*fe.dot( xi[4], fe.grad(f4) ) * v * fe.dx 
-L4 = ( f4_n + dt*coll_op(f4_n, 4)\
-      + dt * body_Force( vel(f_n), 4, Force_density) ) * v * fe.dx 
+L4 = ( f4_n + dt*coll_op(f_list_n, 4)\
+      + dt * body_Force( vel(f_list_n), 4, Force_density) ) * v * fe.dx 
 
 a5 = f5 * v * fe.dx + dt*fe.dot( xi[5], fe.grad(f5) ) * v * fe.dx 
-L5 = ( f5_n + dt*coll_op(f5_n, 5)\
-      + dt * body_Force( vel(f_n), 5, Force_density) ) * v * fe.dx 
+L5 = ( f5_n + dt*coll_op(f_list_n, 5)\
+      + dt * body_Force( vel(f_list_n), 5, Force_density) ) * v * fe.dx 
 
 a6 = f6 * v * fe.dx + dt*fe.dot( xi[6], fe.grad(f6) ) * v * fe.dx 
-L6 = ( f6_n + dt*coll_op(f6_n, 6)\
-      + dt * body_Force( vel(f_n), 6, Force_density) ) * v * fe.dx 
+L6 = ( f6_n + dt*coll_op(f_list_n, 6)\
+      + dt * body_Force( vel(f_list_n), 6, Force_density) ) * v * fe.dx 
 
 a7 = f7 * v * fe.dx + dt*fe.dot( xi[7], fe.grad(f7) ) * v * fe.dx 
-L7 = ( f7_n + dt*coll_op(f7_n, 7)\
-      + dt * body_Force( vel(f_n), 7, Force_density) ) * v * fe.dx  
+L7 = ( f7_n + dt*coll_op(f_list_n, 7)\
+      + dt * body_Force( vel(f_list_n), 7, Force_density) ) * v * fe.dx  
 
 a8 = f8 * v * fe.dx + dt*fe.dot( xi[8], fe.grad(f8) ) * v * fe.dx 
-L8 = ( f8_n + dt*coll_op(f8_n, 8)\
-      + dt * body_Force( vel(f_n), 8, Force_density) ) * v * fe.dx 
+L8 = ( f8_n + dt*coll_op(f_list_n, 8)\
+      + dt * body_Force( vel(f_list_n), 8, Force_density) ) * v * fe.dx 
 
 # Assemble matrices
-A0, A1, A2 = fe.assemble(a0), fe.assemble(a1), fe.assemble(a3)
+A0, A1, A2 = fe.assemble(a0), fe.assemble(a1), fe.assemble(a2)
 A3, A4, A5 = fe.assemble(a3), fe.assemble(a4), fe.assemble(a5)
 A6, A7, A8 = fe.assemble(a6), fe.assemble(a7), fe.assemble(a8)
 
@@ -298,8 +328,13 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
+    fe.project(w[5]*sum(fj for fj in f_list_n), V, function=f5_lower_func)
+    fe.project(w[2]*sum(fj for fj in f_list_n), V, function=f2_lower_func)
+    fe.project(w[6]*sum(fj for fj in f_list_n), V, function=f6_lower_func)
+    fe.project(w[7]*sum(fj for fj in f_list_n), V, function=f7_upper_func)
+    fe.project(w[4]*sum(fj for fj in f_list_n), V, function=f4_upper_func)
+    fe.project(w[8]*sum(fj for fj in f_list_n), V, function=f8_upper_func)
     
-
 
 
 
