@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
-dt = 0.02
+T = 10
+dt = 0.015
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-3, 0.0])
+Force_density = np.array([2.6e-4, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -186,9 +186,9 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_list_n )
  
-f5_lower = w[5] * rho_expr
-f2_lower = w[2] * rho_expr 
-f6_lower = w[6] * rho_expr
+f5_lower = w[5] * fe.Constant(rho_wall) # rho_expr
+f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
+f6_lower = w[6] * fe.Constant(rho_wall) # rho_expr
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
@@ -206,7 +206,7 @@ bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 # at the upper wall. Once again, boundary conditions simply reduce
 # to \rho * w_i
 
-tol = 1e-14
+tol = 1e-8
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 1, tol):
@@ -218,9 +218,9 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_list_n )
  
-f7_upper = w[7] * rho_expr
-f4_upper = w[4] * rho_expr 
-f8_upper = w[8] * rho_expr
+f7_upper = w[7] * fe.Constant(rho_wall) # rho_expr
+f4_upper = w[4] * fe.Constant(rho_wall) # rho_expr 
+f8_upper = w[8] * fe.Constant(rho_wall) # rho_expr
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
@@ -328,12 +328,12 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(w[5]*sum(fj for fj in f_list_n), V, function=f5_lower_func)
-    fe.project(w[2]*sum(fj for fj in f_list_n), V, function=f2_lower_func)
-    fe.project(w[6]*sum(fj for fj in f_list_n), V, function=f6_lower_func)
-    fe.project(w[7]*sum(fj for fj in f_list_n), V, function=f7_upper_func)
-    fe.project(w[4]*sum(fj for fj in f_list_n), V, function=f4_upper_func)
-    fe.project(w[8]*sum(fj for fj in f_list_n), V, function=f8_upper_func)
+    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
+    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
+    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
+    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
+    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
+    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
 
 u_expr = vel(f_list_n) / rho(f_list_n)
