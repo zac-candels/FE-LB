@@ -2,15 +2,16 @@ import fenics as fe
 import numpy as np
 import matplotlib.pyplot as plt
 
+plt.close('all')
 
-T = 10.0 
-num_steps = 1000
-dt = T / num_steps
+T = 2000
+dt = 0.02
+num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-5, 0.0])
+Force_density = np.array([2.6e-3, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -109,7 +110,7 @@ def f_equil(f_list, vel_idx):
 
 # Define collision operator
 def coll_op(f_list, vel_idx):
-    return ( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / tau
+    return -( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / tau
 
 def body_Force(vel, vel_idx, Force_density):
     prefactor = (1 - dt/( 2 * tau) )*w[vel_idx]
@@ -239,7 +240,7 @@ a0 = f0 * v * fe.dx + dt*fe.dot( xi[0], fe.grad(f0) ) * v * fe.dx
 L0 = ( f0_n + dt*coll_op(f_list_n, 0)\
       + dt * body_Force( vel(f_list_n), 0, Force_density) ) * v * fe.dx 
 
-a1 = f0 * v * fe.dx + dt*fe.dot( xi[1], fe.grad(f1) ) * v * fe.dx 
+a1 = f1 * v * fe.dx + dt*fe.dot( xi[1], fe.grad(f1) ) * v * fe.dx 
 L1 = ( f1_n + dt*coll_op(f_list_n, 1)\
       + dt * body_Force( vel(f_list_n), 1, Force_density) ) * v * fe.dx 
 
@@ -276,11 +277,6 @@ A0, A1, A2 = fe.assemble(a0), fe.assemble(a1), fe.assemble(a2)
 A3, A4, A5 = fe.assemble(a3), fe.assemble(a4), fe.assemble(a5)
 A6, A7, A8 = fe.assemble(a6), fe.assemble(a7), fe.assemble(a8)
 
-# Assemble right-hand side vectors
-b0, b1, b2 = fe.assemble(L0), fe.assemble(L1), fe.assemble(L2)
-b3, b4, b5 = fe.assemble(L3), fe.assemble(L4), fe.assemble(L5)
-b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
-
 # Time-stepping
 f0, f1, f2 = fe.Function(V), fe.Function(V), fe.Function(V)
 f3, f4, f5 = fe.Function(V), fe.Function(V), fe.Function(V)
@@ -290,6 +286,10 @@ for n in range(num_steps):
     # Update current time
     t += dt
     
+    # Assemble right-hand side vectors
+    b0, b1, b2 = fe.assemble(L0), fe.assemble(L1), fe.assemble(L2)
+    b3, b4, b5 = fe.assemble(L3), fe.assemble(L4), fe.assemble(L5)
+    b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
     
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(A5, b5)
@@ -337,18 +337,43 @@ for n in range(num_steps):
     
 
 u_expr = vel(f_list_n) / rho(f_list_n)
-
-# Project into vector space and plot
 u = fe.project(u_expr, V_vec)
-fe.plot(u, title="Velocity field at final time")
+
+# Plot velocity field with larger arrows
+# Plot velocity field with larger arrows
+coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
+u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2))  # Shape: (1056, 2)
+x = coords[:, 0]  # x-coordinates
+y = coords[:, 1]  # y-coordinates
+u_x = u_values[:, 0]  # x-components of velocity
+u_y = u_values[:, 1]  # y-components of velocity
+
+# Define arrow scale based on maximum velocity
+max_u = np.max(np.sqrt(u_x**2 + u_y**2))
+arrow_length = 0.05  # 5% of domain size
+scale = max_u / arrow_length if max_u > 0 else 1
+
+# Create quiver plot
+plt.figure()
+M = np.hypot(u_x, u_y)
+plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
+plt.title("Velocity field at final time")
 plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
 
-
-
-
-
-
-
-        
+# Plot velocity profile at x=0.5 (unchanged, assuming it works)
+num_points = 100
+y_values = np.linspace(0, 1, num_points)
+x_fixed = 0.5
+points = [(x_fixed, y) for y in y_values]
+u_x_values = []
+for point in points:
+    u_at_point = u(point)
+    u_x_values.append(u_at_point[0])
+plt.figure()
+plt.plot(u_x_values, y_values)
+plt.xlabel("u_x")
+plt.ylabel("y")
+plt.title("Velocity profile at x=0.5")
+plt.show()
