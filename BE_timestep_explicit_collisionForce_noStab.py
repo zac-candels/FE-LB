@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 plt.close('all')
 
 T = 10
-dt = 0.015
+dt = 0.005
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-4, 0.0])
+Force_density = np.array([1e-2, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -46,7 +46,7 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 32
+nx = ny = 16
 L_x = L_y = 1
 mesh = fe.UnitSquareMesh(nx, ny)
 
