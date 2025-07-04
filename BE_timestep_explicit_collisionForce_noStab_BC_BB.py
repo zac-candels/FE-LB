@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10
-dt = 0.001
+T = 800
+dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([0.066, 0.0])
+Force_density = np.array([1e-2, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -186,9 +186,9 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_list_n )
  
-f5_lower = w[5] * f7_n # rho_expr
-f2_lower = w[2] * f4_n # rho_expr 
-f6_lower = w[6] * f8_n # rho_expr
+f5_lower = f7_n # rho_expr
+f2_lower = f4_n # rho_expr 
+f6_lower = f8_n # rho_expr
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
@@ -218,9 +218,9 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_list_n )
  
-f7_upper = w[7] * f5_n # rho_expr
-f4_upper = w[4] * f2_n # rho_expr 
-f8_upper = w[8] * f6_n # rho_expr
+f7_upper = f5_n # rho_expr
+f4_upper = f2_n # rho_expr 
+f8_upper = f6_n # rho_expr
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
