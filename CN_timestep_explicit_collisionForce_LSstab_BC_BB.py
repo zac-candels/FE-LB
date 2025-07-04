@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10
-dt = 0.001
+T = 1000
+dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
@@ -63,8 +63,8 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
 
 # Define trial and test functions
 f0, f1, f2 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
@@ -161,6 +161,8 @@ def body_Force(vel, vel_idx, Force_density):
     fourth_term = ( xi[vel_idx][1] / c_s**2\
                    + inverse_cs4 *( xi[vel_idx][1]**2 - c_s**2 ) * vel[1] )\
         * Force_density[1]
+        
+
     
     return prefactor * ( first_term + second_term + third_term + fourth_term )
 
@@ -437,6 +439,17 @@ f5_n_1.assign(f5_n)
 f6_n_1.assign(f6_n)
 f7_n_1.assign(f7_n)
 f8_n_1.assign(f8_n)
+
+# Update values from the previous timestep 
+f0_n.assign(f0)
+f1_n.assign(f1)
+f2_n.assign(f2)
+f3_n.assign(f3)
+f4_n.assign(f4)
+f5_n.assign(f5)
+f6_n.assign(f6)
+f7_n.assign(f7)
+f8_n.assign(f8)
 
 f_list_n_1 = [f0_n_1, f1_n_1, f2_n_1, f3_n_1, f4_n_1, f5_n_1,
               f6_n_1, f7_n_1, f8_n_1]
