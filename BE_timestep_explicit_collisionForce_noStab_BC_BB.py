@@ -328,12 +328,12 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(w[5]*f7_n, V, function=f5_lower_func)
-    fe.project(w[2]*f4_n, V, function=f2_lower_func)
-    fe.project(w[6]*f8_n, V, function=f6_lower_func)
-    fe.project(w[7]*f5_n, V, function=f7_upper_func)
-    fe.project(w[4]*f2_n, V, function=f4_upper_func)
-    fe.project(w[8]*f6_n, V, function=f8_upper_func)
+    fe.project(f7_n, V, function=f5_lower_func)
+    fe.project(f4_n, V, function=f2_lower_func)
+    fe.project(f8_n, V, function=f6_lower_func)
+    fe.project(f5_n, V, function=f7_upper_func)
+    fe.project(f2_n, V, function=f4_upper_func)
+    fe.project(f6_n, V, function=f8_upper_func)
     
 
 u_expr = vel(f_list_n) / rho(f_list_n)

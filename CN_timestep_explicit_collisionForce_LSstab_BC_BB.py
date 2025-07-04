@@ -166,28 +166,29 @@ def body_Force_extrap(f_list_n, f_list_n_1, vel_idx, Force_density):
     inverse_cs2 = 1 / c_s**2
     inverse_cs4 = 1 / c_s**4
     
-    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
+    # Compute F^n
+    xi_dot_prod_F_n = xi[vel_idx][0]*Force_density[0]\
         + xi[vel_idx][1]*Force_density[1]
         
-    u_dot_prod_F = vel_n[0]*Force_density[0] + vel_n[1]*Force_density[1]
+    u_dot_prod_F_n = vel_n[0]*Force_density[0] + vel_n[1]*Force_density[1]
     
-    xi_dot_u = xi[vel_idx][0]*vel_n[0] + xi[vel_idx][1]*vel_n[1]
+    xi_dot_u_n = xi[vel_idx][0]*vel_n[0] + xi[vel_idx][1]*vel_n[1]
     
-    
+    Force_n = prefactor*( inverse_cs2*(xi_dot_prod_F_n - u_dot_prod_F_n)\
+                       + inverse_cs4*xi_dot_u_n*xi_dot_prod_F_n)
         
-    
-    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
+    # Compute F^{n-1}
+    xi_dot_prod_F_n_1 = xi[vel_idx][0]*Force_density[0]\
         + xi[vel_idx][1]*Force_density[1]
         
-    u_dot_prod_F = vel_n_1[0]*Force_density[0] + vel_n_1[1]*Force_density[1]
+    u_dot_prod_F_n_1 = vel_n_1[0]*Force_density[0] + vel_n_1[1]*Force_density[1]
     
-    xi_dot_u = xi[vel_idx][0]*vel_n_1[0] + xi[vel_idx][1]*vel_n_1[1]
+    xi_dot_u_n_1 = xi[vel_idx][0]*vel_n_1[0] + xi[vel_idx][1]*vel_n_1[1]
     
-    Force_n = prefactor*( inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)\
-                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+    
         
-    Force_n_1 = prefactor*( inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)\
-                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+    Force_n_1 = prefactor*( inverse_cs2*(xi_dot_prod_F_n_1 - u_dot_prod_F_n_1)\
+                       + inverse_cs4*xi_dot_u_n_1*xi_dot_prod_F_n_1)
         
     return 2*Force_n - Force_n_1
     
@@ -375,12 +376,12 @@ for n in range(1):
     
     # Solve linear system in each time step
     
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
+    fe.project(f7_n, V, function=f5_lower_func)
+    fe.project(f4_n, V, function=f2_lower_func)
+    fe.project(f8_n, V, function=f6_lower_func)
+    fe.project(f5_n, V, function=f7_upper_func)
+    fe.project(f2_n, V, function=f4_upper_func)
+    fe.project(f6_n, V, function=f8_upper_func)
     
 # We will do the explicit procedure for only one timestep.
 # We then change bilinear and linear forms for CN-LS Galerkin
@@ -623,12 +624,12 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
+    fe.project(f7_n, V, function=f5_lower_func)
+    fe.project(f4_n, V, function=f2_lower_func)
+    fe.project(f8_n, V, function=f6_lower_func)
+    fe.project(f5_n, V, function=f7_upper_func)
+    fe.project(f2_n, V, function=f4_upper_func)
+    fe.project(f6_n, V, function=f8_upper_func)
 
 
 
