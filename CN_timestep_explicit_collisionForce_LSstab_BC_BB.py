@@ -233,7 +233,7 @@ f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 # and assuming no slip on solid walls, f_i^{eq} reduces to
 # \rho * w_i
 
-tol = 1e-14
+tol = 1e-8
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 0, tol):
