@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10
-dt = 0.005
+T = 800
+dt = 1
+#num_steps = 750
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
@@ -46,7 +47,7 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 16
+nx = ny = 30
 L_x = L_y = 1
 mesh = fe.UnitSquareMesh(nx, ny)
 
@@ -90,10 +91,39 @@ def rho(f_list):
 
 # Define velocity
 def vel(f_list):
-    velocity = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
+    distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
             + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
-    return velocity
+            
+    density = rho(f_list)
+    
+    vel_term1 = distr_fn_sum/density
+    
+    F = fe.Constant( (Force_density[0], Force_density[1]) )
+    vel_term2 = F * dt / ( 2 * density )
+    
+    
+    return vel_term1 + vel_term2
+
+
+# Define initial equilibrium distributions
+def f_equil_init(vel_idx, Force_density):
+    rho_init = fe.Constant(1.0)
+    rho_expr = fe.Constant(1.0)
+
+    vel_0 = -fe.Constant( ( Force_density[0]*dt/(2*rho_init),
+                           Force_density[1]*dt/(2*rho_init) ) )
+    
+    # u_expr = fe.project(V_vec, vel_0)
+    
+    ci = xi[vel_idx]
+    ci_dot_u = fe.dot(ci, vel_0)
+    return w[vel_idx] * rho_expr * (
+        1
+        + ci_dot_u / c_s**2
+        + ci_dot_u**2 / (2*c_s**4)
+        - fe.dot(vel_0, vel_0) / (2*c_s**2)
+    )
 
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
@@ -136,34 +166,24 @@ def body_Force(vel, vel_idx, Force_density):
     return prefactor * ( first_term + second_term + third_term + fourth_term )
 
 
-# Interpolate initial conditions. Since here we are taking 
-# u(x, 0) \equiv 0, it is sufficient to have
-# f_i(x, 0) = f_i^{eq}(rho, 0) = rho *w_i
+# Initialize distribution functions. We will use 
+# f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
+# where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
+# Here we will take u_0 = 0.
 
-f0_0 = fe.Expression("rho_init * w_0", degree = 2, 
-                     rho_init = rho_init, w_0 = w[0])
-f1_0 = fe.Expression("rho_init * w_1", degree = 2, 
-                     rho_init = rho_init, w_1 = w[1])
-f2_0 = fe.Expression("rho_init * w_2", degree = 2, 
-                     rho_init = rho_init, w_2 = w[2])
-f3_0 = fe.Expression("rho_init * w_3", degree = 2, 
-                     rho_init = rho_init, w_3 = w[3])
-f4_0 = fe.Expression("rho_init * w_4", degree = 2, 
-                     rho_init = rho_init, w_4 = w[4])
-f5_0 = fe.Expression("rho_init * w_5", degree = 2, 
-                     rho_init = rho_init, w_5 = w[5])
-f6_0 = fe.Expression("rho_init * w_6", degree = 2, 
-                     rho_init = rho_init, w_6 = w[6])
-f7_0 = fe.Expression("rho_init * w_7", degree = 2, 
-                     rho_init = rho_init, w_7 = w[7])
-f8_0 = fe.Expression("rho_init * w_8", degree = 2, 
-                     rho_init = rho_init, w_8 = w[8])
+f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
+f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
+f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
 
-f0_n, f1_n = fe.interpolate(f0_0, V), fe.interpolate(f1_0, V)
-f2_n, f3_n = fe.interpolate(f2_0, V), fe.interpolate(f3_0, V)
-f4_n, f5_n = fe.interpolate(f4_0, V), fe.interpolate(f5_0, V)
-f6_n, f7_n = fe.interpolate(f6_0, V), fe.interpolate(f7_0, V)
-f8_n = fe.interpolate(f8_0, V)
+f0_n = fe.project(f_equil_init(0, Force_density), V )
+f1_n = fe.project(f_equil_init(1, Force_density), V )
+f2_n = fe.project(f_equil_init(2, Force_density), V )
+f3_n = fe.project(f_equil_init(3, Force_density), V )
+f4_n = fe.project(f_equil_init(4, Force_density), V )
+f5_n = fe.project(f_equil_init(5, Force_density), V )
+f6_n = fe.project(f_equil_init(6, Force_density), V )
+f7_n = fe.project(f_equil_init(7, Force_density), V )
+f8_n = fe.project(f_equil_init(8, Force_density), V )
 
 f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 
