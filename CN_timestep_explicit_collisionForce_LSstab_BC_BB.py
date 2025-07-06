@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 800
+T = 500
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -90,10 +90,19 @@ def rho(f_list):
 
 # Define velocity
 def vel(f_list):
-    velocity = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
+    distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
             + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
-    return velocity
+            
+    density = rho(f_list)
+    
+    vel_term1 = distr_fn_sum/density
+    
+    F = fe.Constant( (Force_density[0], Force_density[1]) )
+    vel_term2 = F * dt / ( 2 * density )
+    
+    
+    return vel_term1 + vel_term2
 
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
