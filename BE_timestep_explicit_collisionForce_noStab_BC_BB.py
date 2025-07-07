@@ -128,7 +128,7 @@ def f_equil_init(vel_idx, Force_density):
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
     rho_expr = sum(fj for fj in f_list)
-    u_expr   = vel(f_list) / rho_expr    
+    u_expr   = vel(f_list)     
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
     return w[vel_idx] * rho_expr * (
