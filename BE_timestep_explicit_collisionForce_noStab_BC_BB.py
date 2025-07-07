@@ -147,23 +147,17 @@ def body_Force(vel, vel_idx, Force_density):
     inverse_cs2 = 1 / c_s**2
     inverse_cs4 = 1 / c_s**4
     
-    first_term = ( xi[vel_idx][0]/ c_s**2\
-                  + inverse_cs4 * ( xi[vel_idx][0]**2 - c_s**2 ) * vel[0] )\
-        * Force_density[0]
+    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
+        + xi[vel_idx][1]*Force_density[1]
         
-    second_term = ( xi[vel_idx][1] / c_s**2\
-                  + inverse_cs4 * xi[vel_idx][0] * xi[vel_idx][1] )\
-        * Force_density[1]
-        
-    third_term = ( xi[vel_idx][0] / c_s**2\
-                  + inverse_cs4 * xi[vel_idx][0] * xi[vel_idx][1] )\
-        * Force_density[0]
-        
-    fourth_term = ( xi[vel_idx][1] / c_s**2\
-                   + inverse_cs4 *( xi[vel_idx][1]**2 - c_s**2 ) * vel[1] )\
-        * Force_density[1]
+    u_dot_prod_F = vel[0]*Force_density[0] + vel[1]*Force_density[1]
     
-    return prefactor * ( first_term + second_term + third_term + fourth_term )
+    xi_dot_u = xi[vel_idx][0]*vel[0] + xi[vel_idx][1]*vel[1]
+    
+    Force = prefactor*( inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)\
+                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+        
+    return Force
 
 
 # Initialize distribution functions. We will use 
@@ -194,7 +188,7 @@ f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 # and assuming no slip on solid walls, f_i^{eq} reduces to
 # \rho * w_i
 
-tol = 1e-14
+tol = 1e-8
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 0, tol):
