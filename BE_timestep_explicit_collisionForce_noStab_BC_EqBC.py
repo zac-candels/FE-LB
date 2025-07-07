@@ -350,7 +350,7 @@ for n in range(num_steps):
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
 
-u_expr = vel(f_list_n) / rho(f_list_n)
+u_expr = vel(f_list_n) 
 u = fe.project(u_expr, V_vec)
 
 # Plot velocity field with larger arrows
