@@ -257,40 +257,40 @@ bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 # Define variational problem for step 1
 a0_step1 = f0 * v* fe.dx 
-L0_step1 = ( f0_n + dt*coll_op(f_list_, 0)\
-      + dt * body_Force( vel(f_list_), 0, Force_density) ) * v * fe.dx 
+L0_step1 = ( f0_n + dt*coll_op(f_list_n, 0)\
+      + dt * body_Force( vel(f_list_n), 0, Force_density) ) * v * fe.dx 
     
 a1_step1 = f1 * v* fe.dx 
-L1_step1 = ( f1_n + dt*coll_op(f_list_, 1)\
-      + dt * body_Force( vel(f_list_), 1, Force_density) ) * v * fe.dx 
+L1_step1 = ( f1_n + dt*coll_op(f_list_n, 1)\
+      + dt * body_Force( vel(f_list_n), 1, Force_density) ) * v * fe.dx 
         
 a2_step1 = f2 * v* fe.dx 
-L2_step1 = ( f2_n + dt*coll_op(f_list_, 2)\
-      + dt * body_Force( vel(f_list_), 2, Force_density) ) * v * fe.dx 
+L2_step1 = ( f2_n + dt*coll_op(f_list_n, 2)\
+      + dt * body_Force( vel(f_list_n), 2, Force_density) ) * v * fe.dx 
 
 a3_step1 = f3 * v* fe.dx 
-L3_step1 = ( f3_n + dt*coll_op(f_list_, 3)\
-      + dt * body_Force( vel(f_list_), 3, Force_density) ) * v * fe.dx 
+L3_step1 = ( f3_n + dt*coll_op(f_list_n, 3)\
+      + dt * body_Force( vel(f_list_n), 3, Force_density) ) * v * fe.dx 
 
 a4_step1 = f4 * v* fe.dx 
-L4_step1 = ( f4_n + dt*coll_op(f_list_, 4)\
-      + dt * body_Force( vel(f_list_), 4, Force_density) ) * v * fe.dx 
+L4_step1 = ( f4_n + dt*coll_op(f_list_n, 4)\
+      + dt * body_Force( vel(f_list_n), 4, Force_density) ) * v * fe.dx 
 
 a5_step1 = f5 * v* fe.dx 
-L5_step1 = ( f5_n + dt*coll_op(f_list_, 5)\
-      + dt * body_Force( vel(f_list_), 5, Force_density) ) * v * fe.dx 
+L5_step1 = ( f5_n + dt*coll_op(f_list_n, 5)\
+      + dt * body_Force( vel(f_list_n), 5, Force_density) ) * v * fe.dx 
 
 a6_step1 = f6 * v* fe.dx 
-L6_step1 = ( f6_n + dt*coll_op(f_list_, 6)\
-      + dt * body_Force( vel(f_list_), 6, Force_density) ) * v * fe.dx 
+L6_step1 = ( f6_n + dt*coll_op(f_list_n, 6)\
+      + dt * body_Force( vel(f_list_n), 6, Force_density) ) * v * fe.dx 
     
 a7_step1 = f7 * v* fe.dx 
-L7_step1 = ( f7_n + dt*coll_op(f_list_, 7)\
-      + dt * body_Force( vel(f_list_), 7, Force_density) ) * v * fe.dx 
+L7_step1 = ( f7_n + dt*coll_op(f_list_n, 7)\
+      + dt * body_Force( vel(f_list_n), 7, Force_density) ) * v * fe.dx 
     
 a8_step1 = f8 * v* fe.dx 
-L8_step1 = ( f8_n + dt*coll_op(f_list_, 8)\
-      + dt * body_Force( vel(f_list_), 8, Force_density) ) * v * fe.dx 
+L8_step1 = ( f8_n + dt*coll_op(f_list_n, 8)\
+      + dt * body_Force( vel(f_list_n), 8, Force_density) ) * v * fe.dx 
 
 
 # Define variational problem for step 2
