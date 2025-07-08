@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10000
-dt = 1
+T = 100
+dt = 0.1
 #num_steps = 750
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -76,7 +76,14 @@ f_list = [f0, f1, f2, f3, f4, f5, f6, f7, f8]
 
 v = fe.TestFunction(V)
 
-# Define functions for solutions at previous time steps
+# Define functions for just computed solutions and solutions
+# at previous timestep
+f0_, f1_, f2_ = fe.Function(V), fe.Function(V), fe.Function(V)
+f3_, f4_, f5_ = fe.Function(V), fe.Function(V), fe.Function(V)
+f6_, f7_, f8_ = fe.Function(V), fe.Function(V), fe.Function(V)
+
+f_list_ = [f0_, f1_, f2_, f3_, f4_, f5_, f6_, f7_, f8_]
+
 f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
 f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
 f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
@@ -248,106 +255,161 @@ bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
 bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
 bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
+# Define variational problem for step 1
+a0_step1 = f0 * v* fe.dx 
+L0_step1 = ( f0_n + dt*coll_op(f_list_, 0)\
+      + dt * body_Force( vel(f_list_), 0, Force_density) ) * v * fe.dx 
+    
+a1_step1 = f1 * v* fe.dx 
+L1_step1 = ( f1_n + dt*coll_op(f_list_, 1)\
+      + dt * body_Force( vel(f_list_), 1, Force_density) ) * v * fe.dx 
+        
+a2_step1 = f2 * v* fe.dx 
+L2_step1 = ( f2_n + dt*coll_op(f_list_, 2)\
+      + dt * body_Force( vel(f_list_), 2, Force_density) ) * v * fe.dx 
 
-# Define variational problems
-a0 = f0 * v * fe.dx + dt*fe.dot( xi[0], fe.grad(f0) ) * v * fe.dx 
-L0 = ( f0_n + dt*coll_op(f_list_n, 0)\
-      + dt * body_Force( vel(f_list_n), 0, Force_density) ) * v * fe.dx 
+a3_step1 = f3 * v* fe.dx 
+L3_step1 = ( f3_n + dt*coll_op(f_list_, 3)\
+      + dt * body_Force( vel(f_list_), 3, Force_density) ) * v * fe.dx 
 
-a1 = f1 * v * fe.dx + dt*fe.dot( xi[1], fe.grad(f1) ) * v * fe.dx 
-L1 = ( f1_n + dt*coll_op(f_list_n, 1)\
-      + dt * body_Force( vel(f_list_n), 1, Force_density) ) * v * fe.dx 
+a4_step1 = f4 * v* fe.dx 
+L4_step1 = ( f4_n + dt*coll_op(f_list_, 4)\
+      + dt * body_Force( vel(f_list_), 4, Force_density) ) * v * fe.dx 
 
-a2 = f2 * v * fe.dx + dt*fe.dot( xi[2], fe.grad(f2) ) * v * fe.dx 
-L2 = ( f2_n + dt*coll_op(f_list_n, 2)\
-      + dt * body_Force( vel(f_list_n), 2, Force_density) ) * v * fe.dx 
+a5_step1 = f5 * v* fe.dx 
+L5_step1 = ( f5_n + dt*coll_op(f_list_, 5)\
+      + dt * body_Force( vel(f_list_), 5, Force_density) ) * v * fe.dx 
 
-a3 = f3 * v * fe.dx + dt*fe.dot( xi[3], fe.grad(f3) ) * v * fe.dx 
-L3 = ( f3_n + dt*coll_op(f_list_n, 3)\
-      + dt * body_Force( vel(f_list_n), 3, Force_density) ) * v * fe.dx  
+a6_step1 = f6 * v* fe.dx 
+L6_step1 = ( f6_n + dt*coll_op(f_list_, 6)\
+      + dt * body_Force( vel(f_list_), 6, Force_density) ) * v * fe.dx 
+    
+a7_step1 = f7 * v* fe.dx 
+L7_step1 = ( f7_n + dt*coll_op(f_list_, 7)\
+      + dt * body_Force( vel(f_list_), 7, Force_density) ) * v * fe.dx 
+    
+a8_step1 = f8 * v* fe.dx 
+L8_step1 = ( f8_n + dt*coll_op(f_list_, 8)\
+      + dt * body_Force( vel(f_list_), 8, Force_density) ) * v * fe.dx 
 
-a4 = f4 * v * fe.dx + dt*fe.dot( xi[4], fe.grad(f4) ) * v * fe.dx 
-L4 = ( f4_n + dt*coll_op(f_list_n, 4)\
-      + dt * body_Force( vel(f_list_n), 4, Force_density) ) * v * fe.dx 
 
-a5 = f5 * v * fe.dx + dt*fe.dot( xi[5], fe.grad(f5) ) * v * fe.dx 
-L5 = ( f5_n + dt*coll_op(f_list_n, 5)\
-      + dt * body_Force( vel(f_list_n), 5, Force_density) ) * v * fe.dx 
+# Define variational problem for step 2
+a0_step2 = f0 * v * fe.dx + dt*fe.dot( xi[0], fe.grad(f0) ) * v * fe.dx 
+L0_step2 = ( f0_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
 
-a6 = f6 * v * fe.dx + dt*fe.dot( xi[6], fe.grad(f6) ) * v * fe.dx 
-L6 = ( f6_n + dt*coll_op(f_list_n, 6)\
-      + dt * body_Force( vel(f_list_n), 6, Force_density) ) * v * fe.dx 
+a1_step2 = f1 * v * fe.dx + dt*fe.dot( xi[1], fe.grad(f1) ) * v * fe.dx 
+L1_step2 = ( f1_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
 
-a7 = f7 * v * fe.dx + dt*fe.dot( xi[7], fe.grad(f7) ) * v * fe.dx 
-L7 = ( f7_n + dt*coll_op(f_list_n, 7)\
-      + dt * body_Force( vel(f_list_n), 7, Force_density) ) * v * fe.dx  
+a2_step2 = f2 * v * fe.dx + dt*fe.dot( xi[2], fe.grad(f2) ) * v * fe.dx 
+L2_step2 = ( f2_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
 
-a8 = f8 * v * fe.dx + dt*fe.dot( xi[8], fe.grad(f8) ) * v * fe.dx 
-L8 = ( f8_n + dt*coll_op(f_list_n, 8)\
-      + dt * body_Force( vel(f_list_n), 8, Force_density) ) * v * fe.dx 
+a3_step2 = f3 * v * fe.dx + dt*fe.dot( xi[3], fe.grad(f3) ) * v * fe.dx 
+L3_step2 = ( f3_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
+
+a4_step2 = f4 * v * fe.dx + dt*fe.dot( xi[4], fe.grad(f4) ) * v * fe.dx 
+L4_step2 = ( f4_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
+
+a5_step2 = f5 * v * fe.dx + dt*fe.dot( xi[5], fe.grad(f5) ) * v * fe.dx 
+L5_step2 = ( f5_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
+
+a6_step2 = f6 * v * fe.dx + dt*fe.dot( xi[6], fe.grad(f6) ) * v * fe.dx 
+L6_step2 = ( f6_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
+
+a7_step2 = f7 * v * fe.dx + dt*fe.dot( xi[7], fe.grad(f7) ) * v * fe.dx 
+L7_step2 = ( f7_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
+
+a8_step2 = f8 * v * fe.dx + dt*fe.dot( xi[8], fe.grad(f8) ) * v * fe.dx 
+L8_step2 = ( f8_ * v * fe.dx ) + fe.Constant(0) * v * fe.dx 
 
 # Assemble matrices
-A0, A1, A2 = fe.assemble(a0), fe.assemble(a1), fe.assemble(a2)
-A3, A4, A5 = fe.assemble(a3), fe.assemble(a4), fe.assemble(a5)
-A6, A7, A8 = fe.assemble(a6), fe.assemble(a7), fe.assemble(a8)
+
+A0_step1, A1_step1, A2_step1 = fe.assemble(a0_step1), fe.assemble(a1_step1), fe.assemble(a2_step1)
+A3_step1, A4_step1, A5_step1 = fe.assemble(a3_step1), fe.assemble(a4_step1), fe.assemble(a5_step1)
+A6_step1, A7_step1, A8_step1 = fe.assemble(a6_step1), fe.assemble(a7_step1), fe.assemble(a8_step1)
+
+
+A0_step2, A1_step2, A2_step2 = fe.assemble(a0_step2), fe.assemble(a1_step2), fe.assemble(a2_step2)
+A3_step2, A4_step2, A5_step2 = fe.assemble(a3_step2), fe.assemble(a4_step2), fe.assemble(a5_step2)
+A6_step2, A7_step2, A8_step2 = fe.assemble(a6_step2), fe.assemble(a7_step2), fe.assemble(a8_step2)
 
 # Time-stepping
-f0, f1, f2 = fe.Function(V), fe.Function(V), fe.Function(V)
-f3, f4, f5 = fe.Function(V), fe.Function(V), fe.Function(V)
-f6, f7, f8 = fe.Function(V), fe.Function(V), fe.Function(V)
+f0_, f1_, f2_ = fe.Function(V), fe.Function(V), fe.Function(V)
+f3_, f4_, f5_ = fe.Function(V), fe.Function(V), fe.Function(V)
+f6_, f7_, f8_ = fe.Function(V), fe.Function(V), fe.Function(V)
+
 t = 0 
-for n in range(num_steps):
+for n in range(1):
     # Update current time
     t += dt
     
+    b0_step1, b1_step1, b2_step1 = fe.assemble(L0_step1), fe.assemble(L1_step1), fe.assemble(L2_step1)
+    b3_step1, b4_step1, b5_step1 = fe.assemble(L3_step1), fe.assemble(L4_step1), fe.assemble(L5_step1)
+    b6_step1, b7_step1, b8_step1 = fe.assemble(L6_step1), fe.assemble(L7_step1), fe.assemble(L8_step1)
+    
+    f0Vec, f1Vec, f2Vec = f0_.vector(), f1_.vector(), f2_.vector()
+    f3Vec, f4Vec, f5Vec = f3_.vector(), f4_.vector(), f5_.vector()
+    f6Vec, f7Vec, f8Vec = f6_.vector(), f7_.vector(), f8_.vector()
+    
+    fe.solve(A0_step1, f0Vec, b0_step1)
+    fe.solve(A1_step1, f1Vec, b1_step1)
+    fe.solve(A2_step1, f2Vec, b2_step1)
+    fe.solve(A3_step1, f3Vec, b3_step1)
+    fe.solve(A4_step1, f4Vec, b4_step1)
+    fe.solve(A5_step1, f5Vec, b5_step1)
+    fe.solve(A6_step1, f6Vec, b6_step1)
+    fe.solve(A7_step1, f7Vec, b7_step1)
+    fe.solve(A8_step1, f8Vec, b8_step1)
+    
+    fe.project(f7_, V, function=f5_lower_func)
+    fe.project(f4_, V, function=f2_lower_func)
+    fe.project(f8_, V, function=f6_lower_func)
+    fe.project(f5_, V, function=f7_upper_func)
+    fe.project(f2_, V, function=f4_upper_func)
+    fe.project(f6_, V, function=f8_upper_func)
+    
     # Assemble right-hand side vectors
-    b0, b1, b2 = fe.assemble(L0), fe.assemble(L1), fe.assemble(L2)
-    b3, b4, b5 = fe.assemble(L3), fe.assemble(L4), fe.assemble(L5)
-    b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
+    b0_step2, b1_step2, b2_step2 = fe.assemble(L0_step2), fe.assemble(L1_step2), fe.assemble(L2_step2)
+    b3_step2, b4_step2, b5_step2 = fe.assemble(L3_step2), fe.assemble(L4_step2), fe.assemble(L5_step2)
+    b6_step2, b7_step2, b8_step2 = fe.assemble(L6_step2), fe.assemble(L7_step2), fe.assemble(L8_step2)
     
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(A5, b5)
-    bc_f2.apply(A2, b2)
-    bc_f6.apply(A6, b6)
+    bc_f5.apply(A5_step2, b5_step2)
+    bc_f2.apply(A2_step2, b2_step2)
+    bc_f6.apply(A6_step2, b6_step2)
     
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(A7, b7)
-    bc_f4.apply(A4, b4)
-    bc_f8.apply(A8, b8)
+    bc_f7.apply(A7_step2, b7_step2)
+    bc_f4.apply(A4_step2, b4_step2)
+    bc_f8.apply(A8_step2, b8_step2)
     
-    f0Vec, f1Vec, f2Vec = f0.vector(), f1.vector(), f2.vector()
-    f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
-    f6Vec, f7Vec, f8Vec = f6.vector(), f7.vector(), f8.vector()
+    f0Vec, f1Vec, f2Vec = f0_.vector(), f1_.vector(), f2_.vector()
+    f3Vec, f4Vec, f5Vec = f3_.vector(), f4_.vector(), f5_.vector()
+    f6Vec, f7Vec, f8Vec = f6_.vector(), f7_.vector(), f8_.vector()
     
-    fe.solve(A0, f0Vec, b0)
-    fe.solve(A1, f1Vec, b1)
-    fe.solve(A2, f2Vec, b2)
-    fe.solve(A3, f3Vec, b3)
-    fe.solve(A4, f4Vec, b4)
-    fe.solve(A5, f5Vec, b5)
-    fe.solve(A6, f6Vec, b6)
-    fe.solve(A7, f7Vec, b7)
-    fe.solve(A8, f8Vec, b8)
+    fe.solve(A0_step2, f0Vec, b0_step2)
+    fe.solve(A1_step2, f1Vec, b1_step2)
+    fe.solve(A2_step2, f2Vec, b2_step2)
+    fe.solve(A3_step2, f3Vec, b3_step2)
+    fe.solve(A4_step2, f4Vec, b4_step2)
+    fe.solve(A5_step2, f5Vec, b5_step2)
+    fe.solve(A6_step2, f6Vec, b6_step2)
+    fe.solve(A7_step2, f7Vec, b7_step2)
+    fe.solve(A8_step2, f8Vec, b8_step2)
     
     # Solve linear system in each time step
     
     # Update previous solution
-    f0_n.assign(f0)
-    f1_n.assign(f1)
-    f2_n.assign(f2)
-    f3_n.assign(f3)
-    f4_n.assign(f4)
-    f5_n.assign(f5)
-    f6_n.assign(f6)
-    f7_n.assign(f7)
-    f8_n.assign(f8)
+    f0_n.assign(f0_)
+    f1_n.assign(f1_)
+    f2_n.assign(f2_)
+    f3_n.assign(f3_)
+    f4_n.assign(f4_)
+    f5_n.assign(f5_)
+    f6_n.assign(f6_)
+    f7_n.assign(f7_)
+    f8_n.assign(f8_)
     
-    fe.project(f7_n, V, function=f5_lower_func)
-    fe.project(f4_n, V, function=f2_lower_func)
-    fe.project(f8_n, V, function=f6_lower_func)
-    fe.project(f5_n, V, function=f7_upper_func)
-    fe.project(f2_n, V, function=f4_upper_func)
-    fe.project(f6_n, V, function=f8_upper_func)
+
     
 
 u_expr = vel(f_list_n)
