@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
-dt = 1
+T = 1
+dt = 0.01
 #num_steps = 750
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-5, 0.0])
+Force_density = np.array([1e-2, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -47,7 +47,7 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 30
+nx = ny = 20
 L_x = L_y = 1
 mesh = fe.UnitSquareMesh(nx, ny)
 
@@ -64,8 +64,8 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
 
 # Define trial and test functions
 f0, f1, f2 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
@@ -128,7 +128,7 @@ def f_equil_init(vel_idx, Force_density):
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
     rho_expr = sum(fj for fj in f_list)
-    u_expr   = vel(f_list)     
+    u_expr   = vel(f_list)    
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
     return w[vel_idx] * rho_expr * (
@@ -200,17 +200,17 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_list_n )
  
-f5_lower = f7_n 
-f2_lower = f4_n  
-f6_lower = f8_n 
+f5_lower = w[5] * fe.Constant(rho_wall) # rho_expr
+f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
+f6_lower = w[6] * fe.Constant(rho_wall) # rho_expr
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
 f6_lower_func = fe.Function(V)
 
-f5_lower_func = fe.project( f5_lower, V )
-f2_lower_func = fe.project( f2_lower, V )
-f6_lower_func = fe.project( f6_lower, V )
+fe.project(f_equil(f_list_n, 5), V, function=f5_lower_func)
+fe.project(f_equil(f_list_n, 2), V, function=f2_lower_func)
+fe.project(f_equil(f_list_n, 6), V, function=f6_lower_func)
 
 bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
 bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
@@ -232,17 +232,17 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_list_n )
  
-f7_upper = f5_n 
-f4_upper = f2_n  
-f8_upper = f6_n 
+f7_upper = w[7] * fe.Constant(rho_wall) # rho_expr
+f4_upper = w[4] * fe.Constant(rho_wall) # rho_expr 
+f8_upper = w[8] * fe.Constant(rho_wall) # rho_expr
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
 f8_upper_func = fe.Function(V)
 
-f7_upper_func = fe.project( f7_upper, V )
-f4_upper_func = fe.project( f4_upper, V )
-f8_upper_func = fe.project( f8_upper, V )
+fe.project(f_equil(f_list_n, 7), V, function=f7_upper_func)
+fe.project(f_equil(f_list_n, 4), V, function=f4_upper_func)
+fe.project(f_equil(f_list_n, 8), V, function=f8_upper_func)
 
 bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
 bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
@@ -319,7 +319,6 @@ for n in range(num_steps):
     f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
     f6Vec, f7Vec, f8Vec = f6.vector(), f7.vector(), f8.vector()
     
-    # Solve linear system in each time step
     fe.solve(A0, f0Vec, b0)
     fe.solve(A1, f1Vec, b1)
     fe.solve(A2, f2Vec, b2)
@@ -330,7 +329,7 @@ for n in range(num_steps):
     fe.solve(A7, f7Vec, b7)
     fe.solve(A8, f8Vec, b8)
     
-    
+    # Solve linear system in each time step
     
     # Update previous solution
     f0_n.assign(f0)
@@ -343,20 +342,21 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(f7_n, V, function=f5_lower_func)
-    fe.project(f4_n, V, function=f2_lower_func)
-    fe.project(f8_n, V, function=f6_lower_func)
-    fe.project(f5_n, V, function=f7_upper_func)
-    fe.project(f2_n, V, function=f4_upper_func)
-    fe.project(f6_n, V, function=f8_upper_func)
+    fe.project(f_equil(f_list_n, 5), V, function=f5_lower_func)
+    fe.project(f_equil(f_list_n, 2), V, function=f2_lower_func)
+    fe.project(f_equil(f_list_n, 6), V, function=f6_lower_func)
+    fe.project(f_equil(f_list_n, 7), V, function=f7_upper_func)
+    fe.project(f_equil(f_list_n, 4), V, function=f4_upper_func)
+    fe.project(f_equil(f_list_n, 8), V, function=f8_upper_func)
     
 
-u_expr = vel(f_list_n)
+u_expr = vel(f_list_n) 
 u = fe.project(u_expr, V_vec)
 
-# Plot velocity field 
-coords = V_vec.tabulate_dof_coordinates()[::2] 
-u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2)) 
+# Plot velocity field with larger arrows
+# Plot velocity field with larger arrows
+coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
+u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2))  # Shape: (1056, 2)
 x = coords[:, 0]  # x-coordinates
 y = coords[:, 1]  # y-coordinates
 u_x = u_values[:, 0]  # x-components of velocity
@@ -367,7 +367,7 @@ max_u = np.max(np.sqrt(u_x**2 + u_y**2))
 arrow_length = 0.05  # 5% of domain size
 scale = max_u / arrow_length if max_u > 0 else 1
 
-# Plot vector field
+# Create quiver plot
 plt.figure()
 M = np.hypot(u_x, u_y)
 plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
@@ -376,7 +376,7 @@ plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
 
-# Plot velocity profile at midpoint of channel
+# Plot velocity profile at x=0.5 (unchanged, assuming it works)
 num_points = 100
 y_values = np.linspace(0, 1, num_points)
 x_fixed = 0.5
