@@ -165,9 +165,9 @@ def body_Force(vel, vel_idx, Force_density):
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
 
-f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
 
 f0_n = fe.project(f_equil_init(0, Force_density), V )
 f1_n = fe.project(f_equil_init(1, Force_density), V )
@@ -208,9 +208,9 @@ f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
 f6_lower_func = fe.Function(V)
 
-f5_lower_func = fe.project( f5_lower, V )
-f2_lower_func = fe.project( f2_lower, V )
-f6_lower_func = fe.project( f6_lower, V )
+f5_lower_func.assign(f7_n)
+f2_lower_func.assign(f4_n)
+f6_lower_func.assign(f8_n)
 
 bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
 bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
@@ -240,9 +240,9 @@ f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
 f8_upper_func = fe.Function(V)
 
-f7_upper_func = fe.project( f7_upper, V )
-f4_upper_func = fe.project( f4_upper, V )
-f8_upper_func = fe.project( f8_upper, V )
+f7_upper_func.assign(f5_n)
+f4_upper_func.assign(f2_n)
+f8_upper_func.assign(f6_n)
 
 bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
 bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
@@ -343,12 +343,12 @@ for n in range(num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(f7_n, V, function=f5_lower_func)
-    fe.project(f4_n, V, function=f2_lower_func)
-    fe.project(f8_n, V, function=f6_lower_func)
-    fe.project(f5_n, V, function=f7_upper_func)
-    fe.project(f2_n, V, function=f4_upper_func)
-    fe.project(f6_n, V, function=f8_upper_func)
+    f5_lower_func.assign(f7_n) # fe.project(f7_n, V, function=f5_lower_func)
+    f2_lower_func.assign(f4_n) # fe.project(f4_n, V, function=f2_lower_func)
+    f6_lower_func.assign(f8_n) # fe.project(f8_n, V, function=f6_lower_func)
+    f7_upper_func.assign(f5_n) # fe.project(f5_n, V, function=f7_upper_func)
+    f4_upper_func.assign(f2_n) # fe.project(f2_n, V, function=f4_upper_func)
+    f8_upper_func.assign(f6_n) # fe.project(f6_n, V, function=f8_upper_func)
     
 
 u_expr = vel(f_list_n)
