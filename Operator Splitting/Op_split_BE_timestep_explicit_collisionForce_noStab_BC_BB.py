@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 plt.close('all')
 
 T = 100
-dt = 0.1
+dt = 1
 #num_steps = 750
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
