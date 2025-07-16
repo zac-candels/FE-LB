@@ -12,7 +12,7 @@ tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-5, 0.0])
+Force_density = np.array([1e-5, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -47,7 +47,7 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 30
+nx = ny = 20
 L_x = L_y = 1
 mesh = fe.UnitSquareMesh(nx, ny)
 
@@ -391,3 +391,23 @@ plt.xlabel("u_x")
 plt.ylabel("y")
 plt.title("Velocity profile at x=0.5")
 plt.show()
+
+
+# figure out unique x- and y- levels
+x_unique = np.unique(x)
+y_unique = np.unique(y)
+nx = len(x_unique)
+ny = len(y_unique)
+assert nx*ny == u_x.size, "grid size mismatch"
+
+# now sort the flat arrays into lexicographic (y,x) order
+# we want the slow index to be y, fast index x, so lexsort on (x,y)
+order = np.lexsort((x, y))
+
+# apply that ordering
+u_x_sorted = u_x[order]
+u_y_sorted = u_y[order]
+
+# reshape into (ny, nx).  If your mesh is square, nx==ny.
+u_x_grid = u_x_sorted.reshape((ny, nx))
+u_y_grid = u_y_sorted.reshape((ny, nx))

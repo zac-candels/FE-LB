@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 800
+T = 100
 dt = 1
 #num_steps = 750
 num_steps = int(np.ceil(T/dt))
@@ -12,7 +12,7 @@ tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([1e-2, 0.0])
+Force_density = np.array([1e-5, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -64,8 +64,8 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
 # Define trial and test functions
 f0, f1, f2 = fe.TrialFunction(V), fe.TrialFunction(V), fe.TrialFunction(V)
@@ -296,7 +296,7 @@ f0, f1, f2 = fe.Function(V), fe.Function(V), fe.Function(V)
 f3, f4, f5 = fe.Function(V), fe.Function(V), fe.Function(V)
 f6, f7, f8 = fe.Function(V), fe.Function(V), fe.Function(V)
 t = 0 
-for n in range(num_steps):
+for n in range(1):
     # Update current time
     t += dt
     

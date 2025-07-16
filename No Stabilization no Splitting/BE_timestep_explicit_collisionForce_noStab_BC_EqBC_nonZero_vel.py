@@ -12,7 +12,7 @@ tau = 1.0
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([1e-2, 0.0])
+Force_density = np.array([1e-5, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -296,7 +296,7 @@ f0, f1, f2 = fe.Function(V), fe.Function(V), fe.Function(V)
 f3, f4, f5 = fe.Function(V), fe.Function(V), fe.Function(V)
 f6, f7, f8 = fe.Function(V), fe.Function(V), fe.Function(V)
 t = 0 
-for n in range(num_steps):
+for n in range(1):
     # Update current time
     t += dt
     
@@ -376,6 +376,8 @@ plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
 
+#%%
+
 # Plot velocity profile at x=0.5 (unchanged, assuming it works)
 num_points = 100
 y_values = np.linspace(0, 1, num_points)
@@ -384,10 +386,30 @@ points = [(x_fixed, y) for y in y_values]
 u_x_values = []
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0])
+    u_x_values.append(u_at_point[0]  )
 plt.figure()
-plt.plot(u_x_values, y_values)
+plt.plot(u_x_values, y_values )
 plt.xlabel("u_x")
 plt.ylabel("y")
 plt.title("Velocity profile at x=0.5")
 plt.show()
+
+
+# figure out unique x- and y- levels
+x_unique = np.unique(x)
+y_unique = np.unique(y)
+nx = len(x_unique)
+ny = len(y_unique)
+assert nx*ny == u_x.size, "grid size mismatch"
+
+# now sort the flat arrays into lexicographic (y,x) order
+# we want the slow index to be y, fast index x, so lexsort on (x,y)
+order = np.lexsort((x, y))
+
+# apply that ordering
+u_x_sorted = u_x[order]
+u_y_sorted = u_y[order]
+
+# reshape into (ny, nx).  If your mesh is square, nx==ny.
+u_x_grid = u_x_sorted.reshape((ny, nx))
+u_y_grid = u_y_sorted.reshape((ny, nx))
