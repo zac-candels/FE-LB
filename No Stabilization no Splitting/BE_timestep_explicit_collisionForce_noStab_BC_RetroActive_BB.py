@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 plt.close('all')
 
 T = 100
-dt = 1
-#num_steps = 750
+dt = 0.01
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
@@ -25,12 +24,6 @@ u_wall = (0.0, 0.0)
 
 # Lattice speed of sound
 c_s = 1/np.sqrt(3)
-
-
-# Set up domain. For simplicity, do unit square mesh.
-nx = ny = 20
-L_x = L_y = 1
-mesh = fe.UnitSquareMesh(nx, ny)
 
 # D2Q9 lattice velocities
 xi = [
@@ -52,6 +45,10 @@ w = np.array([
     1/36, 1/36, 1/36, 1/36
 ])
 
+# Set up domain. For simplicity, do unit square mesh.
+nx = ny = 20
+L_x = L_y = 1
+mesh = fe.UnitSquareMesh(nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
 class PeriodicBoundaryX(fe.SubDomain):
@@ -130,7 +127,7 @@ def f_equil_init(vel_idx, Force_density):
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
     rho_expr = sum(fj for fj in f_list)
-    u_expr   = vel(f_list)    
+    u_expr   = vel(f_list)     
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
     return w[vel_idx] * rho_expr * (
@@ -167,9 +164,9 @@ def body_Force(vel, vel_idx, Force_density):
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
 
-f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
 
 f0_n = fe.project(f_equil_init(0, Force_density), V )
 f1_n = fe.project(f_equil_init(1, Force_density), V )
@@ -183,72 +180,16 @@ f8_n = fe.project(f_equil_init(8, Force_density), V )
 
 f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 
-# Define boundary conditions.
-
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
-# Since we are applying equilibrium boundary conditions 
-# and assuming no slip on solid walls, f_i^{eq} reduces to
-# \rho * w_i
-
+# Precompute boundary DOFs
 tol = 1e-8
-def Bdy_Lower(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 0, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-    
-rho_expr = sum( fk for fk in f_list_n )
- 
-f5_lower = w[5] * fe.Constant(rho_wall) # rho_expr
-f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
-f6_lower = w[6] * fe.Constant(rho_wall) # rho_expr
-
-f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
-
-fe.project( f5_lower, V, function=f5_lower_func )
-fe.project( f2_lower, V, function=f2_lower_func )
-fe.project( f6_lower, V, function=f6_lower_func )
-
-bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
-
-# Similarly, we will define boundary conditions for f_7, f_4, and f_8
-# at the upper wall. Once again, boundary conditions simply reduce
-# to \rho * w_i
-
-tol = 1e-8
-def Bdy_Upper(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 1, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-rho_expr = sum( fk for fk in f_list_n )
- 
-f7_upper = w[7] * fe.Constant(rho_wall) # rho_expr
-f4_upper = w[4] * fe.Constant(rho_wall) # rho_expr 
-f8_upper = w[8] * fe.Constant(rho_wall) # rho_expr
-
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
-
-fe.project( f7_upper, V, function=f7_upper_func )
-fe.project( f4_upper, V, function=f4_upper_func )
-fe.project( f8_upper, V, function=f8_upper_func )
-
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+dof_coords = V.tabulate_dof_coordinates()
+dofs_lower = []
+dofs_upper = []
+for i, coord in enumerate(dof_coords):
+    if abs(coord[1] - 0.0) < tol:  # Lower wall
+        dofs_lower.append(i)
+    if abs(coord[1] - 1.0) < tol:  # Upper wall
+        dofs_upper.append(i)
 
 
 # Define variational problems
@@ -298,7 +239,7 @@ f0, f1, f2 = fe.Function(V), fe.Function(V), fe.Function(V)
 f3, f4, f5 = fe.Function(V), fe.Function(V), fe.Function(V)
 f6, f7, f8 = fe.Function(V), fe.Function(V), fe.Function(V)
 t = 0 
-for n in range(1):
+for n in range(num_steps):
     # Update current time
     t += dt
     
@@ -307,20 +248,12 @@ for n in range(1):
     b3, b4, b5 = fe.assemble(L3), fe.assemble(L4), fe.assemble(L5)
     b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
     
-    # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(A5, b5)
-    bc_f2.apply(A2, b2)
-    bc_f6.apply(A6, b6)
-    
-    # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(A7, b7)
-    bc_f4.apply(A4, b4)
-    bc_f8.apply(A8, b8)
     
     f0Vec, f1Vec, f2Vec = f0.vector(), f1.vector(), f2.vector()
     f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
     f6Vec, f7Vec, f8Vec = f6.vector(), f7.vector(), f8.vector()
     
+    # Solve linear system in each time step
     fe.solve(A0, f0Vec, b0)
     fe.solve(A1, f1Vec, b1)
     fe.solve(A2, f2Vec, b2)
@@ -331,7 +264,27 @@ for n in range(1):
     fe.solve(A7, f7Vec, b7)
     fe.solve(A8, f8Vec, b8)
     
-    # Solve linear system in each time step
+    # Post-processing: impose bounce-back on the boundaries
+    f2_vec = f2.vector()
+    f4_vec = f4.vector()
+    f5_vec = f5.vector()
+    f6_vec = f6.vector()
+    f7_vec = f7.vector()
+    f8_vec = f8.vector()
+    
+    # Lower wall (y = 0): Incoming populations = f2, f5, f6
+    for dof in dofs_lower:
+        f2_vec[dof] = f4_vec[dof] # f2 <- f4
+        f5_vec[dof] = f7_vec[dof] # f5 <- f7
+        f6_vec[dof] = f8_vec[dof] # f6 <- f8
+        
+    # Upper wall (y=1): Incoming = f4, f7, f8
+    for dof in dofs_upper:
+        f4_vec[dof] = f2_vec[dof]  # f4 = f2
+        f7_vec[dof] = f5_vec[dof]  # f7 = f5
+        f8_vec[dof] = f6_vec[dof]  # f8 = f6
+    
+    
     
     # Update previous solution
     f0_n.assign(f0)
@@ -344,21 +297,13 @@ for n in range(1):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
-    
 
-u_expr = vel(f_list_n) 
+u_expr = vel(f_list_n)
 u = fe.project(u_expr, V_vec)
 
-# Plot velocity field with larger arrows
-# Plot velocity field with larger arrows
-coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
-u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2))  # Shape: (1056, 2)
+# Plot velocity field 
+coords = V_vec.tabulate_dof_coordinates()[::2] 
+u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2)) 
 x = coords[:, 0]  # x-coordinates
 y = coords[:, 1]  # y-coordinates
 u_x = u_values[:, 0]  # x-components of velocity
@@ -369,7 +314,7 @@ max_u = np.max(np.sqrt(u_x**2 + u_y**2))
 arrow_length = 0.05  # 5% of domain size
 scale = max_u / arrow_length if max_u > 0 else 1
 
-# Create quiver plot
+# Plot vector field
 plt.figure()
 M = np.hypot(u_x, u_y)
 plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
@@ -378,7 +323,7 @@ plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
 
-# Plot velocity profile at x=0.5 (unchanged, assuming it works)
+# Plot velocity profile at midpoint of channel
 num_points = 100
 y_values = np.linspace(0, 1, num_points)
 x_fixed = 0.5
@@ -393,3 +338,23 @@ plt.xlabel("u_x")
 plt.ylabel("y")
 plt.title("Velocity profile at x=0.5")
 plt.show()
+
+
+# figure out unique x- and y- levels
+x_unique = np.unique(x)
+y_unique = np.unique(y)
+nx = len(x_unique)
+ny = len(y_unique)
+assert nx*ny == u_x.size, "grid size mismatch"
+
+# now sort the flat arrays into lexicographic (y,x) order
+# we want the slow index to be y, fast index x, so lexsort on (x,y)
+order = np.lexsort((x, y))
+
+# apply that ordering
+u_x_sorted = u_x[order]
+u_y_sorted = u_y[order]
+
+# reshape into (ny, nx).  If your mesh is square, nx==ny.
+u_x_grid = u_x_sorted.reshape((ny, nx))
+u_y_grid = u_y_sorted.reshape((ny, nx))

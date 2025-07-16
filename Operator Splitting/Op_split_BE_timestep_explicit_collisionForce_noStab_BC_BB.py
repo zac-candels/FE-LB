@@ -10,9 +10,13 @@ dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
+nx = ny = 20
+L_x = L_y = 1
+h = L_x/nx
+
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6e-5, 0.0])
+Force_density = np.array([1e-5, 0.0])
 
 #Force prefactor 
 alpha = ( 2/dt + 1/tau )
@@ -28,15 +32,15 @@ c_s = 1/np.sqrt(3)
 
 # D2Q9 lattice velocities
 xi = [
-    fe.Constant(( 0.0,  0.0)),
-    fe.Constant(( 1.0,  0.0)),
-    fe.Constant(( 0.0,  1.0)),
-    fe.Constant((-1.0,  0.0)),
-    fe.Constant(( 0.0, -1.0)),
-    fe.Constant(( 1.0,  1.0)),
-    fe.Constant((-1.0,  1.0)),
-    fe.Constant((-1.0, -1.0)),
-    fe.Constant(( 1.0, -1.0)),
+    (h/dt)*fe.Constant(( 0.0,  0.0)),
+    (h/dt)*fe.Constant(( 1.0,  0.0)),
+    (h/dt)*fe.Constant(( 0.0,  1.0)),
+    (h/dt)*fe.Constant((-1.0,  0.0)),
+    (h/dt)*fe.Constant(( 0.0, -1.0)),
+    (h/dt)*fe.Constant(( 1.0,  1.0)),
+    (h/dt)*fe.Constant((-1.0,  1.0)),
+    (h/dt)*fe.Constant((-1.0, -1.0)),
+    (h/dt)*fe.Constant(( 1.0, -1.0)),
 ]
 
 # Corresponding weights
@@ -47,8 +51,7 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 30
-L_x = L_y = 1
+
 mesh = fe.UnitSquareMesh(nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
@@ -338,7 +341,7 @@ f3_, f4_, f5_ = fe.Function(V), fe.Function(V), fe.Function(V)
 f6_, f7_, f8_ = fe.Function(V), fe.Function(V), fe.Function(V)
 
 t = 0 
-for n in range(1):
+for n in range(4):
     # Update current time
     t += dt
     
@@ -346,19 +349,15 @@ for n in range(1):
     b3_step1, b4_step1, b5_step1 = fe.assemble(L3_step1), fe.assemble(L4_step1), fe.assemble(L5_step1)
     b6_step1, b7_step1, b8_step1 = fe.assemble(L6_step1), fe.assemble(L7_step1), fe.assemble(L8_step1)
     
-    f0Vec, f1Vec, f2Vec = f0_.vector(), f1_.vector(), f2_.vector()
-    f3Vec, f4Vec, f5Vec = f3_.vector(), f4_.vector(), f5_.vector()
-    f6Vec, f7Vec, f8Vec = f6_.vector(), f7_.vector(), f8_.vector()
-    
-    fe.solve(A0_step1, f0Vec, b0_step1)
-    fe.solve(A1_step1, f1Vec, b1_step1)
-    fe.solve(A2_step1, f2Vec, b2_step1)
-    fe.solve(A3_step1, f3Vec, b3_step1)
-    fe.solve(A4_step1, f4Vec, b4_step1)
-    fe.solve(A5_step1, f5Vec, b5_step1)
-    fe.solve(A6_step1, f6Vec, b6_step1)
-    fe.solve(A7_step1, f7Vec, b7_step1)
-    fe.solve(A8_step1, f8Vec, b8_step1)
+    fe.solve(A0_step1, f0_.vector(), b0_step1)
+    fe.solve(A1_step1, f1_.vector(), b1_step1)
+    fe.solve(A2_step1, f2_.vector(), b2_step1)
+    fe.solve(A3_step1, f3_.vector(), b3_step1)
+    fe.solve(A4_step1, f4_.vector(), b4_step1)
+    fe.solve(A5_step1, f5_.vector(), b5_step1)
+    fe.solve(A6_step1, f6_.vector(), b6_step1)
+    fe.solve(A7_step1, f7_.vector(), b7_step1)
+    fe.solve(A8_step1, f8_.vector(), b8_step1)
     
     fe.project(f7_, V, function=f5_lower_func)
     fe.project(f4_, V, function=f2_lower_func)
@@ -386,15 +385,15 @@ for n in range(1):
     f3Vec, f4Vec, f5Vec = f3_.vector(), f4_.vector(), f5_.vector()
     f6Vec, f7Vec, f8Vec = f6_.vector(), f7_.vector(), f8_.vector()
     
-    fe.solve(A0_step2, f0Vec, b0_step2)
-    fe.solve(A1_step2, f1Vec, b1_step2)
-    fe.solve(A2_step2, f2Vec, b2_step2)
-    fe.solve(A3_step2, f3Vec, b3_step2)
-    fe.solve(A4_step2, f4Vec, b4_step2)
-    fe.solve(A5_step2, f5Vec, b5_step2)
-    fe.solve(A6_step2, f6Vec, b6_step2)
-    fe.solve(A7_step2, f7Vec, b7_step2)
-    fe.solve(A8_step2, f8Vec, b8_step2)
+    fe.solve(A0_step2, f0_.vector(), b0_step2)
+    fe.solve(A1_step2, f1_.vector(), b1_step2)
+    fe.solve(A2_step2, f2_.vector(), b2_step2)
+    fe.solve(A3_step2, f3_.vector(), b3_step2)
+    fe.solve(A4_step2, f4_.vector(), b4_step2)
+    fe.solve(A5_step2, f5_.vector(), b5_step2)
+    fe.solve(A6_step2, f6_.vector(), b6_step2)
+    fe.solve(A7_step2, f7_.vector(), b7_step2)
+    fe.solve(A8_step2, f8_.vector(), b8_step2)
     
     # Solve linear system in each time step
     
