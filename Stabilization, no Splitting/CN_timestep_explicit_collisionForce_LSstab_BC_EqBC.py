@@ -4,14 +4,18 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
+T = 10000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
+nx = ny = 64
+L_x = L_y = 1
+h = L_x/nx
+
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([1e-5, 0.0])
+Force_density = np.array([2.60416e-5, 0.0])
 
 #Force prefactor 
 alpha_plus = ( 2/dt + 1/tau )
@@ -47,9 +51,8 @@ w = np.array([
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
-nx = ny = 20
-L_x = L_y = 1
-mesh = fe.UnitSquareMesh(nx, ny)
+
+mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(32, 32), nx, nx )
 
 # Set periodic boundary conditions at left and right endpoints
 class PeriodicBoundaryX(fe.SubDomain):
@@ -288,7 +291,7 @@ bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 tol = 1e-8
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 1, tol):
+        if fe.near(x[1], 32, tol):
             return True
         else:
             return False
@@ -722,9 +725,10 @@ plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
 
+#%%
 # Plot velocity profile at x=0.5 (unchanged, assuming it works)
 num_points = 100
-y_values = np.linspace(0, 1, num_points)
+y_values = np.linspace(0, 32, num_points)
 x_fixed = 0.5
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
