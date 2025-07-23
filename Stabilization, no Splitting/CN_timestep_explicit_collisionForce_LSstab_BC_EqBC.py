@@ -4,18 +4,18 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10000
+T = 100
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
-nx = ny = 64
-L_x = L_y = 1
+nx = ny = 16
+L_x = L_y = 32
 h = L_x/nx
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.60416e-5, 0.0])
+Force_density = np.array([2.6041666e-5, 0.0])
 
 #Force prefactor 
 alpha_plus = ( 2/dt + 1/tau )
@@ -727,17 +727,45 @@ plt.show()
 
 #%%
 # Plot velocity profile at x=0.5 (unchanged, assuming it works)
-num_points = 100
+num_points = 200
 y_values = np.linspace(0, 32, num_points)
 x_fixed = 0.5
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
+u_ex = np.linspace(0, 32, num_points)
+u_max = 0.01
+for i in range(num_points):
+    u_ex[i] = u_max*( 1 - (2*y_values[i]/L_x -1)**2 )
+    
 for point in points:
     u_at_point = u(point)
     u_x_values.append(u_at_point[0])
 plt.figure()
 plt.plot(u_x_values, y_values)
+plt.plot(u_ex, y_values, 'o')
 plt.xlabel("u_x")
 plt.ylabel("y")
 plt.title("Velocity profile at x=0.5")
 plt.show()
+
+#%% Create grid of u_x and u_y values
+
+# figure out unique x- and y- levels
+x_unique = np.unique(x)
+y_unique = np.unique(y)
+nx = len(x_unique)
+ny = len(y_unique)
+assert nx*ny == u_x.size, "grid size mismatch"
+
+# now sort the flat arrays into lexicographic (y,x) order
+# we want the slow index to be y, fast index x, so lexsort on (x,y)
+order = np.lexsort((x, y))
+
+# apply that ordering
+u_x_sorted = u_x[order]
+u_y_sorted = u_y[order]
+
+# reshape into (ny, nx).  If your mesh is square, nx==ny.
+u_x_grid = u_x_sorted.reshape((ny, nx))
+u_y_grid = u_y_sorted.reshape((ny, nx))
+
