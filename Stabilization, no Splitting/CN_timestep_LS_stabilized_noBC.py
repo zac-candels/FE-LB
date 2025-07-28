@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
+T = 1000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -194,7 +194,7 @@ for i in range(Q):
     f_eq_int_n.append(f_equil(f_list_n, i))
     f_eq_int_np1.append( f_equil_extrap(f_list_n, f_list_n_1, i) )
 
-    f_eq_wall.append(- w[i] * rho_wall * (
+    f_eq_wall.append( w[i] * rho_wall * (
         1
         + ( fe.dot(xi[i], u_wall_fe ) /cs2) 
         + ( fe.dot(xi[i], u_wall_fe)**2 )  / (2*cs2**2)
@@ -719,6 +719,35 @@ for n in range(1, num_steps):
     f6_n.assign(f6)
     f7_n.assign(f7)
     f8_n.assign(f8)
+    
+    f_eq_int_n = []
+    f_eq_int_np1 = []
+    f_eq_wall = []
+    f_eq_bc_n = []
+    f_eq_bc_np1 = []
+
+    for i in range(Q):
+        f_eq_int_n.append(f_equil(f_list_n, i))
+        f_eq_int_np1.append( f_equil_extrap(f_list_n, f_list_n_1, i) )
+
+        f_eq_wall.append( w[i] * rho_wall * (
+            1
+            + ( fe.dot(xi[i], u_wall_fe ) /cs2) 
+            + ( fe.dot(xi[i], u_wall_fe)**2 )  / (2*cs2**2)
+            - ( fe.dot(u_wall_fe, u_wall_fe) / (2*cs2) )
+        ) )
+
+        bc_conditional_n = fe.conditional(on_bottom, f_eq_wall[i],
+                            fe.conditional(on_top, f_eq_wall[i],
+                            f_eq_int_n[i]))
+        
+        bc_conditional_np1 = fe.conditional(on_bottom, f_eq_wall[i],
+                            fe.conditional(on_top, f_eq_wall[i],
+                            f_eq_int_np1[i]))
+
+        f_eq_bc_n.append( bc_conditional_n )
+        f_eq_bc_np1.append( bc_conditional_np1 )
+        
 
 
 

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 1000
+T = 10000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -67,7 +67,7 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
 # Define trial and test functions
