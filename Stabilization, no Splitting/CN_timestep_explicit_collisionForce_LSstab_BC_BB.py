@@ -769,3 +769,35 @@ u_y_sorted = u_y[order]
 u_x_grid = u_x_sorted.reshape((ny, nx))
 u_y_grid = u_y_sorted.reshape((ny, nx))
 
+
+#%% Create 2D grids of each f_i at final time
+
+# 1) Extract the coordinates of each degree of freedom in V
+coords_f = V.tabulate_dof_coordinates().reshape(-1, 2)
+x_f = coords_f[:, 0]
+y_f = coords_f[:, 1]
+
+# 2) Find unique levels and check grid size
+x_unique = np.unique(x_f)
+y_unique = np.unique(y_f)
+nx_f = len(x_unique)
+ny_f = len(y_unique)
+assert nx_f * ny_f == x_f.size, "grid size mismatch for f_i"
+
+# 3) Compute lexicographic ordering so that slow index=y, fast=x
+order_f = np.lexsort((x_f, y_f))
+
+# 4) Loop over all distributions, sort & reshape
+f_list = [f0, f1, f2, f3, f4, f5, f6, f7, f8]
+f_grids = []
+for idx, fi in enumerate(f_list):
+    # flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
+    fi_vals   = fi.vector().get_local()
+    fi_sorted = fi_vals[order_f]
+    fi_grid   = fi_sorted.reshape((ny_f, nx_f))
+    f_grids.append(fi_grid)
+    # Optional: if you want to name them individually:
+    # globals()[f"f{idx}_grid"] = fi_grid
+
+# Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
+# e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
