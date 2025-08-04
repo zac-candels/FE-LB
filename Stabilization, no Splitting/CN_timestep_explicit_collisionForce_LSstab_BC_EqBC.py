@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 6000
+T = 100
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -478,6 +478,9 @@ for n in range(1):
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
     # Solve linear system in each time step
+ 
+    
+ 
     
     
 # We will do the explicit procedure for only one timestep.

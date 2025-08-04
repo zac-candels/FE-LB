@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 1000
+T = 400
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -80,11 +80,11 @@ trial_fns = [f0, f1, f2, f3, f4, f5, f6, f7, f8]
 v = fe.TestFunction(V)
 
 # Define functions for solutions at previous time steps
-f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
-f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f0_n, f1_n, f2_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f3_n, f4_n, f5_n = fe.Function(V), fe.Function(V), fe.Function(V)
+# f6_n, f7_n, f8_n = fe.Function(V), fe.Function(V), fe.Function(V)
 
-f_list_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
+# f_n = [f0_n, f1_n, f2_n, f3_n, f4_n, f5_n, f6_n, f7_n, f8_n]
 
 
 # Define density
@@ -266,7 +266,7 @@ def Bdy_Lower(x, on_boundary):
     else:
         return False
     
-rho_expr = sum( fk for fk in f_list_n )
+rho_expr = sum( fk for fk in f_n )
  
 f5_lower = w[5] * fe.Constant(rho_wall) # rho_expr
 f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
@@ -298,7 +298,7 @@ def Bdy_Upper(x, on_boundary):
     else:
         return False
 
-rho_expr = sum( fk for fk in f_list_n )
+rho_expr = sum( fk for fk in f_n )
  
 f7_upper = w[7] * fe.Constant(rho_wall) # rho_expr
 f4_upper = w[4] * fe.Constant(rho_wall) # rho_expr 
@@ -331,7 +331,7 @@ for idx in range(Q):
     a_array_step1.append( trial_fns[idx] * v * fe.dx\
                    + dt*fe.dot( xi[idx], fe.grad(trial_fns[idx]) ) * v * fe.dx )
     
-    L_array_step1.append( ( f_list_n[idx] + dt*coll_op(f_n, idx)\
+    L_array_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
       + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
         
     A_array_step1.append( fe.assemble(a_array_step1[idx]) )
@@ -348,7 +348,7 @@ for n in range(1):
     # Assemble right-hand side vectors
     
     for idx in range(Q):
-        b_array_step1.assemble( fe.assemble(L_array_step1[idx]) )
+        b_array_step1.append( fe.assemble(L_array_step1[idx]) )
     
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(A_array_step1[5], b_array_step1[5])
@@ -362,7 +362,6 @@ for n in range(1):
     
     for idx in range(Q):
         fe.solve(A_array_step1[idx], f_nP1_vec[idx], b_array_step1[idx])
-    
 
     fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
     fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
@@ -372,6 +371,7 @@ for n in range(1):
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
     # Solve linear system in each time step
+
     
     
 # We will do the explicit procedure for only one timestep.
@@ -379,15 +379,12 @@ for n in range(1):
 # We will now need two new variables fi_n_1 - ie f_i^{n-1}
 # for use in the extrapolated collision operato
 
-f0_n_1, f1_n_1, f2_n_1 = fe.Function(V), fe.Function(V), fe.Function(V)
-f3_n_1, f4_n_1, f5_n_1 = fe.Function(V), fe.Function(V), fe.Function(V)
-f6_n_1, f7_n_1, f8_n_1 = fe.Function(V), fe.Function(V), fe.Function(V)
 
-f_nM1 = [f0_n_1, f1_n_1, f2_n_1, f3_n_1, f4_n_1, f5_n_1,
-              f6_n_1, f7_n_1, f8_n_1]
+f_nM1 = []
 
 # Assign initial values to fi_n_1.
 for idx in range(Q):
+    f_nM1.append(fe.Function(V) )
     f_nM1[idx].assign(f_n[idx])
     f_n[idx].assign(f_nP1[idx])
 
@@ -400,243 +397,56 @@ for idx in range(Q):
             + alpha_plus*fe.dot( xi[0], fe.grad(trial_fns[idx]) )*v*fe.dx\
                 + fe.dot( xi[0], fe.grad(trial_fns[idx]) )*fe.dot( xi[0], fe.grad(v) )*fe.dx )
     
-    body_force_np1 = body_Force_extrap(f_n, f_nM1, 0, Force_density)
-    body_force_n = body_Force(vel(f_n), 0, Force_density)
+    body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
+    body_force_n = body_Force(vel(f_n), idx, Force_density)
     
     L_array_step2.append( ( alpha_minus*alpha_plus*f0_n*v\
-        + alpha_minus*f_n[idx]*fe.dot( xi[0], fe.grad(v) )\
-        +   (1/tau)*( f_equil_extrap(f_n, f_nM1, 0) + f_equil(f_n, 0) ) * alpha_plus*v\
-        + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 0) + f_equil(f_list_n, 0) ) * fe.dot( xi[0], fe.grad(v) )\
-            - fe.dot( xi[0], fe.grad(f0_n) )*alpha_plus*v\
-                - fe.dot( xi[0], fe.grad(f0_n) )*fe.dot( xi[0], fe.grad(v) )\
+        + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
+        +   (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
+        + (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
+            - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
+                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
                     + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
                         + 0.5*(body_force_np1 + body_force_n)\
-                            *fe.dot( xi[0], fe.grad(v) ) )*fe.dx )
-     
-# (Bi)linear forms for f1
-a1 = alpha_plus**2*f1_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[1], fe.grad(v) ) * f1_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[1], fe.grad(f1_trial) )*v*fe.dx\
-            + fe.dot( xi[1], fe.grad(f1_trial) ) * fe.dot( xi[1], fe.grad(v) )*fe.dx
+                            *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
 
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 1, Force_density)
-body_force_n = body_Force(vel(f_list_n), 1, Force_density)
 
-L1 = ( alpha_minus*alpha_plus*f1_n*v\
-    + alpha_minus*f1_n*fe.dot( xi[1], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 1) + f_equil(f_list_n, 1) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 1) + f_equil(f_list_n, 1) ) * fe.dot( xi[1], fe.grad(v) )\
-        - fe.dot( xi[1], fe.grad(f1_n) )*alpha_plus*v\
-            - fe.dot( xi[1], fe.grad(f1_n) )*fe.dot( xi[1], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[1], fe.grad(v) ) )*fe.dx
-  
-
-# (Bi)linear forms for f2
-a2 = alpha_plus**2*f2_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[2], fe.grad(v) ) * f2_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[2], fe.grad(f2_trial) )*v*fe.dx\
-            + fe.dot( xi[2], fe.grad(f2_trial) ) * fe.dot( xi[2], fe.grad(v) )*fe.dx
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 2, Force_density)
-body_force_n = body_Force(vel(f_list_n), 2, Force_density)
-
-L2 = ( alpha_minus*alpha_plus*f2_n*v\
-    + alpha_minus*f2_n*fe.dot( xi[2], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 2) + f_equil(f_list_n, 2) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 2) + f_equil(f_list_n, 2) ) * fe.dot( xi[2], fe.grad(v) )\
-        - fe.dot( xi[2], fe.grad(f2_n) )*alpha_plus*v\
-            - fe.dot( xi[2], fe.grad(f2_n) )*fe.dot( xi[2], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[2], fe.grad(v) ) )*fe.dx
-    
-    
-# (Bi)linear forms for f3
-a3 = alpha_plus**2*f3_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[3], fe.grad(v) ) * f3_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[3], fe.grad(f3_trial) )*v*fe.dx\
-            + fe.dot( xi[3], fe.grad(f3_trial) ) * fe.dot( xi[3], fe.grad(v) )*fe.dx 
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 3, Force_density)
-body_force_n = body_Force(vel(f_list_n), 3, Force_density)
-
-L3 = ( alpha_minus*alpha_plus*f3_n*v\
-    + alpha_minus*f3_n*fe.dot( xi[3], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 3) + f_equil(f_list_n, 3) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 3) + f_equil(f_list_n, 3) ) * fe.dot( xi[3], fe.grad(v) )\
-        - fe.dot( xi[3], fe.grad(f3_n) )*alpha_plus*v\
-            - fe.dot( xi[3], fe.grad(f3_n) )*fe.dot( xi[3], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[3], fe.grad(v) ) )*fe.dx
-    
-    
-# (Bi)linear forms for f4
-a4 = alpha_plus**2*f4_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[4], fe.grad(v) ) * f4_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[4], fe.grad(f4_trial) )*v*fe.dx\
-            + fe.dot( xi[4], fe.grad(f4_trial) ) * fe.dot( xi[4], fe.grad(v) )*fe.dx 
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 4, Force_density)
-body_force_n = body_Force(vel(f_list_n), 4, Force_density)
-
-L4 = ( alpha_minus*alpha_plus*f4_n*v\
-    + alpha_minus*f4_n*fe.dot( xi[4], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 4) + f_equil(f_list_n, 4) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 4) + f_equil(f_list_n, 4) ) * fe.dot( xi[4], fe.grad(v) )\
-        - fe.dot( xi[4], fe.grad(f4_n) )*alpha_plus*v\
-            - fe.dot( xi[4], fe.grad(f4_n) )*fe.dot( xi[4], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[4], fe.grad(v) ) )*fe.dx
-    
-    
-# (Bi)linear forms for f5
-a5 = alpha_plus**2*f5_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[5], fe.grad(v) ) * f5_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[5], fe.grad(f5_trial) )*v*fe.dx\
-            + fe.dot( xi[5], fe.grad(f5_trial) ) * fe.dot( xi[5], fe.grad(v) )*fe.dx
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 5, Force_density)
-body_force_n = body_Force(vel(f_list_n), 5, Force_density)
-
-L5 = ( alpha_minus*alpha_plus*f5_n*v\
-    + alpha_minus*f5_n*fe.dot( xi[5], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 5) + f_equil(f_list_n, 5) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 5) + f_equil(f_list_n, 5) ) * fe.dot( xi[5], fe.grad(v) )\
-        - fe.dot( xi[5], fe.grad(f5_n) )*alpha_plus*v\
-            - fe.dot( xi[5], fe.grad(f5_n) )*fe.dot( xi[5], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[5], fe.grad(v) ) )*fe.dx
-    
-
-    
-
-# (Bi)linear forms for f6
-a6 = alpha_plus**2*f6_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[6], fe.grad(v) ) * f6_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[6], fe.grad(f6_trial) )*v*fe.dx\
-            + fe.dot( xi[6], fe.grad(f6_trial) ) * fe.dot( xi[6], fe.grad(v) )*fe.dx 
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 6, Force_density)
-body_force_n = body_Force(vel(f_list_n), 6, Force_density)
-
-L6 = ( alpha_minus*alpha_plus*f6_n*v\
-    + alpha_minus*f6_n*fe.dot( xi[6], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 6) + f_equil(f_list_n, 6) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 6) + f_equil(f_list_n, 6) ) * fe.dot( xi[6], fe.grad(v) )\
-        - fe.dot( xi[6], fe.grad(f6_n) )*alpha_plus*v\
-            - fe.dot( xi[6], fe.grad(f6_n) )*fe.dot( xi[6], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[6], fe.grad(v) ) )*fe.dx
-    
-    
-# (Bi)linear forms for f7
-a7 = alpha_plus**2*f7_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[7], fe.grad(v) ) * f7_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[7], fe.grad(f7_trial) )*v*fe.dx\
-            + fe.dot( xi[7], fe.grad(f7_trial) ) * fe.dot( xi[7], fe.grad(v) )*fe.dx 
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 7, Force_density)
-body_force_n = body_Force(vel(f_list_n), 7, Force_density)
-
-L7 = ( alpha_minus*alpha_plus*f7_n*v\
-    + alpha_minus*f7_n*fe.dot( xi[7], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 7) + f_equil(f_list_n, 7) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 7) + f_equil(f_list_n, 7) ) * fe.dot( xi[7], fe.grad(v) )\
-        - fe.dot( xi[7], fe.grad(f7_n) )*alpha_plus*v\
-            - fe.dot( xi[7], fe.grad(f7_n) )*fe.dot( xi[7], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[7], fe.grad(v) ) )*fe.dx
-    
-    
-# (Bi)linear forms for f8
-a8 = alpha_plus**2*f8_trial*v*fe.dx\
-    + alpha_plus*fe.dot( xi[8], fe.grad(v) ) * f8_trial * fe.dx\
-        + alpha_plus*fe.dot( xi[8], fe.grad(f8_trial) )*v*fe.dx\
-            + fe.dot( xi[8], fe.grad(f8_trial) ) * fe.dot( xi[8], fe.grad(v) )*fe.dx
-
-body_force_np1 = body_Force_extrap(f_list_n, f_list_n_1, 8, Force_density)
-body_force_n = body_Force(vel(f_list_n), 8, Force_density)
-
-L8 = ( alpha_minus*alpha_plus*f8_n*v\
-    + alpha_minus*f8_n*fe.dot( xi[8], fe.grad(v) )\
-    +   (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 8) + f_equil(f_list_n, 8) ) * alpha_plus*v\
-    + (1/tau)*( f_equil_extrap(f_list_n, f_list_n_1, 8) + f_equil(f_list_n, 8) ) * fe.dot( xi[8], fe.grad(v) )\
-        - fe.dot( xi[8], fe.grad(f8_n) )*alpha_plus*v\
-            - fe.dot( xi[8], fe.grad(f8_n) )*fe.dot( xi[8], fe.grad(v) )\
-                + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                    + 0.5*(body_force_np1 + body_force_n)\
-                        *fe.dot( xi[8], fe.grad(v) ) )*fe.dx
-
+A_array_step2 = []
+b_array_step2 = []
 
 # Assemble matrices
-A0, A1, A2 = fe.assemble(a0), fe.assemble(a1), fe.assemble(a2)
-A3, A4, A5 = fe.assemble(a3), fe.assemble(a4), fe.assemble(a5)
-A6, A7, A8 = fe.assemble(a6), fe.assemble(a7), fe.assemble(a8)
+for idx in range(Q):
+    A_array_step2.append(fe.assemble(a_array_step2[idx]))
     
     
 for n in range(1, num_steps):
     # Update current time
     t += dt
     
-    # Assemble right-hand side vectors
-    b0, b1, b2 = fe.assemble(L0), fe.assemble(L1), fe.assemble(L2)
-    b3, b4, b5 = fe.assemble(L3), fe.assemble(L4), fe.assemble(L5)
-    b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
+    for idx in range(Q):
+        b_array_step2.append( fe.assemble(L_array_step2[idx]) )
     
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(A5, b5)
-    bc_f2.apply(A2, b2)
-    bc_f6.apply(A6, b6)
+    bc_f5.apply(A_array_step2[5], b_array_step2[5])
+    bc_f2.apply(A_array_step2[2], b_array_step2[2])
+    bc_f6.apply(A_array_step2[6], b_array_step2[6])
     
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(A7, b7)
-    bc_f4.apply(A4, b4)
-    bc_f8.apply(A8, b8)
+    bc_f7.apply(A_array_step2[7], b_array_step2[7])
+    bc_f4.apply(A_array_step2[4], b_array_step2[4])
+    bc_f8.apply(A_array_step2[8], b_array_step2[8])
     
-    f0Vec, f1Vec, f2Vec = f0.vector(), f1.vector(), f2.vector()
-    f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
-    f6Vec, f7Vec, f8Vec = f6.vector(), f7.vector(), f8.vector()
-    
-    fe.solve(A0, f0Vec, b0)
-    fe.solve(A1, f1Vec, b1)
-    fe.solve(A2, f2Vec, b2)
-    fe.solve(A3, f3Vec, b3)
-    fe.solve(A4, f4Vec, b4)
-    fe.solve(A5, f5Vec, b5)
-    fe.solve(A6, f6Vec, b6)
-    fe.solve(A7, f7Vec, b7)
-    fe.solve(A8, f8Vec, b8)
+    for idx in range(Q):
+        fe.solve(A_array_step1[idx], f_nP1_vec[idx], b_array_step1[idx])
     
     # Solve linear system in each time step
     
     # Update previous solution
     
-    f0_n_1.assign(f0_n)
-    f1_n_1.assign(f1_n)
-    f2_n_1.assign(f2_n)
-    f3_n_1.assign(f3_n)
-    f4_n_1.assign(f4_n)
-    f5_n_1.assign(f5_n)
-    f6_n_1.assign(f6_n)
-    f7_n_1.assign(f7_n)
-    f8_n_1.assign(f8_n)
+    for idx in range(Q):
+        f_nM1[idx].assign( f_n[idx] )
+        f_n[idx].assign(f_nP1[idx])
     
-    f0_n.assign(f0)
-    f1_n.assign(f1)
-    f2_n.assign(f2)
-    f3_n.assign(f3)
-    f4_n.assign(f4)
-    f5_n.assign(f5)
-    f6_n.assign(f6)
-    f7_n.assign(f7)
-    f8_n.assign(f8)
     
     fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
     fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
@@ -647,7 +457,7 @@ for n in range(1, num_steps):
 
 
 
-u_expr = vel(f_list_n)
+u_expr = vel(f_n)
 u = fe.project(u_expr, V_vec)
 
 # Plot velocity field with larger arrows
