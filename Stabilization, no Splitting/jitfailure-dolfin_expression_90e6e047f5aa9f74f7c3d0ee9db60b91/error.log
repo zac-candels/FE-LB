@@ -1,0 +1,11 @@
+/tmp/tmplpk1f_bx/dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91.cpp: In member function 'virtual void dolfin::dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91::eval(Eigen::Ref<Eigen::Matrix<double, -1, 1> >, Eigen::Ref<const Eigen::Matrix<double, -1, 1> >) const':
+/tmp/tmplpk1f_bx/dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91.cpp:63:51: error: invalid type argument of unary '*' (have 'int')
+   63 |           values[0] = u_max*( 1 - (2*x[1]/L_x -1)**2 );
+      |                                                   ^~
+/tmp/tmplpk1f_bx/dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91.cpp: In member function 'virtual double dolfin::dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91::get_property(std::string) const':
+/tmp/tmplpk1f_bx/dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91.cpp:75:11: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   75 |           if (name == "u_max") return u_max;          if (name == "L_x") return L_x;
+      |           ^~
+/tmp/tmplpk1f_bx/dolfin_expression_90e6e047f5aa9f74f7c3d0ee9db60b91.cpp:75:55: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   75 |           if (name == "u_max") return u_max;          if (name == "L_x") return L_x;
+      |                                                       ^~

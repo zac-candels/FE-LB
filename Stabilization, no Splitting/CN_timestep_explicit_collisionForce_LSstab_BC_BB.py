@@ -4,12 +4,14 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
-dt = 1
+T = 4000
+dt = 1.0
 num_steps = int(np.ceil(T/dt))
+
 tau = 1.0
 
-nx = ny = 16
+
+nx = ny = 32
 L_x = L_y = 32
 h = L_x/nx
 
@@ -470,7 +472,9 @@ x_fixed = 0.5
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
 u_ex = np.linspace(0, 32, num_points)
-u_max = 0.01
+W = 32.0
+nu = tau/3
+u_max = Force_density[0]*W**2/(8*rho_init*nu)
 for i in range(num_points):
     u_ex[i] = u_max*( 1 - (2*y_values[i]/L_x -1)**2 )
     
@@ -538,8 +542,16 @@ for idx, fi in enumerate(f_n):
 # Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
+#%% Compute error in 2-norm
+
+u_analytical = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                             degree = 5, u_max = u_max, L_x = L_x)
         
-        
+u_comp = u.split()
+u_x = u_comp[0]
+err = fe.errornorm(u_analytical, u_x, norm_type='L2')     
+
+print("||u - u_ex|| = ", err)  
     
     
     
