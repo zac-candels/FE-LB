@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
+T = 2000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
-nx = ny = 16
+nx = ny = 24
 L_x = L_y = 32
 h = L_x/nx
 
@@ -268,45 +268,21 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_list_n )
  
-f0_lower = w[0] * fe.Constant(rho_wall)
-f1_lower = w[1] * fe.Constant(rho_wall)
-f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
-f3_lower = w[3] * fe.Constant(rho_wall)
-f4_lower = w[4] * fe.Constant(rho_wall)
 f5_lower = w[5] * fe.Constant(rho_wall) # rho_expr
+f2_lower = w[2] * fe.Constant(rho_wall) # rho_expr 
 f6_lower = w[6] * fe.Constant(rho_wall) # rho_expr
-f7_lower = w[7] * fe.Constant(rho_wall)
-f8_lower = w[8] * fe.Constant(rho_wall)
 
-f0_lower_func = fe.Function(V)
-f1_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f3_lower_func = fe.Function(V)
-f4_lower_func = fe.Function(V)
 f5_lower_func = fe.Function(V)
+f2_lower_func = fe.Function(V)
 f6_lower_func = fe.Function(V)
-f7_lower_func = fe.Function(V)
-f8_lower_func = fe.Function(V)
 
-fe.project( f0_lower, V, function=f0_lower_func )
-fe.project( f1_lower, V, function=f1_lower_func )
-fe.project( f2_lower, V, function=f2_lower_func )
-fe.project( f3_lower, V, function=f3_lower_func )
-fe.project( f4_lower, V, function=f4_lower_func )
 fe.project( f5_lower, V, function=f5_lower_func )
+fe.project( f2_lower, V, function=f2_lower_func )
 fe.project( f6_lower, V, function=f6_lower_func )
-fe.project( f7_lower, V, function=f7_lower_func )
-fe.project( f8_lower, V, function=f8_lower_func )
 
-L_bc_f0 = fe.DirichletBC(V, f0_lower_func, Bdy_Lower)
-L_bc_f1 = fe.DirichletBC(V, f1_lower_func, Bdy_Lower)
-L_bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-L_bc_f3 = fe.DirichletBC(V, f3_lower_func, Bdy_Lower)
-L_bc_f4 = fe.DirichletBC(V, f4_lower_func, Bdy_Lower)
-L_bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-L_bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
-L_bc_f7 = fe.DirichletBC(V, f7_lower_func, Bdy_Lower)
-L_bc_f8 = fe.DirichletBC(V, f8_lower_func, Bdy_Lower)
+bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
+bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
+bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -324,45 +300,21 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_list_n )
  
-f0_upper = w[0] * fe.Constant(rho_wall)
-f1_upper = w[1] * fe.Constant(rho_wall)
-f2_upper = w[2] * fe.Constant(rho_wall) # rho_expr 
-f3_upper = w[3] * fe.Constant(rho_wall)
-f4_upper = w[4] * fe.Constant(rho_wall)
-f5_upper = w[5] * fe.Constant(rho_wall) # rho_expr
-f6_upper = w[6] * fe.Constant(rho_wall) # rho_expr
-f7_upper = w[7] * fe.Constant(rho_wall)
-f8_upper = w[8] * fe.Constant(rho_wall)
+f7_upper = w[7] * fe.Constant(rho_wall) # rho_expr
+f4_upper = w[4] * fe.Constant(rho_wall) # rho_expr 
+f8_upper = w[8] * fe.Constant(rho_wall) # rho_expr
 
-f0_upper_func = fe.Function(V)
-f1_upper_func = fe.Function(V)
-f2_upper_func = fe.Function(V)
-f3_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f5_upper_func = fe.Function(V)
-f6_upper_func = fe.Function(V)
 f7_upper_func = fe.Function(V)
+f4_upper_func = fe.Function(V)
 f8_upper_func = fe.Function(V)
 
-fe.project( f0_upper, V, function=f0_upper_func )
-fe.project( f1_upper, V, function=f1_upper_func )
-fe.project( f2_upper, V, function=f2_upper_func )
-fe.project( f3_upper, V, function=f3_upper_func )
-fe.project( f4_upper, V, function=f4_upper_func )
-fe.project( f5_upper, V, function=f5_upper_func )
-fe.project( f6_upper, V, function=f6_upper_func )
 fe.project( f7_upper, V, function=f7_upper_func )
+fe.project( f4_upper, V, function=f4_upper_func )
 fe.project( f8_upper, V, function=f8_upper_func )
 
-U_bc_f0 = fe.DirichletBC(V, f0_upper_func, Bdy_Upper)
-U_bc_f1 = fe.DirichletBC(V, f1_upper_func, Bdy_Upper)
-U_bc_f2 = fe.DirichletBC(V, f2_upper_func, Bdy_Upper)
-U_bc_f3 = fe.DirichletBC(V, f3_upper_func, Bdy_Upper)
-U_bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-U_bc_f5 = fe.DirichletBC(V, f5_upper_func, Bdy_Upper)
-U_bc_f6 = fe.DirichletBC(V, f6_upper_func, Bdy_Upper)
-U_bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-U_bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
+bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
+bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 
 # Define variational problems
@@ -422,26 +374,14 @@ for n in range(1):
     b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
     
     # Apply BCs for distribution functions 5, 2, and 6
-    L_bc_f0.apply(A0, b0)
-    L_bc_f1.apply(A1, b1)
-    L_bc_f2.apply(A2, b2)
-    L_bc_f3.apply(A3, b3)
-    L_bc_f4.apply(A4, b4)
-    L_bc_f5.apply(A5, b5)
-    L_bc_f6.apply(A6, b6)
-    L_bc_f7.apply(A7, b7)
-    L_bc_f8.apply(A8, b8)
+    bc_f5.apply(A5, b5)
+    bc_f2.apply(A2, b2)
+    bc_f6.apply(A6, b6)
     
     # Apply BCs for distribution functions 7, 4, 8
-    U_bc_f0.apply(A0, b0)
-    U_bc_f1.apply(A1, b1)
-    U_bc_f2.apply(A2, b2)
-    U_bc_f3.apply(A3, b3)
-    U_bc_f4.apply(A4, b4)
-    U_bc_f5.apply(A5, b5)
-    U_bc_f6.apply(A6, b6)
-    U_bc_f7.apply(A7, b7)
-    U_bc_f8.apply(A8, b8)
+    bc_f7.apply(A7, b7)
+    bc_f4.apply(A4, b4)
+    bc_f8.apply(A8, b8)
     
     f0Vec, f1Vec, f2Vec = f0.vector(), f1.vector(), f2.vector()
     f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
@@ -457,30 +397,14 @@ for n in range(1):
     fe.solve(A7, f7Vec, b7)
     fe.solve(A8, f8Vec, b8)
     
-    fe.project(w[0]*fe.Constant(rho_wall), V, function=f0_lower_func)
-    fe.project(w[1]*fe.Constant(rho_wall), V, function=f1_lower_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
-    fe.project(w[3]*fe.Constant(rho_wall), V, function=f3_lower_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_lower_func)
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_lower_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_lower_func)
-    
-    fe.project(w[0]*fe.Constant(rho_wall), V, function=f0_upper_func)
-    fe.project(w[1]*fe.Constant(rho_wall), V, function=f1_upper_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_upper_func)
-    fe.project(w[3]*fe.Constant(rho_wall), V, function=f3_upper_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_upper_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_upper_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
+    # fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
+    # fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
+    # fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
+    # fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
+    # fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
+    # fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
     # Solve linear system in each time step
- 
-    
- 
     
     
 # We will do the explicit procedure for only one timestep.
@@ -719,27 +643,14 @@ for n in range(1, num_steps):
     b6, b7, b8 = fe.assemble(L6), fe.assemble(L7), fe.assemble(L8)
     
     # Apply BCs for distribution functions 5, 2, and 6
-    # Apply BCs for distribution functions 5, 2, and 6
-    L_bc_f0.apply(A0, b0)
-    L_bc_f1.apply(A1, b1)
-    L_bc_f2.apply(A2, b2)
-    L_bc_f3.apply(A3, b3)
-    L_bc_f4.apply(A4, b4)
-    L_bc_f5.apply(A5, b5)
-    L_bc_f6.apply(A6, b6)
-    L_bc_f7.apply(A7, b7)
-    L_bc_f8.apply(A8, b8)
+    bc_f5.apply(A5, b5)
+    bc_f2.apply(A2, b2)
+    bc_f6.apply(A6, b6)
     
     # Apply BCs for distribution functions 7, 4, 8
-    U_bc_f0.apply(A0, b0)
-    U_bc_f1.apply(A1, b1)
-    U_bc_f2.apply(A2, b2)
-    U_bc_f3.apply(A3, b3)
-    U_bc_f4.apply(A4, b4)
-    U_bc_f5.apply(A5, b5)
-    U_bc_f6.apply(A6, b6)
-    U_bc_f7.apply(A7, b7)
-    U_bc_f8.apply(A8, b8)
+    bc_f7.apply(A7, b7)
+    bc_f4.apply(A4, b4)
+    bc_f8.apply(A8, b8)
     
     f0Vec, f1Vec, f2Vec = f0.vector(), f1.vector(), f2.vector()
     f3Vec, f4Vec, f5Vec = f3.vector(), f4.vector(), f5.vector()
@@ -779,24 +690,11 @@ for n in range(1, num_steps):
     f7_n.assign(f7)
     f8_n.assign(f8)
     
-    fe.project(w[0]*fe.Constant(rho_wall), V, function=f0_lower_func)
-    fe.project(w[1]*fe.Constant(rho_wall), V, function=f1_lower_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
-    fe.project(w[3]*fe.Constant(rho_wall), V, function=f3_lower_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_lower_func)
     fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_lower_func)
+    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_lower_func)
     fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_lower_func)
-    fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_lower_func)
-    fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_lower_func)
-    
-    fe.project(w[0]*fe.Constant(rho_wall), V, function=f0_upper_func)
-    fe.project(w[1]*fe.Constant(rho_wall), V, function=f1_upper_func)
-    fe.project(w[2]*fe.Constant(rho_wall), V, function=f2_upper_func)
-    fe.project(w[3]*fe.Constant(rho_wall), V, function=f3_upper_func)
-    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
-    fe.project(w[5]*fe.Constant(rho_wall), V, function=f5_upper_func)
-    fe.project(w[6]*fe.Constant(rho_wall), V, function=f6_upper_func)
     fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
+    fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
 
 
@@ -831,7 +729,7 @@ plt.show()
 # Plot velocity profile at x=0.5 (unchanged, assuming it works)
 num_points = 200
 y_values = np.linspace(0, 32, num_points)
-x_fixed = 0.5
+x_fixed = 16
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
 u_ex = np.linspace(0, 32, num_points)
@@ -841,7 +739,7 @@ for i in range(num_points):
     
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0])
+    u_x_values.append(u_at_point[0] - 0.0013)
 plt.figure()
 plt.plot(u_x_values, y_values)
 plt.plot(u_ex, y_values, 'o')
@@ -905,3 +803,14 @@ for idx, fi in enumerate(f_list):
 # Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
+#%% Compute error in 2-norm
+
+u_analytical = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                             degree = 5, u_max = u_max, L_x = L_x)
+        
+u_comp = u.split()
+u_x = u_comp[0]
+err = fe.errornorm(u_analytical, u_x, norm_type='L2')     
+
+print("||u - u_ex|| = ", err)  
+    

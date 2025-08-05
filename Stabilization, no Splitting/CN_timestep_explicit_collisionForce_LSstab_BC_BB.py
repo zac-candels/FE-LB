@@ -4,14 +4,14 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 4000
+T = 2500
 dt = 1.0
 num_steps = int(np.ceil(T/dt))
 
 tau = 1.0
 
 
-nx = ny = 32
+nx = ny = 8
 L_x = L_y = 32
 h = L_x/nx
 
