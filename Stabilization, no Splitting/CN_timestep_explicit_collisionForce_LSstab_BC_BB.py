@@ -4,16 +4,21 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2500
-dt = 1.0
+T = 3000
+dt = 0.5
 num_steps = int(np.ceil(T/dt))
 
-tau = 1.0
 
 
 nx = ny = 8
 L_x = L_y = 32
 h = L_x/nx
+
+# Lattice speed of sound
+c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
+
+nu = 1.0/6.0
+tau = nu/c_s**2 + dt/2 
 
 # Number of discrete velocities
 Q = 9
@@ -29,8 +34,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-# Lattice speed of sound
-c_s = 1/np.sqrt(3)
+
 
 # D2Q9 lattice velocities
 xi = [
@@ -54,7 +58,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(32, 32), nx, nx )
+mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(L_x, L_y), nx, nx )
 
 # Set periodic boundary conditions at left and right endpoints
 class PeriodicBoundaryX(fe.SubDomain):
@@ -278,7 +282,7 @@ bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 tol = 1e-8
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 32, tol):
+        if fe.near(x[1], L_y, tol):
             return True
         else:
             return False
@@ -465,16 +469,15 @@ plt.ylabel("y")
 plt.show()
 
 #%%
-# Plot velocity profile at x=0.5 (unchanged, assuming it works)
+# Plot velocity profile at x=L_x/2
 num_points = 200
-y_values = np.linspace(0, 32, num_points)
-x_fixed = 0.5
+y_values = np.linspace(0, L_y, num_points)
+x_fixed = L_x/2
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
-u_ex = np.linspace(0, 32, num_points)
-W = 32.0
+u_ex = np.linspace(0, L_y, num_points)
 nu = tau/3
-u_max = Force_density[0]*W**2/(8*rho_init*nu)
+u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 for i in range(num_points):
     u_ex[i] = u_max*( 1 - (2*y_values[i]/L_x -1)**2 )
     
