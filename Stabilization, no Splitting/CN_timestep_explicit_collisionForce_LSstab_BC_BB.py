@@ -4,13 +4,13 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 3000
-dt = 0.5
+T = 2000
+dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
-
-nx = ny = 8
+Re = 0.96
+nx = ny = 5
 L_x = L_y = 32
 h = L_x/nx
 
@@ -18,7 +18,9 @@ h = L_x/nx
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/6.0
-tau = nu/c_s**2 + dt/2 
+#tau = nu/c_s**2 + dt/2 
+tau = 1
+u_max = 0.01
 
 # Number of discrete velocities
 Q = 9
@@ -74,7 +76,7 @@ pbc = PeriodicBoundaryX()
 
 
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+
 
 
 
@@ -441,7 +443,21 @@ for n in range(1, num_steps):
     fe.project(f_n[2], V, function=f4_upper_func)
     fe.project(f_n[6], V, function=f8_upper_func)
     
+    u_expr = vel(f_n)
+    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+    u_n = fe.project(u_expr, V_vec)
+    u_n_x = fe.project(u_n.split()[0], V)
+    
+    u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                                 degree = 2, u_max = u_max, L_x = L_x)
+    u_e = fe.interpolate(u_e, V)
+    error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
+    print('t = %.4f: error = %.3g' % (t, error))
+    print('max u:', u_n_x.vector().get_local().max())
+    
+#%%
 u_expr = vel(f_n)
+V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 
 
@@ -497,9 +513,9 @@ plt.show()
 # figure out unique x- and y- levels
 x_unique = np.unique(x)
 y_unique = np.unique(y)
-nx = len(x_unique)
-ny = len(y_unique)
-assert nx*ny == u_x.size, "grid size mismatch"
+num_x_unique = len(x_unique)
+num_y_unique = len(y_unique)
+assert num_x_unique*num_y_unique == u_x.size, "grid size mismatch"
 
 # now sort the flat arrays into lexicographic (y,x) order
 # we want the slow index to be y, fast index x, so lexsort on (x,y)
@@ -510,8 +526,8 @@ u_x_sorted = u_x[order]
 u_y_sorted = u_y[order]
 
 # reshape into (ny, nx).  If your mesh is square, nx==ny.
-u_x_grid = u_x_sorted.reshape((ny, nx))
-u_y_grid = u_y_sorted.reshape((ny, nx))
+u_x_grid = u_x_sorted.reshape((num_y_unique, num_x_unique))
+u_y_grid = u_y_sorted.reshape((num_y_unique, num_x_unique))
 
 
 #%% Create 2D grids of each f_i at final time
@@ -545,24 +561,6 @@ for idx, fi in enumerate(f_n):
 # Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
-#%% Compute error in 2-norm
-
-u_analytical = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                             degree = 5, u_max = u_max, L_x = L_x)
-        
-u_comp = u.split()
-u_x = u_comp[0]
-err = fe.errornorm(u_analytical, u_x, norm_type='L2')     
-
-print("||u - u_ex|| = ", err)  
     
-    
-    
-    
-    
-    
-
-
-
 
 
