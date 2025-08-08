@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
+T = 20000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
@@ -14,17 +14,19 @@ nx = ny = 5
 L_x = L_y = 32
 h = L_x/nx
 
+error_vec = []
+
 # Lattice speed of sound
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
-nu = 1.0/6.0
+#nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
 tau = 1
-u_max = 0.01
 
 # Number of discrete velocities
 Q = 9
 Force_density = np.array([2.6041666e-5, 0.0])
+
 
 #Force prefactor 
 alpha_plus = ( 2/dt + 1/tau )
@@ -36,6 +38,9 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
+
+nu = tau/3
+u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 
 
 # D2Q9 lattice velocities
@@ -454,7 +459,11 @@ for n in range(1, num_steps):
     error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
     print('t = %.4f: error = %.3g' % (t, error))
     print('max u:', u_n_x.vector().get_local().max())
+    if n%10 == 0:
+        error_vec.append(error)
+        
     
+error_vec = np.asarray(error_vec)
 #%%
 u_expr = vel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
@@ -505,7 +514,8 @@ plt.plot(u_x_values, y_values)
 plt.plot(u_ex, y_values, 'o')
 plt.xlabel("u_x")
 plt.ylabel("y")
-plt.title("Velocity profile at x=0.5")
+title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
+plt.title(title_str)
 plt.show()
 
 #%% Create grid of u_x and u_y values

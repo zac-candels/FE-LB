@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 plt.close('all')
 
 T = 2000
-dt = 1
+dt = 1.0
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
 
-nx = ny = 24
+nx = ny = 10
 L_x = L_y = 32
 h = L_x/nx
 
@@ -696,6 +696,19 @@ for n in range(1, num_steps):
     fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
     fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
+    
+    u_max = 0.01
+    u_expr = vel(f_list_n)
+    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+    u_n = fe.project(u_expr, V_vec)
+    u_n_x = fe.project(u_n.split()[0], V)
+    
+    u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                                 degree = 2, u_max = u_max, L_x = L_x)
+    u_e = fe.interpolate(u_e, V)
+    error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
+    print('t = %.4f: error = %.3g' % (t, error))
+    print('max u:', u_n_x.vector().get_local().max())
 
 
 
@@ -739,7 +752,7 @@ for i in range(num_points):
     
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0] - 0.0013)
+    u_x_values.append(u_at_point[0] )
 plt.figure()
 plt.plot(u_x_values, y_values)
 plt.plot(u_ex, y_values, 'o')
