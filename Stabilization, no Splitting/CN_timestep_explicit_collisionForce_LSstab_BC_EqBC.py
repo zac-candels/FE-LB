@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
+T = 200
 dt = 1.0
 num_steps = int(np.ceil(T/dt))
 tau = 1.0
@@ -53,6 +53,8 @@ w = np.array([
 # Set up domain. For simplicity, do unit square mesh.
 
 mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(32, 32), nx, nx )
+
+n_vec = fe.FacetNormal(mesh)
 
 # Set periodic boundary conditions at left and right endpoints
 class PeriodicBoundaryX(fe.SubDomain):
@@ -226,7 +228,10 @@ def body_Force_extrap(f_list_n, f_list_n_1, vel_idx, Force_density):
     return 2*Force_n - Force_n_1
     
     
-
+def f_eq_single(rho_val, u_val, ci, wi):
+    cu = ci[0]*u_val[0] + ci[1]*u_val[1]
+    u2 = u_val[0]**2 + u_val[1]**2
+    return wi * rho_val * (1 + cu/c_s**2 + 0.5*(cu**2)/c_s**4 - 0.5*u2/c_s**2)
 
 # Initialize distribution functions. We will use 
 # f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
@@ -697,6 +702,17 @@ for n in range(1, num_steps):
     fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
     
+    for i in [4, 7, 8]:
+        f_out = f_eq_single(rho_wall, u_wall, xi[i], w[i])
+        bc_eq = fe.DirichletBC(V, fe.Constant(f_out), Bdy_Lower)
+        bc_eq.apply(f_list_n[i].vector())
+    
+    # Upper wall outgoing indices
+    for i in [2, 5, 6]:
+        f_out = f_eq_single(rho_wall, u_wall, xi[i], w[i])
+        bc_eq = fe.DirichletBC(V, fe.Constant(f_out), Bdy_Upper)
+        bc_eq.apply(f_list_n[i].vector())
+        
     u_max = 0.01
     u_expr = vel(f_list_n)
     V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
