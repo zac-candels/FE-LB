@@ -2,15 +2,26 @@ import fenics as fe
 import numpy as np
 import matplotlib.pyplot as plt
 
+"""
+This program simulates Poiseuille flow by solving the 
+Lattice Boltzmann equations using the least-squares-finite-element method.
+Specifically, boundary conditions are prescribed in the manner suggested 
+by Li, Basu, and LeBouef (Phys. Rev. E, 2005). That is, no BCs are 
+explicitly applied to the distributions on the wall - boundary information
+enters through the equilibrium distributions f^{eq}(\rho_w, u_w) via
+the macroscopic flow variables, rho_w, u_w. 
+
+"""
+
 plt.close('all')
 
-T = 1200
-dt = 1
+T = 2000
+dt = 1.
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 30
+nx = ny = 32
 L_x = L_y = 32
 h = L_x/nx
 
@@ -21,7 +32,7 @@ c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 #nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
-tau = 1
+tau = 1.
 
 # Number of discrete velocities
 Q = 9
@@ -80,10 +91,10 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
 
 
-V_scal = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V_scal = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
 boundary_mask_func = fe.Function(V_scal)
 boundary_mask_func.vector()[:] = 1.0  # default interior value
 
@@ -138,6 +149,9 @@ def f_equil_init(vel_idx, Force_density):
     vel_0 = -fe.Constant( ( Force_density[0]*dt/(2*rho_init),
                            Force_density[1]*dt/(2*rho_init) ) )
     
+    vel_0 = fe.as_vector([
+        boundary_mask * vel_0[0],
+        boundary_mask * vel_0[1] ])
     # u_expr = fe.project(V_vec, vel_0)
     
     ci = xi[vel_idx]
@@ -373,14 +387,14 @@ for n in range(1):
         rhs_vec_step1[idx] = ( fe.assemble( linear_forms_step1[idx] ) )
         
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
-    bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
-    bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
+    # bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
+    # bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
+    # bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
     
-    # Apply BCs for distributions 7, 4, 8
-    bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
-    bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
-    bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
+    # # Apply BCs for distributions 7, 4, 8
+    # bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
+    # bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
+    # bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
     
     for idx in range(Q):
         fe.solve( sys_mat_step1[idx], f_nP1[idx].vector(), rhs_vec_step1[idx] )
@@ -468,26 +482,25 @@ for n in range(1, num_steps):
     for idx in range(Q):
         f_n[idx].assign( f_nP1[idx] )
         
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
+    # fe.project(f_n[7], V, function=f5_lower_func)
+    # fe.project(f_n[4], V, function=f2_lower_func)
+    # fe.project(f_n[8], V, function=f6_lower_func)
+    # fe.project(f_n[5], V, function=f7_upper_func)
+    # fe.project(f_n[2], V, function=f4_upper_func)
+    # fe.project(f_n[6], V, function=f8_upper_func)
     
-    u_expr = vel(f_n)
-    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-    u_n = fe.project(u_expr, V_vec)
-    u_n_x = fe.project(u_n.split()[0], V)
-    
-    u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                 degree = 2, u_max = u_max, L_x = L_x)
-    u_e = fe.interpolate(u_e, V)
-    error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-    if n%50 == 0:
+    if n%1000 == 0:
+        u_expr = vel(f_n)
+        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+        u_n = fe.project(u_expr, V_vec)
+        u_n_x = fe.project(u_n.split()[0], V)
+        
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                                     degree = 2, u_max = u_max, L_x = L_x)
+        u_e = fe.interpolate(u_e, V)
+        error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
         print('t = %.4f: error = %.3g' % (t, error))
         print('max u:', u_n_x.vector().get_local().max())
-    if n%10 == 0:
         error_vec.append(error)
         
     
