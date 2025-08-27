@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 200
-dt = 1.0
+T = 5000
+dt = 1
 num_steps = int(np.ceil(T/dt))
-tau = 1.0
+tau = 1
 
-nx = ny = 10
+nx = ny = 40
 L_x = L_y = 32
 h = L_x/nx
 
@@ -43,6 +43,9 @@ xi = [
     fe.Constant(( 1.0, -1.0)),
 ]
 
+nu = tau/3
+u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+
 # Corresponding weights
 w = np.array([
     4/9,
@@ -52,7 +55,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(32, 32), nx, nx )
+mesh = fe.RectangleMesh(fe.Point(0,0), fe.Point(L_x, L_y), nx, nx )
 
 n_vec = fe.FacetNormal(mesh)
 
@@ -713,18 +716,18 @@ for n in range(1, num_steps):
         bc_eq = fe.DirichletBC(V, fe.Constant(f_out), Bdy_Upper)
         bc_eq.apply(f_list_n[i].vector())
         
-    u_max = 0.01
-    u_expr = vel(f_list_n)
-    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-    u_n = fe.project(u_expr, V_vec)
-    u_n_x = fe.project(u_n.split()[0], V)
-    
-    u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                 degree = 2, u_max = u_max, L_x = L_x)
-    u_e = fe.interpolate(u_e, V)
-    error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-    print('t = %.4f: error = %.3g' % (t, error))
-    print('max u:', u_n_x.vector().get_local().max())
+    if n%1000 == 0:
+        u_expr = vel(f_list_n)
+        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+        u_n = fe.project(u_expr, V_vec)
+        u_n_x = fe.project(u_n.split()[0], V)
+        
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                                     degree = 2, u_max = u_max, L_x = L_x)
+        u_e = fe.interpolate(u_e, V)
+        error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
+        print('t = %.4f: error = %.3g' % (t, error))
+        print('max u:', u_n_x.vector().get_local().max())
 
 
 
@@ -757,12 +760,11 @@ plt.show()
 #%%
 # Plot velocity profile at x=0.5 (unchanged, assuming it works)
 num_points = 200
-y_values = np.linspace(0, 32, num_points)
-x_fixed = 16
+y_values = np.linspace(0, L_y, num_points)
+x_fixed = L_x
 points = [(x_fixed, y) for y in y_values]
 u_x_values = []
-u_ex = np.linspace(0, 32, num_points)
-u_max = 0.01
+u_ex = np.linspace(0, L_x, num_points)
 for i in range(num_points):
     u_ex[i] = u_max*( 1 - (2*y_values[i]/L_x -1)**2 )
     
@@ -770,11 +772,12 @@ for point in points:
     u_at_point = u(point)
     u_x_values.append(u_at_point[0] )
 plt.figure()
-plt.plot(u_x_values, y_values)
-plt.plot(u_ex, y_values, 'o')
+plt.plot(u_x_values, y_values, 'o')
+plt.plot(u_ex, y_values)
 plt.xlabel("u_x")
 plt.ylabel("y")
-plt.title("Velocity profile at x=0.5")
+title_str = f"Velocity Profile at x=L_x/2, tau={tau}"
+plt.title(title_str)
 plt.show()
 
 #%% Create grid of u_x and u_y values
@@ -831,15 +834,4 @@ for idx, fi in enumerate(f_list):
 
 # Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
-
-#%% Compute error in 2-norm
-
-u_analytical = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                             degree = 5, u_max = u_max, L_x = L_x)
-        
-u_comp = u.split()
-u_x = u_comp[0]
-err = fe.errornorm(u_analytical, u_x, norm_type='L2')     
-
-print("||u - u_ex|| = ", err)  
     

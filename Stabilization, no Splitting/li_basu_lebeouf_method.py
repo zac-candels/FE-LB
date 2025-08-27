@@ -15,13 +15,18 @@ the macroscopic flow variables, rho_w, u_w.
 
 plt.close('all')
 
-T = 2000
+T = 4000
 dt = 1.
 num_steps = int(np.ceil(T/dt))
 
+fe.parameters["form_compiler"]["quadrature_degree"] = 8
+dx = fe.dx(metadata={"quadrature_degree": 8})
+# …and use dx in all assemble()’d forms
+
+
 
 Re = 0.96
-nx = ny = 32
+nx = ny = 20
 L_x = L_y = 32
 h = L_x/nx
 
@@ -361,11 +366,11 @@ bilinear_forms_step1 = []
 linear_forms_step1 = []
 
 for idx in range(Q):
-    bilinear_forms_step1.append( f_trial[idx] * v * fe.dx\
+    bilinear_forms_step1.append( f_trial[idx] * v * dx\
                                      + dt*fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                                         * v * fe.dx )
+                                         * v * dx )
     linear_forms_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
-      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
+      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * dx )
         
 # Assemble matrices for first step
 sys_mat_step1 = []
@@ -427,11 +432,11 @@ linear_forms_step2 = []
 # Define variational problems for step 2 (CN timestep)
 
 for idx in range(Q):
-    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*fe.dx\
-        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * fe.dx\
-            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*fe.dx\
+    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*dx\
+        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * dx\
+            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*dx\
                 + fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                    *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
+                    *fe.dot( xi[idx], fe.grad(v) )*dx )
 
     body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
     body_force_n = body_Force(vel(f_n), idx, Force_density)
@@ -444,7 +449,7 @@ for idx in range(Q):
                 - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
                     + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
                         + 0.5*(body_force_np1 + body_force_n)\
-                            *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
+                            *fe.dot( xi[idx], fe.grad(v) ) )*dx )
 
 
 # Assemble matrices for CN timestep

@@ -4,15 +4,16 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 20000
+T = 7000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 5
-L_x = L_y = 32
+L_x = L_y = 50
 h = L_x/nx
+dt=1
 
 error_vec = []
 
@@ -448,20 +449,21 @@ for n in range(1, num_steps):
     fe.project(f_n[2], V, function=f4_upper_func)
     fe.project(f_n[6], V, function=f8_upper_func)
     
-    u_expr = vel(f_n)
-    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-    u_n = fe.project(u_expr, V_vec)
-    u_n_x = fe.project(u_n.split()[0], V)
-    
-    u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                 degree = 2, u_max = u_max, L_x = L_x)
-    u_e = fe.interpolate(u_e, V)
-    error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-    print('t = %.4f: error = %.3g' % (t, error))
-    print('max u:', u_n_x.vector().get_local().max())
-    if n%10 == 0:
-        error_vec.append(error)
+    if n%200 == 0:
+        u_expr = vel(f_n)
+        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+        u_n = fe.project(u_expr, V_vec)
+        u_n_x = fe.project(u_n.split()[0], V)
         
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+                                     degree = 2, u_max = u_max, L_x = L_x)
+        u_e = fe.interpolate(u_e, V)
+        error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
+        print('t = %.4f: error = %.3g' % (t, error))
+        print('max u:', u_n_x.vector().get_local().max())
+        if n%10 == 0:
+            error_vec.append(error)
+            
     
 error_vec = np.asarray(error_vec)
 #%%
