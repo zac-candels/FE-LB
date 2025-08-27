@@ -4,16 +4,15 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 7000
+T = 5000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 5
-L_x = L_y = 50
+nx = ny = 20
+L_x = L_y = 40
 h = L_x/nx
-dt=1
 
 error_vec = []
 
@@ -496,28 +495,33 @@ plt.ylabel("y")
 plt.show()
 
 #%%
+plt.rcParams['text.usetex'] = True
 # Plot velocity profile at x=L_x/2
-num_points = 200
-y_values = np.linspace(0, L_y, num_points)
+num_points_analytical = 200
+num_points_numerical = 10
+y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+y_values_numerical = np.linspace(0, L_y, num_points_numerical)
 x_fixed = L_x/2
-points = [(x_fixed, y) for y in y_values]
+points = [(x_fixed, y) for y in y_values_numerical]
 u_x_values = []
-u_ex = np.linspace(0, L_y, num_points)
+u_ex = np.linspace(0, L_y, num_points_analytical)
 nu = tau/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-for i in range(num_points):
-    u_ex[i] = u_max*( 1 - (2*y_values[i]/L_x -1)**2 )
+for i in range(num_points_analytical):
+    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_x -1)**2 )
     
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0])
+    u_x_values.append(u_at_point[0] / u_max)
+    
 plt.figure()
-plt.plot(u_x_values, y_values)
-plt.plot(u_ex, y_values, 'o')
-plt.xlabel("u_x")
-plt.ylabel("y")
+plt.plot(y_values_numerical, u_x_values, 'o', label="FE soln.")
+plt.plot(y_values_analytical, u_ex, label="Analytical soln.")
+plt.xlabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
+plt.ylabel("$y$", fontsize=20)
 title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
 plt.title(title_str)
+plt.legend()
 plt.show()
 
 #%% Create grid of u_x and u_y values
