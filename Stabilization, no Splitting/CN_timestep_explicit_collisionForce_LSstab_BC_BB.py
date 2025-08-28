@@ -515,13 +515,14 @@ for point in points:
     u_x_values.append(u_at_point[0] / u_max)
     
 plt.figure()
-plt.plot(y_values_numerical, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical, u_ex, label="Analytical soln.")
-plt.xlabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
-plt.ylabel("$y$", fontsize=20)
+plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
+plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
+plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
+plt.xlabel(r"$y/L_x$", fontsize=20)
 title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
-plt.title(title_str)
+#plt.title(title_str)
 plt.legend()
+plt.tick_params(direction="in")
 plt.show()
 
 #%% Create grid of u_x and u_y values
