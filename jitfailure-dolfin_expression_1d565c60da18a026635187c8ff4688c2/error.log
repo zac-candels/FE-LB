@@ -1,7 +1,0 @@
-/tmp/tmpx_v71hqp/dolfin_expression_1d565c60da18a026635187c8ff4688c2.cpp: In member function 'virtual void dolfin::dolfin_expression_1d565c60da18a026635187c8ff4688c2::eval(Eigen::Ref<Eigen::Matrix<double, -1, 1> >, Eigen::Ref<const Eigen::Matrix<double, -1, 1> >) const':
-/tmp/tmpx_v71hqp/dolfin_expression_1d565c60da18a026635187c8ff4688c2.cpp:61:23: error: 'rho' was not declared in this scope
-   61 |           values[0] = rho*xi_5;
-      |                       ^~~
-/tmp/tmpx_v71hqp/dolfin_expression_1d565c60da18a026635187c8ff4688c2.cpp:61:27: error: 'xi_5' was not declared in this scope
-   61 |           values[0] = rho*xi_5;
-      |                           ^~~~
