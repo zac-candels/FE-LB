@@ -4,14 +4,15 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 5000
+T = 3000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 20
-L_x = L_y = 40
+L_x = 10
+L_y = 20
 h = L_x/nx
 
 error_vec = []
@@ -448,14 +449,14 @@ for n in range(1, num_steps):
     fe.project(f_n[2], V, function=f4_upper_func)
     fe.project(f_n[6], V, function=f8_upper_func)
     
-    if n%200 == 0:
+    if n%1000 == 0:
         u_expr = vel(f_n)
         V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
         u_n = fe.project(u_expr, V_vec)
         u_n_x = fe.project(u_n.split()[0], V)
         
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                     degree = 2, u_max = u_max, L_x = L_x)
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
+                                     degree = 2, u_max = u_max, L_y = L_y)
         u_e = fe.interpolate(u_e, V)
         error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
         print('t = %.4f: error = %.3g' % (t, error))
@@ -508,17 +509,17 @@ u_ex = np.linspace(0, L_y, num_points_analytical)
 nu = tau/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 for i in range(num_points_analytical):
-    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_x -1)**2 )
+    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_y -1)**2 )
     
 for point in points:
     u_at_point = u(point)
     u_x_values.append(u_at_point[0] / u_max)
     
 plt.figure()
-plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
+plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_x$", fontsize=20)
+plt.xlabel(r"$y/L_y$", fontsize=20)
 title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
 #plt.title(title_str)
 plt.legend()

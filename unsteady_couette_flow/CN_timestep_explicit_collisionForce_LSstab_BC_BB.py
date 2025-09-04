@@ -96,8 +96,20 @@ for idx in range(Q):
     
 v = fe.TestFunction(V)
 
-
-
+def computeAnalyticalSoln(y):
+    N_terms = 3e4
+    
+    first_term_in_soln = u_max * y/ L_y 
+    
+    summ = 0
+    
+    for i in range(N_terms):
+        eig_val = i*np.pi/L_y
+        summ += 2*u_max * (-1)**i * np.sin(eig_val * y) / (eig_val * L_y)
+    
+    return first_term_in_soln + summ
+        
+    
 # Define density
 def rho(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
