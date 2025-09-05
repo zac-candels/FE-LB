@@ -37,7 +37,9 @@ alpha_minus = ( 2/dt - 1/tau )
 rho_wall = 1.0
 # Initial density 
 rho_init = 1.0
-u_wall = fe.Constant( (0.1, 0.0) )
+
+u_max = 0.1
+u_wall = fe.Constant( (u_max, 0.0) )
 
 
 nu = tau/3
@@ -97,8 +99,8 @@ for idx in range(Q):
     
 v = fe.TestFunction(V)
 
-def computeAnalyticalSoln(y):
-    N_terms = 3e4
+def computeAnalyticalSoln(y, t):
+    N_terms = 400
     
     first_term_in_soln = u_max * y/ L_y 
     
@@ -106,7 +108,8 @@ def computeAnalyticalSoln(y):
     
     for i in range(N_terms):
         eig_val = i*np.pi/L_y
-        summ += 2*u_max * (-1)**i * np.sin(eig_val * y) / (eig_val * L_y)
+        summ += 2*u_max * (-1)**i * np.exp(-1/(eig_val**2)*t)\
+            * np.sin(eig_val * y) / (eig_val * L_y)
     
     return first_term_in_soln + summ
         
@@ -520,19 +523,16 @@ points = [(x_fixed, y) for y in y_values_numerical]
 u_x_values = []
 u_ex = np.linspace(0, L_y, num_points_analytical)
 nu = tau/3
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-#for i in range(num_points_analytical):
-#    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_x -1)**2 )
-    
+ 
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / 0.1)
+    u_x_values.append(u_at_point[0] / u_max )
     
 plt.figure()
 plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
 #plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_x$", fontsize=20)
+plt.xlabel(r"$y/L_y$", fontsize=20)
 #title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
 #plt.title(title_str)
 plt.legend()
