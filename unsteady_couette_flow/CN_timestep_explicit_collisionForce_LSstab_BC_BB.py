@@ -5,13 +5,14 @@ import matplotlib.pyplot as plt
 plt.close('all')
 
 T = 5000
-dt = 1
+dt = 0.03
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 20
-L_x = L_y = 40
+L_x = 5
+L_y = 5./3.
 h = L_x/nx
 
 error_vec = []
@@ -21,7 +22,7 @@ c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 #nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
-tau = 1
+tau = 0.05
 
 # Number of discrete velocities
 Q = 9
@@ -36,7 +37,7 @@ alpha_minus = ( 2/dt - 1/tau )
 rho_wall = 1.0
 # Initial density 
 rho_init = 1.0
-u_wall = (0.0, 0.0)
+u_wall = fe.Constant( (0.1, 0.0) )
 
 
 nu = tau/3
@@ -137,8 +138,8 @@ def f_equil_init(vel_idx, Force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
-    vel_0 = -fe.Constant( ( Force_density[0]*dt/(2*rho_init),
-                           Force_density[1]*dt/(2*rho_init) ) )
+    vel_0 = -fe.Constant( ( 0.0,
+                            0.0 ) )
     
     # u_expr = fe.project(V_vec, vel_0)
     
@@ -310,9 +311,9 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_n )
  
-f7_upper = f_n[5] # rho_expr
-f4_upper = f_n[2] # rho_expr 
-f8_upper = f_n[6] # rho_expr
+f7_upper = f_n[5] - 2*w[5]*rho_wall*fe.dot(xi[5], u_wall)/c_s**2# rho_expr
+f4_upper = f_n[2] - 2*w[2]*rho_wall*fe.dot(xi[2], u_wall)/c_s**2 
+f8_upper = f_n[6] - 2*w[6]*rho_wall*fe.dot(xi[6], u_wall)/c_s**2
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
@@ -460,23 +461,23 @@ for n in range(1, num_steps):
     fe.project(f_n[2], V, function=f4_upper_func)
     fe.project(f_n[6], V, function=f8_upper_func)
     
-    if n%200 == 0:
-        u_expr = vel(f_n)
-        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-        u_n = fe.project(u_expr, V_vec)
-        u_n_x = fe.project(u_n.split()[0], V)
+    #if n%1000 == 0:
+        # u_expr = vel(f_n)
+        # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+        # u_n = fe.project(u_expr, V_vec)
+        # u_n_x = fe.project(u_n.split()[0], V)
         
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                     degree = 2, u_max = u_max, L_x = L_x)
-        u_e = fe.interpolate(u_e, V)
-        error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-        print('t = %.4f: error = %.3g' % (t, error))
-        print('max u:', u_n_x.vector().get_local().max())
-        if n%10 == 0:
-            error_vec.append(error)
+        # u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
+        #                              degree = 2, u_max = u_max, L_x = L_x)
+        # u_e = fe.interpolate(u_e, V)
+        # error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
+        # print('t = %.4f: error = %.3g' % (t, error))
+        # print('max u:', u_n_x.vector().get_local().max())
+        # if n%10 == 0:
+        #     error_vec.append(error)
             
     
-error_vec = np.asarray(error_vec)
+#error_vec = np.asarray(error_vec)
 #%%
 u_expr = vel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
@@ -528,7 +529,7 @@ for point in points:
     
 plt.figure()
 plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
+#plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
 plt.xlabel(r"$y/L_x$", fontsize=20)
 title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
