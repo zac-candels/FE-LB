@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 5000
+T = 10
 dt = 0.03
 num_steps = int(np.ceil(T/dt))
 
@@ -457,9 +457,10 @@ for n in range(1, num_steps):
     fe.project(f_n[7], V, function=f5_lower_func)
     fe.project(f_n[4], V, function=f2_lower_func)
     fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
+    
+    fe.project(f_n[5] - 2*w[5]*rho_wall*fe.dot(xi[5], u_wall)/c_s**2, V, function=f7_upper_func)
+    fe.project(f_n[2] - 2*w[2]*rho_wall*fe.dot(xi[2], u_wall)/c_s**2, V, function=f4_upper_func)
+    fe.project(f_n[6] - 2*w[6]*rho_wall*fe.dot(xi[6], u_wall)/c_s**2, V, function=f8_upper_func)
     
     #if n%1000 == 0:
         # u_expr = vel(f_n)
@@ -520,19 +521,19 @@ u_x_values = []
 u_ex = np.linspace(0, L_y, num_points_analytical)
 nu = tau/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-for i in range(num_points_analytical):
-    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_x -1)**2 )
+#for i in range(num_points_analytical):
+#    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_x -1)**2 )
     
 for point in points:
     u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max)
+    u_x_values.append(u_at_point[0] / 0.1)
     
 plt.figure()
 plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
 #plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
 plt.xlabel(r"$y/L_x$", fontsize=20)
-title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
+#title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
 #plt.title(title_str)
 plt.legend()
 plt.tick_params(direction="in")
