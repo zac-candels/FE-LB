@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 10
+T = 0.5
 dt = 0.03
 num_steps = int(np.ceil(T/dt))
 
@@ -20,9 +20,8 @@ error_vec = []
 # Lattice speed of sound
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
-#nu = 1.0/6.0
-#tau = nu/c_s**2 + dt/2 
 tau = 0.05
+nu = tau/3
 
 # Number of discrete velocities
 Q = 9
@@ -41,9 +40,7 @@ rho_init = 1.0
 u_max = 0.1
 u_wall = fe.Constant( (u_max, 0.0) )
 
-
 nu = tau/3
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 
 
 # D2Q9 lattice velocities
@@ -100,16 +97,24 @@ for idx in range(Q):
 v = fe.TestFunction(V)
 
 def computeAnalyticalSoln(y, t):
-    N_terms = 400
     
+    fourier_eps = 1e-9
     first_term_in_soln = u_max * y/ L_y 
     
     summ = 0
+    exp_term_size = 10
     
-    for i in range(N_terms):
+    i = 1
+    while exp_term_size > fourier_eps:
         eig_val = i*np.pi/L_y
-        summ += 2*u_max * (-1)**i * np.exp(-1/(eig_val**2)*t)\
+        exp_arg = -nu * eig_val**2 * t
+        summ += 2*u_max * (-1)**i * np.exp(exp_arg)\
             * np.sin(eig_val * y) / (eig_val * L_y)
+            
+            
+        exp_term_size = np.exp(exp_arg)
+        i += 1
+    
     
     return first_term_in_soln + summ
         
@@ -522,7 +527,10 @@ x_fixed = L_x/2
 points = [(x_fixed, y) for y in y_values_numerical]
 u_x_values = []
 u_ex = np.linspace(0, L_y, num_points_analytical)
-nu = tau/3
+
+for i in range(num_points_analytical):
+    u_ex[i] = computeAnalyticalSoln(y_values_analytical[i], T)
+    
  
 for point in points:
     u_at_point = u(point)
@@ -530,11 +538,9 @@ for point in points:
     
 plt.figure()
 plt.plot(y_values_numerical/L_x, u_x_values, 'o', label="FE soln.")
-#plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_y$", fontsize=20)
-#title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
-#plt.title(title_str)
+plt.plot(y_values_analytical/L_x, u_ex, label="Analytical soln.")
+plt.ylabel("u_x/u_{max}", fontsize=20)
+plt.xlabel("y/L_y", fontsize=20)
 plt.legend()
 plt.tick_params(direction="in")
 plt.show()
