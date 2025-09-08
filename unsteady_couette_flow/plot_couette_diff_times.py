@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 0.5
+
 dt = 0.03
-num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
@@ -98,7 +97,7 @@ v = fe.TestFunction(V)
 
 def computeAnalyticalSoln(y, t):
     
-    fourier_eps = 1e-9
+    fourier_eps = 1e-11
     first_term_in_soln = u_max * y/ L_y 
     
     summ = 0
@@ -335,273 +334,195 @@ bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
 bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
 bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
-# Define variational problems
+def felb_couette(T):
+    f_n = []
+    for idx in range(Q):
+        f_n.append(fe.project(f_equil_init(idx, Force_density), V))
 
-bilinear_forms_step1 = []
-linear_forms_step1 = []
+    num_steps = int(np.ceil(T/dt))
 
-for idx in range(Q):
-    bilinear_forms_step1.append( f_trial[idx] * v * fe.dx\
-                                     + dt*fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                                         * v * fe.dx )
-    linear_forms_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
-      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
-        
-# Assemble matrices for first step
-sys_mat_step1 = []
-rhs_vec_step1 = [0]*Q
-for idx in range(Q):
-    sys_mat_step1.append( fe.assemble( bilinear_forms_step1[idx] ) )
-
-# Define FE functions to hold solution at nP1 timesteps
-f_nP1 = []
-for idx in range(Q):
-    f_nP1.append(fe.Function(V))
-
+    # Define variational problems
     
-t = 0
-for n in range(1):
-    t += dt
+    bilinear_forms_step1 = []
+    linear_forms_step1 = []
     
     for idx in range(Q):
-        rhs_vec_step1[idx] = ( fe.assemble( linear_forms_step1[idx] ) )
-        
-    # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
-    bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
-    bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
-    
-    # Apply BCs for distributions 7, 4, 8
-    bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
-    bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
-    bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
-    
+        bilinear_forms_step1.append( f_trial[idx] * v * fe.dx\
+                                         + dt*fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
+                                             * v * fe.dx )
+        linear_forms_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
+          + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
+            
+    # Assemble matrices for first step
+    sys_mat_step1 = []
+    rhs_vec_step1 = [0]*Q
     for idx in range(Q):
-        fe.solve( sys_mat_step1[idx], f_nP1[idx].vector(), rhs_vec_step1[idx] )
-        
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
-        
-# Now define finite element functions for the n - 1 timestep
-
-f_nM1 = []
-for idx in range(Q):
-    f_nM1.append( fe.Function(V) )
+        sys_mat_step1.append( fe.assemble( bilinear_forms_step1[idx] ) )
     
-# Assign initial values to f_nM1
-for idx in range(Q):
-    f_nM1[idx].assign( f_n[idx] )
-    
-# Update f_n
-for idx in range(Q):
-    f_n[idx].assign( f_nP1[idx] )   
-    
-
-bilinear_forms_step2 = []
-linear_forms_step2 = []
-
-# Define variational problems for step 2 (CN timestep)
-
-for idx in range(Q):
-    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*fe.dx\
-        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * fe.dx\
-            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*fe.dx\
-                + fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                    *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
-
-    body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
-    body_force_n = body_Force(vel(f_n), idx, Force_density)
-
-    linear_forms_step2.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
-        + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
-        +   (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
-        + (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
-            - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
-                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
-                    + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
-                        + 0.5*(body_force_np1 + body_force_n)\
-                            *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
-
-
-# Assemble matrices for CN timestep
-sys_mat_step2 = []
-rhs_vec_step2 = [0]*Q
-for idx in range(Q):
-    sys_mat_step2.append( fe.assemble(bilinear_forms_step2[idx] ) )
-    
-    
-# CN timestepping
-for n in range(1, num_steps):
-    
-    # Assemble RHS vectors
+    # Define FE functions to hold solution at nP1 timesteps
+    f_nP1 = []
     for idx in range(Q):
-        rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
+        f_nP1.append(fe.Function(V))
+    
         
-    # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
-    bc_f2.apply(sys_mat_step2[2], rhs_vec_step2[2])
-    bc_f6.apply(sys_mat_step2[6], rhs_vec_step2[6])
+    t = 0
+    for n in range(1):
+        t += dt
+        
+        for idx in range(Q):
+            rhs_vec_step1[idx] = ( fe.assemble( linear_forms_step1[idx] ) )
+            
+        # Apply BCs for distribution functions 5, 2, and 6
+        bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
+        bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
+        bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
+        
+        # Apply BCs for distributions 7, 4, 8
+        bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
+        bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
+        bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
+        
+        for idx in range(Q):
+            fe.solve( sys_mat_step1[idx], f_nP1[idx].vector(), rhs_vec_step1[idx] )
+            
+        fe.project(f_n[7], V, function=f5_lower_func)
+        fe.project(f_n[4], V, function=f2_lower_func)
+        fe.project(f_n[8], V, function=f6_lower_func)
+        fe.project(f_n[5], V, function=f7_upper_func)
+        fe.project(f_n[2], V, function=f4_upper_func)
+        fe.project(f_n[6], V, function=f8_upper_func)
+            
+    # Now define finite element functions for the n - 1 timestep
     
-    # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat_step2[7], rhs_vec_step2[7])
-    bc_f4.apply(sys_mat_step2[4], rhs_vec_step2[4])
-    bc_f8.apply(sys_mat_step2[8], rhs_vec_step2[8])
-    
-    # Solve linear system in each timestep
+    f_nM1 = []
     for idx in range(Q):
-        fe.solve( sys_mat_step2[idx], f_nP1[idx].vector(), rhs_vec_step2[idx] )
+        f_nM1.append( fe.Function(V) )
         
-    # Update previous solutions
+    # Assign initial values to f_nM1
     for idx in range(Q):
         f_nM1[idx].assign( f_n[idx] )
+        
+    # Update f_n
+    for idx in range(Q):
+        f_n[idx].assign( f_nP1[idx] )   
+        
+    
+    bilinear_forms_step2 = []
+    linear_forms_step2 = []
+    
+    # Define variational problems for step 2 (CN timestep)
     
     for idx in range(Q):
-        f_n[idx].assign( f_nP1[idx] )
-        
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
+        bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*fe.dx\
+            + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * fe.dx\
+                + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*fe.dx\
+                    + fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
+                        *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
     
-    fe.project(f_n[5] - 2*w[5]*rho_wall*fe.dot(xi[5], u_wall)/c_s**2, V, function=f7_upper_func)
-    fe.project(f_n[2] - 2*w[2]*rho_wall*fe.dot(xi[2], u_wall)/c_s**2, V, function=f4_upper_func)
-    fe.project(f_n[6] - 2*w[6]*rho_wall*fe.dot(xi[6], u_wall)/c_s**2, V, function=f8_upper_func)
+        body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
+        body_force_n = body_Force(vel(f_n), idx, Force_density)
     
-    #if n%1000 == 0:
-        # u_expr = vel(f_n)
-        # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-        # u_n = fe.project(u_expr, V_vec)
-        # u_n_x = fe.project(u_n.split()[0], V)
+        linear_forms_step2.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
+            + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
+            +   (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
+            + (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
+                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
+                    - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
+                        + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
+                            + 0.5*(body_force_np1 + body_force_n)\
+                                *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
+    
+    
+    # Assemble matrices for CN timestep
+    sys_mat_step2 = []
+    rhs_vec_step2 = [0]*Q
+    for idx in range(Q):
+        sys_mat_step2.append( fe.assemble(bilinear_forms_step2[idx] ) )
         
-        # u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-        #                              degree = 2, u_max = u_max, L_x = L_x)
-        # u_e = fe.interpolate(u_e, V)
-        # error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-        # print('t = %.4f: error = %.3g' % (t, error))
-        # print('max u:', u_n_x.vector().get_local().max())
-        # if n%10 == 0:
-        #     error_vec.append(error)
+        
+    # CN timestepping
+    for n in range(1, num_steps):
+        
+        # Assemble RHS vectors
+        for idx in range(Q):
+            rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
             
-    
-#error_vec = np.asarray(error_vec)
-#%%
-u_expr = vel(f_n)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-u = fe.project(u_expr, V_vec)
+        # Apply BCs for distribution functions 5, 2, and 6
+        bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
+        bc_f2.apply(sys_mat_step2[2], rhs_vec_step2[2])
+        bc_f6.apply(sys_mat_step2[6], rhs_vec_step2[6])
+        
+        # Apply BCs for distribution functions 7, 4, 8
+        bc_f7.apply(sys_mat_step2[7], rhs_vec_step2[7])
+        bc_f4.apply(sys_mat_step2[4], rhs_vec_step2[4])
+        bc_f8.apply(sys_mat_step2[8], rhs_vec_step2[8])
+        
+        # Solve linear system in each timestep
+        for idx in range(Q):
+            fe.solve( sys_mat_step2[idx], f_nP1[idx].vector(), rhs_vec_step2[idx] )
+            
+        # Update previous solutions
+        for idx in range(Q):
+            f_nM1[idx].assign( f_n[idx] )
+        
+        for idx in range(Q):
+            f_n[idx].assign( f_nP1[idx] )
+            
+        fe.project(f_n[7], V, function=f5_lower_func)
+        fe.project(f_n[4], V, function=f2_lower_func)
+        fe.project(f_n[8], V, function=f6_lower_func)
+        
+        fe.project(f_n[5] - 2*w[5]*rho_wall*fe.dot(xi[5], u_wall)/c_s**2, V, function=f7_upper_func)
+        fe.project(f_n[2] - 2*w[2]*rho_wall*fe.dot(xi[2], u_wall)/c_s**2, V, function=f4_upper_func)
+        fe.project(f_n[6] - 2*w[6]*rho_wall*fe.dot(xi[6], u_wall)/c_s**2, V, function=f8_upper_func)
+        
+    u_expr = vel(f_n)
+    V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+    u = fe.project(u_expr, V_vec)
+    return u
+ 
 
+#%% Plot velocity profiles
 
-# Plot velocity field with larger arrows
-# Plot velocity field with larger arrows
-coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
-u_values = u.vector().get_local().reshape((V_vec.dim() // 2, 2))  # Shape: (1056, 2)
-x = coords[:, 0]  # x-coordinates
-y = coords[:, 1]  # y-coordinates
-u_x = u_values[:, 0]  # x-components of velocity
-u_y = u_values[:, 1]  # y-components of velocity
-
-# Define arrow scale based on maximum velocity
-max_u = np.max(np.sqrt(u_x**2 + u_y**2))
-arrow_length = 0.05  # 5% of domain size
-scale = max_u / arrow_length if max_u > 0 else 1
-
-# Create quiver plot
+T = [0.5, 2.0, 8.0, 32.0, 64.0]
+location_array = [(0.897, 0.058), (0.658, 0.123), (0.438, 0.147),
+                  (0.563, 0.394), (0.418, 0.530)]
 plt.figure()
-M = np.hypot(u_x, u_y)
-plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
-plt.title("Velocity field at final time")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.show()
 
-#%%
 plt.rcParams['text.usetex'] = True
-# Plot velocity profile at x=L_x/2
 num_points_analytical = 200
 num_points_numerical = 10
 y_values_analytical = np.linspace(0, L_y, num_points_analytical)
 y_values_numerical = np.linspace(0, L_y, num_points_numerical)
 x_fixed = L_x/2
 points = [(x_fixed, y) for y in y_values_numerical]
-u_x_values = []
-u_ex = np.linspace(0, L_y, num_points_analytical)
 
-for i in range(num_points_analytical):
-    u_ex[i] = computeAnalyticalSoln(y_values_analytical[i], T)/u_max
+for k, tval in enumerate(T):
+    # IMPORTANT: make sure felb_couette reinitializes f_n internally
+    u = felb_couette(tval)   
     
- 
-for point in points:
-    u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max )
+    # Analytical solution
+    u_ex = np.array([computeAnalyticalSoln(y, tval)/u_max for y in y_values_analytical])
     
-x_pos = 0.6   # x-location (normalized y/L_y)
-y_pos = computeAnalyticalSoln(x_pos*L_y, T)/u_max +0.02 # corresponding y value
+    # Numerical solution
+    u_x_values = []
+    for point in points:
+        u_at_point = u(point)
+        u_x_values.append(u_at_point[0] / u_max)
     
-plt.figure()
-plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+    # Plot both
+    plt.plot(y_values_numerical/L_y, u_x_values, 'o', color='tab:blue')
+    plt.plot(y_values_analytical/L_y, u_ex, color='tab:orange')
+    
+    # --- Place annotation at different horizontal position for each curve ---
+    #idx = int(frac[k] * num_points_analytical)
+    x_pos = location_array[k][0]
+    y_pos = location_array[k][1]
+    
+    plt.text(x_pos, y_pos, fr"$t={tval}$", fontsize=12,
+             ha="left", va="bottom")
+
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
 plt.xlabel(r"$y/L_y$", fontsize=20)
-plt.text(x_pos, y_pos, fr"$t={T}$", fontsize=12, ha="left", va="bottom")
-plt.legend()
 plt.tick_params(direction="in")
 plt.show()
-
-#%% Create grid of u_x and u_y values
-
-# figure out unique x- and y- levels
-x_unique = np.unique(x)
-y_unique = np.unique(y)
-num_x_unique = len(x_unique)
-num_y_unique = len(y_unique)
-assert num_x_unique*num_y_unique == u_x.size, "grid size mismatch"
-
-# now sort the flat arrays into lexicographic (y,x) order
-# we want the slow index to be y, fast index x, so lexsort on (x,y)
-order = np.lexsort((x, y))
-
-# apply that ordering
-u_x_sorted = u_x[order]
-u_y_sorted = u_y[order]
-
-# reshape into (ny, nx).  If your mesh is square, nx==ny.
-u_x_grid = u_x_sorted.reshape((num_y_unique, num_x_unique))
-u_y_grid = u_y_sorted.reshape((num_y_unique, num_x_unique))
-
-
-#%% Create 2D grids of each f_i at final time
-
-# 1) Extract the coordinates of each degree of freedom in V
-coords_f = V.tabulate_dof_coordinates().reshape(-1, 2)
-x_f = coords_f[:, 0]
-y_f = coords_f[:, 1]
-
-# 2) Find unique levels and check grid size
-x_unique = np.unique(x_f)
-y_unique = np.unique(y_f)
-nx_f = len(x_unique)
-ny_f = len(y_unique)
-assert nx_f * ny_f == x_f.size, "grid size mismatch for f_i"
-
-# 3) Compute lexicographic ordering so that slow index=y, fast=x
-order_f = np.lexsort((x_f, y_f))
-
-# 4) Loop over all distributions, sort & reshape
-f_grids = []
-for idx, fi in enumerate(f_n):
-    # flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
-    fi_vals   = fi.vector().get_local()
-    fi_sorted = fi_vals[order_f]
-    fi_grid   = fi_sorted.reshape((ny_f, nx_f))
-    f_grids.append(fi_grid)
-    # Optional: if you want to name them individually:
-    # globals()[f"f{idx}_grid"] = fi_grid
-
-# Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
-# e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
-
-    
-
-
