@@ -2,32 +2,17 @@ import fenics as fe
 import numpy as np
 import matplotlib.pyplot as plt
 
-"""
-This program simulates Poiseuille flow by solving the 
-Lattice Boltzmann equations using the least-squares-finite-element method.
-Specifically, boundary conditions are prescribed in the manner suggested 
-by Li, Basu, and LeBouef (Phys. Rev. E, 2005). That is, no BCs are 
-explicitly applied to the distributions on the wall - boundary information
-enters through the equilibrium distributions f^{eq}(\rho_w, u_w) via
-the macroscopic flow variables, rho_w, u_w. 
-
-"""
-
 plt.close('all')
 
 T = 3000
-dt = 1.
+dt = 1
 num_steps = int(np.ceil(T/dt))
-
-fe.parameters["form_compiler"]["quadrature_degree"] = 8
-dx = fe.dx(metadata={"quadrature_degree": 8})
-# …and use dx in all assemble()’d forms
-
 
 
 Re = 0.96
-nx = ny = 20
-L_x = L_y = 32
+nx = ny = 30
+L_x = 10
+L_y = 20
 h = L_x/nx
 
 error_vec = []
@@ -37,7 +22,7 @@ c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 #nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
-tau = 1.
+tau = 1
 
 # Number of discrete velocities
 Q = 9
@@ -96,19 +81,9 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
 
-V_scal = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-boundary_mask_func = fe.Function(V_scal)
-boundary_mask_func.vector()[:] = 1.0  # default interior value
-
-coords = V_scal.tabulate_dof_coordinates()
-for i, (x, y) in enumerate(coords):
-    if abs(y - 0.0) < 1e-8 or abs(y - L_y) < 1e-8:
-        boundary_mask_func.vector()[i] = 0.0
-
-boundary_mask = fe.interpolate(boundary_mask_func, V_scal)
 
 
 # Define trial and test functions, as well as 
@@ -154,9 +129,6 @@ def f_equil_init(vel_idx, Force_density):
     vel_0 = -fe.Constant( ( Force_density[0]*dt/(2*rho_init),
                            Force_density[1]*dt/(2*rho_init) ) )
     
-    vel_0 = fe.as_vector([
-        boundary_mask * vel_0[0],
-        boundary_mask * vel_0[1] ])
     # u_expr = fe.project(V_vec, vel_0)
     
     ci = xi[vel_idx]
@@ -171,14 +143,7 @@ def f_equil_init(vel_idx, Force_density):
 # Define equilibrium distribution
 def f_equil(f_list, vel_idx):
     rho_expr = sum(fj for fj in f_list)
-    u_expr   = vel(f_list)
-
-    # Zero velocity at walls
-    u_expr = fe.as_vector([
-        boundary_mask * u_expr[0],
-        boundary_mask * u_expr[1]
-    ])
-
+    u_expr   = vel(f_list)    
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
     return w[vel_idx] * rho_expr * (
@@ -189,40 +154,30 @@ def f_equil(f_list, vel_idx):
     )
 
 def f_equil_extrap(f_list_n, f_list_n_1, vel_idx):
-    # Step n
     rho_expr = sum(fj for fj in f_list_n)
-    u_expr   = vel(f_list_n)
-    u_expr = fe.as_vector([
-        boundary_mask * u_expr[0],
-        boundary_mask * u_expr[1]
-    ])
-
+    u_expr   = vel(f_list_n)    
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
+    
     f_equil_n = w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(u_expr, u_expr) / (2*c_s**2)
     )
-
-    # Step n-1
+    
     rho_expr = sum(fj for fj in f_list_n_1)
-    u_expr   = vel(f_list_n_1)
-    u_expr = fe.as_vector([
-        boundary_mask * u_expr[0],
-        boundary_mask * u_expr[1]
-    ])
-
+    u_expr   = vel(f_list_n_1)   
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
+    
     f_equil_n_1 = w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(u_expr, u_expr) / (2*c_s**2)
     )
-
+    
     return 2 * f_equil_n - f_equil_n_1
     
     
@@ -366,11 +321,11 @@ bilinear_forms_step1 = []
 linear_forms_step1 = []
 
 for idx in range(Q):
-    bilinear_forms_step1.append( f_trial[idx] * v * dx\
+    bilinear_forms_step1.append( f_trial[idx] * v * fe.dx\
                                      + dt*fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                                         * v * dx )
+                                         * v * fe.dx )
     linear_forms_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
-      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * dx )
+      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
         
 # Assemble matrices for first step
 sys_mat_step1 = []
@@ -392,14 +347,14 @@ for n in range(1):
         rhs_vec_step1[idx] = ( fe.assemble( linear_forms_step1[idx] ) )
         
     # Apply BCs for distribution functions 5, 2, and 6
-    # bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
-    # bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
-    # bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
+    bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
+    bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
+    bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
     
-    # # Apply BCs for distributions 7, 4, 8
-    # bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
-    # bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
-    # bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
+    # Apply BCs for distributions 7, 4, 8
+    bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
+    bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
+    bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
     
     for idx in range(Q):
         fe.solve( sys_mat_step1[idx], f_nP1[idx].vector(), rhs_vec_step1[idx] )
@@ -432,11 +387,11 @@ linear_forms_step2 = []
 # Define variational problems for step 2 (CN timestep)
 
 for idx in range(Q):
-    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*dx\
-        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * dx\
-            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*dx\
+    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*fe.dx\
+        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * fe.dx\
+            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*fe.dx\
                 + fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                    *fe.dot( xi[idx], fe.grad(v) )*dx )
+                    *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
 
     body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
     body_force_n = body_Force(vel(f_n), idx, Force_density)
@@ -449,7 +404,7 @@ for idx in range(Q):
                 - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
                     + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
                         + 0.5*(body_force_np1 + body_force_n)\
-                            *fe.dot( xi[idx], fe.grad(v) ) )*dx )
+                            *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
 
 
 # Assemble matrices for CN timestep
@@ -467,14 +422,14 @@ for n in range(1, num_steps):
         rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
         
     # Apply BCs for distribution functions 5, 2, and 6
-    # bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
-    # bc_f2.apply(sys_mat_step2[2], rhs_vec_step2[2])
-    # bc_f6.apply(sys_mat_step2[6], rhs_vec_step2[6])
+    bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
+    bc_f2.apply(sys_mat_step2[2], rhs_vec_step2[2])
+    bc_f6.apply(sys_mat_step2[6], rhs_vec_step2[6])
     
-    # # Apply BCs for distribution functions 7, 4, 8
-    # bc_f7.apply(sys_mat_step2[7], rhs_vec_step2[7])
-    # bc_f4.apply(sys_mat_step2[4], rhs_vec_step2[4])
-    # bc_f8.apply(sys_mat_step2[8], rhs_vec_step2[8])
+    # Apply BCs for distribution functions 7, 4, 8
+    bc_f7.apply(sys_mat_step2[7], rhs_vec_step2[7])
+    bc_f4.apply(sys_mat_step2[4], rhs_vec_step2[4])
+    bc_f8.apply(sys_mat_step2[8], rhs_vec_step2[8])
     
     # Solve linear system in each timestep
     for idx in range(Q):
@@ -487,12 +442,12 @@ for n in range(1, num_steps):
     for idx in range(Q):
         f_n[idx].assign( f_nP1[idx] )
         
-    # fe.project(f_n[7], V, function=f5_lower_func)
-    # fe.project(f_n[4], V, function=f2_lower_func)
-    # fe.project(f_n[8], V, function=f6_lower_func)
-    # fe.project(f_n[5], V, function=f7_upper_func)
-    # fe.project(f_n[2], V, function=f4_upper_func)
-    # fe.project(f_n[6], V, function=f8_upper_func)
+    fe.project(f_n[7], V, function=f5_lower_func)
+    fe.project(f_n[4], V, function=f2_lower_func)
+    fe.project(f_n[8], V, function=f6_lower_func)
+    fe.project(f_n[5], V, function=f7_upper_func)
+    fe.project(f_n[2], V, function=f4_upper_func)
+    fe.project(f_n[6], V, function=f8_upper_func)
     
     if n%1000 == 0:
         u_expr = vel(f_n)
@@ -500,14 +455,15 @@ for n in range(1, num_steps):
         u_n = fe.project(u_expr, V_vec)
         u_n_x = fe.project(u_n.split()[0], V)
         
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_x -1), 2 ) )',
-                                     degree = 2, u_max = u_max, L_x = L_x)
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
+                                     degree = 2, u_max = u_max, L_y = L_y)
         u_e = fe.interpolate(u_e, V)
         error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
         print('t = %.4f: error = %.3g' % (t, error))
         print('max u:', u_n_x.vector().get_local().max())
-        error_vec.append(error)
-        
+        if n%10 == 0:
+            error_vec.append(error)
+            
     
 error_vec = np.asarray(error_vec)
 #%%
@@ -624,6 +580,5 @@ for idx, fi in enumerate(f_n):
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
     
-
 
 
