@@ -22,7 +22,8 @@ c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 #nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
-tau = 1
+tau_ns = 1
+tau_ch = 0.1
 
 # Number of discrete velocities
 Q = 9
@@ -30,8 +31,8 @@ Force_density = np.array([2.6041666e-5, 0.0])
 
 
 #Force prefactor 
-alpha_plus = ( 2/dt + 1/tau )
-alpha_minus = ( 2/dt - 1/tau )
+alpha_plus_g = ( 2/dt + 1/tau_ns )
+alpha_minus_g = ( 2/dt - 1/tau_ns )
 
 # Density on wall
 rho_wall = 1.0
@@ -39,8 +40,20 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
+# Liquid density
+rho_l = 1.0
+# Air density
+rho_g = 0.001
 
-nu = tau/3
+# Mobility
+M = 0.2
+
+radius = 10
+drop_center_x = L_x / 2
+drop_center_y = 2
+
+
+nu = tau_ch/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 
 
@@ -84,45 +97,50 @@ pbc = PeriodicBoundaryX()
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
 
-
-
 # Define trial and test functions, as well as 
 # finite element functions at previous timesteps
 
-f_trial = []
-f_n = []
+g_trial = []
+g_n = []
+h_trial = []
+h_n = []
 for idx in range(Q):
-    f_trial.append(fe.TrialFunction(V))
-    f_n.append(fe.Function(V))
+    g_trial.append(fe.TrialFunction(V))
+    g_n.append(fe.Function(V))
+    
+    h_trial.append(fe.TrialFunction(V))
+    h_n.append(fe.Function(V))
     
 v = fe.TestFunction(V)
 
 
-
-# Define density
-def rho(f_list):
-    return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
-        + f_list[5] + f_list[6] + f_list[7] + f_list[8]
+# Define dynamic pressure
+def dynPres(g_list):
+    return g_list[0] + g_list[1] + g_list[2] + g_list[3] + g_list[4]\
+        + g_list[5] + g_list[6] + g_list[7] + g_list[8]
+        
+# Define order parameter
+def orderParam(h_list):
+    return h_list[0] + h_list[1] + h_list[2] + h_list[3] + h_list[4]\
+        + h_list[5] + h_list[6] + h_list[7] + h_list[8]
+        
+# Define density 
+def rho(rho_l, rho_g, orderParam):
+    return orderParam*rho_l + (1 - orderParam)*rho_g
 
 # Define velocity
-def vel(f_list):
-    distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
-        + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
-            + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
+def vel(g_list, rho):
+    momentum = g_list[0]*xi[0] + g_list[1]*xi[1] + g_list[2]*xi[2]\
+        + g_list[3]*xi[3] + g_list[4]*xi[4] + g_list[5]*xi[5]\
+            + g_list[6]*xi[6] + g_list[7]*xi[7] + g_list[8]*xi[8]
             
-    density = rho(f_list)
+    vel = momentum / rho
     
-    vel_term1 = distr_fn_sum/density
-    
-    F = fe.Constant( (Force_density[0], Force_density[1]) )
-    vel_term2 = F * dt / ( 2 * density )
-    
-    
-    return vel_term1 + vel_term2
+    return vel
 
 
 # Define initial equilibrium distributions
-def f_equil_init(vel_idx, Force_density):
+def g_equil_init(vel_idx, Force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
@@ -141,117 +159,173 @@ def f_equil_init(vel_idx, Force_density):
     )
 
 # Define equilibrium distribution
-def f_equil(f_list, vel_idx):
-    rho_expr = sum(fj for fj in f_list)
-    u_expr   = vel(f_list)    
+def g_equil(g_list, vel_idx, rho):
+    dynPressure = dynPres(g_list)
+    u_expr   = vel(g_list, rho)    
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
-    return w[vel_idx] * rho_expr * (
-        1
-        + ci_dot_u / c_s**2
-        + ci_dot_u**2 / (2*c_s**4)
-        - fe.dot(u_expr, u_expr) / (2*c_s**2)
-    )
+    
+    vel_terms = ci_dot_u / c_s**2\
+    + ci_dot_u**2 / (2*c_s**4)\
+    - fe.dot(u_expr, u_expr) / (2*c_s**2)
+    
+    g_eq = w[i] * ( dynPressure + rho * c_s**2 * vel_terms )
+    
+    return g_eq
 
-def f_equil_extrap(f_list_n, f_list_n_1, vel_idx):
-    rho_expr = sum(fj for fj in f_list_n)
-    u_expr   = vel(f_list_n)    
+def g_equil_extrap(g_list_n, g_list_nM1, vel_idx, rho_n, rho_nM1):
+    
+    g_equil_n = g_equil(g_list_n, vel_idx, rho_n)
+    
+    g_equil_nM1 = g_equil(g_list_nM1, vel_idx, rho_nM1)
+    
+    return 2 * g_equil_n - g_equil_nM1
+    
+    
+# Define equilibrium for h distributions 
+def h_equil(g_list, h_list, vel_idx, rho):
+    orderParameter = orderParam(h_list)
+    u_expr   = vel(g_list, rho)    
     ci       = xi[vel_idx]
     ci_dot_u = fe.dot(ci, u_expr)
     
-    f_equil_n = w[vel_idx] * rho_expr * (
-        1
-        + ci_dot_u / c_s**2
-        + ci_dot_u**2 / (2*c_s**4)
-        - fe.dot(u_expr, u_expr) / (2*c_s**2)
-    )
+    vel_terms = ci_dot_u / c_s**2\
+    + ci_dot_u**2 / (2*c_s**4)\
+    - fe.dot(u_expr, u_expr) / (2*c_s**2)
     
-    rho_expr = sum(fj for fj in f_list_n_1)
-    u_expr   = vel(f_list_n_1)   
-    ci       = xi[vel_idx]
-    ci_dot_u = fe.dot(ci, u_expr)
+    return w[i] * orderParameter * (1 + vel_terms)
+
+def h_equil_extrap(g_list_n, g_list_nM1, h_list_n, h_list_nM1,
+                   vel_idx, rho_n, rho_nM1):
     
-    f_equil_n_1 = w[vel_idx] * rho_expr * (
-        1
-        + ci_dot_u / c_s**2
-        + ci_dot_u**2 / (2*c_s**4)
-        - fe.dot(u_expr, u_expr) / (2*c_s**2)
-    )
+    h_eq_n = h_equil(g_list_n, h_list_n, vel_idx, rho_n)
     
-    return 2 * f_equil_n - f_equil_n_1
+    h_eq_nM1 = h_equil(g_list_nM1, h_list_nM1, vel_idx, rho_nM1)
+    
+    return 2 * h_eq_n - h_eq_nM1
+
+def Gamma_fn(h_equil, vel, vel_idx, orderParameter):
+    
+    if vel == 0 :
+        return w[vel_idx]
+    else:
+        return h_equil / orderParameter
     
     
+def rel_time( orderParameter ):
+    
+    inv_tau = orderParameter / tau_ns + ( 1 - orderParameter) / tau_ch
+    
+    tau = 1/inv_tau
+    
+    return tau
 
 # Define collision operator
-def coll_op(f_list, vel_idx):
-    return -( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / tau
+def coll_op_g(g_list, vel_idx, orderParameter):
+    
+    tau = rel_time(orderParameter)
+    
+    return -( g_list[vel_idx] - g_equil(g_list, vel_idx) ) / tau 
 
-def body_Force(vel, vel_idx, Force_density):
-    prefactor = w[vel_idx]
-    inverse_cs2 = 1 / c_s**2
-    inverse_cs4 = 1 / c_s**4
-    
-    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
-        + xi[vel_idx][1]*Force_density[1]
-        
-    u_dot_prod_F = vel[0]*Force_density[0] + vel[1]*Force_density[1]
-    
-    xi_dot_u = xi[vel_idx][0]*vel[0] + xi[vel_idx][1]*vel[1]
-    
-    Force = prefactor*( inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)\
-                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
-        
-    return Force
 
-def body_Force_extrap(f_list_n, f_list_n_1, vel_idx, Force_density):
-    vel_n = vel(f_list_n)
-    vel_n_1 = vel(f_list_n_1)
+def coll_op_h(h_list, vel_idx, orderParameter):
     
-    prefactor = w[vel_idx]
-    inverse_cs2 = 1 / c_s**2
-    inverse_cs4 = 1 / c_s**4
+    tau = rel_time(orderParameter)
     
-    # Compute F^n
-    xi_dot_prod_F_n = xi[vel_idx][0]*Force_density[0]\
-        + xi[vel_idx][1]*Force_density[1]
+    return -( h_list[vel_idx] - h_equil(h_list, vel_idx) ) / tau 
+
+
+def body_Force_g(vel, vel_idx, rho, mu, orderParameter, h_equil):
+    
+    Gamma_u = Gamma_fn( h_equil, vel, vel_idx, orderParameter)
+    Gamma_0 = Gamma_fn( h_equil, 0, vel_idx, orderParameter)
+    
+    rho_grad = fe.grad( rho )
+    orderParam_grad = fe.grad( orderParameter )
+    
+    dot_prod_arg1 = xi[vel_idx] - vel 
+    
+    dot_prod_arg2 = rho_grad * c_s**2 * (Gamma_u - Gamma_0)\
+        + mu * orderParam_grad * Gamma_u
+    
+    Force_g = fe.dot( dot_prod_arg1, dot_prod_arg2)
+    
+    return Force_g
+
+def body_Force_g_extrap(vel_n, vel_nM1, vel_idx, rho_n, rho_nM1,
+                        mu_n, mu_nM1, orderParameter_n, orderParameter_nM1,
+                        h_equil_n, h_equil_nM1):
+    
+    F_g_n = body_Force_g(vel_n, vel_idx, rho_n, mu_n, orderParameter_n, h_equil_n)
+    
+    F_g_nM1 = body_Force_g(vel_nM1, vel_idx, rho_nM1, mu_nM1,
+                           orderParameter_nM1, h_equil_nM1)
+    
+    return 2 * F_g_n - F_g_nM1
+    
+    
+    
+def body_Force_h(vel, vel_idx, rho, mu, orderParameter, h_equil, lam, dyn_pres):
+    
+    Gamma_u = Gamma_fn( h_equil, vel, vel_idx, orderParameter)
+    
+    orderParam_grad = fe.grad( orderParameter )
+    pressure_grad = fe.grad(dyn_pres)
+    
+    dot_prod_arg1 = xi[vel_idx] - vel 
+    
+    dot_prod_arg2 = orderParam_grad - orderParameter / (rho * c_s**2)\
+        * ( pressure_grad - mu * orderParam_grad ) * Gamma_u
         
-    u_dot_prod_F_n = vel_n[0]*Force_density[0] + vel_n[1]*Force_density[1]
+    term1 = fe.dot( dot_prod_arg1, dot_prod_arg2 )
     
-    xi_dot_u_n = xi[vel_idx][0]*vel_n[0] + xi[vel_idx][1]*vel_n[1]
+    term2 = M * lam * Gamma_u
     
-    Force_n = prefactor*( inverse_cs2*(xi_dot_prod_F_n - u_dot_prod_F_n)\
-                       + inverse_cs4*xi_dot_u_n*xi_dot_prod_F_n)
-        
-    # Compute F^{n-1}
-    xi_dot_prod_F_n_1 = xi[vel_idx][0]*Force_density[0]\
-        + xi[vel_idx][1]*Force_density[1]
-        
-    u_dot_prod_F_n_1 = vel_n_1[0]*Force_density[0] + vel_n_1[1]*Force_density[1]
+    return term1 + term2
+
+def body_Force_h_extrap(vel_n, vel_nM1, vel_idx, rho_n, rho_nM1, mu_n, mu_nM1,
+                        orderParameter_n, orderParameter_nM1,
+                        h_equil_n, h_equil_nM1, lam_n, lam_nM1,
+                        dyn_pres_n, dyn_pres_nM1):
     
-    xi_dot_u_n_1 = xi[vel_idx][0]*vel_n_1[0] + xi[vel_idx][1]*vel_n_1[1]
+    F_h_n = body_Force_h(vel_n, vel_idx, rho_n, mu_n, orderParameter_n,
+                         h_equil_n, lam_n, dyn_pres_n)
     
+    F_h_nM1 = body_Force_h(vel_nM1, vel_idx, rho_nM1, mu_nM1,
+                           orderParameter_nM1, h_equil_nM1, lam_nM1, dyn_pres_nM1)
     
-        
-    Force_n_1 = prefactor*( inverse_cs2*(xi_dot_prod_F_n_1 - u_dot_prod_F_n_1)\
-                       + inverse_cs4*xi_dot_u_n_1*xi_dot_prod_F_n_1)
-        
-    return 2*Force_n - Force_n_1
+    return 2 * F_h_n - F_h_nM1
+    
     
     
 # # Initialize distribution functions. We will use 
-# f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
+# g_i^{0} \gets g_i^{0, eq}( \rho_0, \bar{u}_0 ),
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
 
 for idx in range(Q):
-    f_n[idx] = (  fe.project(f_equil_init(idx, Force_density), V )  )
+    g_n[idx] = (  fe.project(g_equil_init(idx, Force_density), V )  )
+    
+
+# Also need to initialize the h_distributions
+
+def init_orderParam(x, y):
+    r2 = (x - drop_center_x)**2 + (y - drop_center_y )**2
+    
+    C_0 = 0.5 - 0.5 * np.tanh( 2 * (np.sqrt(r2) - radius) )/4.0
+    
+    C_0_fenics = fe.project(C_0, V)
+    
+    return C_0_fenics
+
+    
 
 
 # Define boundary conditions.
 
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
+# For g_5, g_2, and g_6, equilibrium boundary conditions at lower wall
 # Since we are applying equilibrium boundary conditions 
-# and assuming no slip on solid walls, f_i^{eq} reduces to
+# and assuming no slip on solid walls, g_i^{eq} reduces to
 # \rho * w_i
 
 tol = 1e-8
@@ -264,25 +338,25 @@ def Bdy_Lower(x, on_boundary):
     else:
         return False
     
-rho_expr = sum( fk for fk in f_n )
+rho_expr = sum( fk for fk in g_n )
  
-f5_lower = f_n[7] # rho_expr
-f2_lower = f_n[4] # rho_expr 
-f6_lower = f_n[8] # rho_expr
+g5_lower = g_n[7] # rho_expr
+g2_lower = g_n[4] # rho_expr 
+g6_lower = g_n[8] # rho_expr
 
-f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
+g5_lower_func = fe.Function(V)
+g2_lower_func = fe.Function(V)
+g6_lower_func = fe.Function(V)
 
-fe.project( f5_lower, V, function=f5_lower_func )
-fe.project( f2_lower, V, function=f2_lower_func )
-fe.project( f6_lower, V, function=f6_lower_func )
+fe.project( g5_lower, V, function=g5_lower_func )
+fe.project( g2_lower, V, function=g2_lower_func )
+fe.project( g6_lower, V, function=g6_lower_func )
 
-bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
+bc_g5 = fe.DirichletBC(V, g5_lower_func, Bdy_Lower)
+bc_g2 = fe.DirichletBC(V, g2_lower_func, Bdy_Lower)
+bc_g6 = fe.DirichletBC(V, g6_lower_func, Bdy_Lower)
 
-# Similarly, we will define boundary conditions for f_7, f_4, and f_8
+# Similarly, we will define boundary conditions for g_7, g_4, and g_8
 # at the upper wall. Once again, boundary conditions simply reduce
 # to \rho * w_i
 
@@ -297,35 +371,49 @@ def Bdy_Upper(x, on_boundary):
     else:
         return False
 
-rho_expr = sum( fk for fk in f_n )
+rho_expr = sum( gk for gk in g_n )
  
-f7_upper = f_n[5] # rho_expr
-f4_upper = f_n[2] # rho_expr 
-f8_upper = f_n[6] # rho_expr
+g7_upper = g_n[5] # rho_expr
+g4_upper = g_n[2] # rho_expr 
+g8_upper = g_n[6] # rho_expr
 
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
+g7_upper_func = fe.Function(V)
+g4_upper_func = fe.Function(V)
+g8_upper_func = fe.Function(V)
 
-fe.project( f7_upper, V, function=f7_upper_func )
-fe.project( f4_upper, V, function=f4_upper_func )
-fe.project( f8_upper, V, function=f8_upper_func )
+fe.project( g7_upper, V, function=g7_upper_func )
+fe.project( g4_upper, V, function=g4_upper_func )
+fe.project( g8_upper, V, function=g8_upper_func )
 
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_g7 = fe.DirichletBC(V, g7_upper_func, Bdy_Upper)
+bc_g4 = fe.DirichletBC(V, g4_upper_func, Bdy_Upper)
+bc_g8 = fe.DirichletBC(V, g8_upper_func, Bdy_Upper)
 
 # Define variational problems
 
 
 # Define FE functions to hold solution at nP1 timesteps
-f_nP1 = []
+g_nP1 = []
+h_nP1 = []
+mu_nP1 = []
+lam_nP1 = []
 for idx in range(Q):
-    f_nP1.append(fe.Function(V))
+    g_nP1.append(fe.Function(V))
+    h_nP1.append(fe.Function(V))
+    mu_nP1.append(fe.Function(V))
+    lam_nP1.append(fe.Function(V))
 
-f_nM1 = []
+g_nM1 = []
+h_nM1 = []
+mu_nM1 = []
+lam_nM1 = []
 for idx in range(Q):
-    f_nM1.append( fe.Function(V) ) 
+    g_nM1.append( fe.Function(V) ) 
+    h_nM1.append( fe.Function(V) )
+    mu_nM1.append( fe.Function(V) )
+    lam_nM1.append( fe.Function(V) )
+    
+    
     
 
 bilinear_forms_step2 = []
@@ -335,31 +423,31 @@ linear_forms_step2 = []
 # Define variational problems for step 2 (CN timestep)
 
 for idx in range(Q):
-    bilinear_forms_step2.append( alpha_plus**2*f_trial[idx]*v*fe.dx\
-        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * f_trial[idx] * fe.dx\
-            + alpha_plus*fe.dot( xi[idx], fe.grad(f_trial[idx]) )*v*fe.dx\
-                + fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
+    bilinear_forms_step2.append( alpha_plus**2*g_trial[idx]*v*fe.dx\
+        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * g_trial[idx] * fe.dx\
+            + alpha_plus*fe.dot( xi[idx], fe.grad(g_trial[idx]) )*v*fe.dx\
+                + fe.dot( xi[idx], fe.grad(g_trial[idx]) )\
                     *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
 
-    body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
-    body_force_n = body_Force(vel(f_n), idx, Force_density)
+    body_force_np1 = body_Force_extrap(g_n, g_nM1, idx, Force_density)
+    body_force_n = body_Force(vel(g_n), idx, Force_density)
     
-    linear_forms_step1.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
-        + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
-        +   (1/tau)*( f_equil_extrap(f_n, f_n, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
-        + (1/tau)*( f_equil_extrap(f_n, f_n, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
-            - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
-                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
+    linear_forms_step1.append( ( alpha_minus*alpha_plus*g_n[idx]*v\
+        + alpha_minus*g_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
+        +   (1/tau)*( g_equil_extrap(g_n, g_n, idx) + g_equil(g_n, idx) ) * alpha_plus*v\
+        + (1/tau)*( g_equil_extrap(g_n, g_n, idx) + g_equil(g_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
+            - fe.dot( xi[idx], fe.grad(g_n[idx]) )*alpha_plus*v\
+                - fe.dot( xi[idx], fe.grad(g_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
                     + 0.5*(body_force_n + body_force_n)*alpha_plus*v\
                         + 0.5*(body_force_n + body_force_n)\
                             *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
 
-    linear_forms_step2.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
-        + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
-        +   (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
-        + (1/tau)*( f_equil_extrap(f_n, f_nM1, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
-            - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
-                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
+    linear_forms_step2.append( ( alpha_minus*alpha_plus*g_n[idx]*v\
+        + alpha_minus*g_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
+        +   (1/tau)*( g_equil_extrap(g_n, g_nM1, idx) + g_equil(g_n, idx) ) * alpha_plus*v\
+        + (1/tau)*( g_equil_extrap(g_n, g_nM1, idx) + g_equil(g_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
+            - fe.dot( xi[idx], fe.grad(g_n[idx]) )*alpha_plus*v\
+                - fe.dot( xi[idx], fe.grad(g_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
                     + 0.5*(body_force_np1 + body_force_n)*alpha_plus*v\
                         + 0.5*(body_force_np1 + body_force_n)\
                             *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
@@ -397,24 +485,24 @@ for n in range(0, num_steps):
     
     # Solve linear system in each timestep
     for idx in range(Q):
-        fe.solve( sys_mat_step2[idx], f_nP1[idx].vector(), rhs_vec_step2[idx] )
+        fe.solve( sys_mat_step2[idx], g_nP1[idx].vector(), rhs_vec_step2[idx] )
         
     # Update previous solutions
     for idx in range(Q):
-        f_nM1[idx].assign( f_n[idx] )
+        g_nM1[idx].assign( g_n[idx] )
     
     for idx in range(Q):
-        f_n[idx].assign( f_nP1[idx] )
+        g_n[idx].assign( g_nP1[idx] )
         
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
+    fe.project(g_n[7], V, function=f5_lower_func)
+    fe.project(g_n[4], V, function=f2_lower_func)
+    fe.project(g_n[8], V, function=f6_lower_func)
+    fe.project(g_n[5], V, function=f7_upper_func)
+    fe.project(g_n[2], V, function=f4_upper_func)
+    fe.project(g_n[6], V, function=f8_upper_func)
     
     if n%1000 == 0:
-        u_expr = vel(f_n)
+        u_expr = vel(g_n)
         V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
         u_n = fe.project(u_expr, V_vec)
         u_n_x = fe.project(u_n.split()[0], V)
@@ -431,7 +519,7 @@ for n in range(0, num_steps):
     
 error_vec = np.asarray(error_vec)
 #%%
-u_expr = vel(f_n)
+u_expr = vel(g_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 
@@ -524,19 +612,19 @@ x_unique = np.unique(x_f)
 y_unique = np.unique(y_f)
 nx_f = len(x_unique)
 ny_f = len(y_unique)
-assert nx_f * ny_f == x_f.size, "grid size mismatch for f_i"
+assert nx_f * ny_f == x_f.size, "grid size mismatch for g_i"
 
 # 3) Compute lexicographic ordering so that slow index=y, fast=x
 order_f = np.lexsort((x_f, y_f))
 
 # 4) Loop over all distributions, sort & reshape
-f_grids = []
-for idx, fi in enumerate(f_n):
+g_grids = []
+for idx, fi in enumerate(g_n):
     # flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
     fi_vals   = fi.vector().get_local()
     fi_sorted = fi_vals[order_f]
     fi_grid   = fi_sorted.reshape((ny_f, nx_f))
-    f_grids.append(fi_grid)
+    g_grids.append(fi_grid)
     # Optional: if you want to name them individually:
     # globals()[f"f{idx}_grid"] = fi_grid
 
