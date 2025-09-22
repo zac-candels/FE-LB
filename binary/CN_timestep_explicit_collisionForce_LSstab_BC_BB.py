@@ -195,6 +195,10 @@ def h_equil(g_list, h_list, vel_idx, rho):
     
     return w[i] * orderParameter * (1 + vel_terms)
 
+def h_equil_init( vel_idx, orderParameter):
+
+    return w[vel_idx] * orderParameter
+
 def h_equil_extrap(g_list_n, g_list_nM1, h_list_n, h_list_nM1,
                    vel_idx, rho_n, rho_nM1):
     
@@ -309,14 +313,16 @@ for idx in range(Q):
 
 # Also need to initialize the h_distributions
 
-def init_orderParam(x, y):
-    r2 = (x - drop_center_x)**2 + (y - drop_center_y )**2
-    
-    C_0 = 0.5 - 0.5 * np.tanh( 2 * (np.sqrt(r2) - radius) )/4.0
-    
-    C_0_fenics = fe.project(C_0, V)
-    
-    return C_0_fenics
+C_0_expr = fe.Expression(
+    "0.5 - 0.5 * tanh(2.0 * (sqrt((x[0]-xc)*(x[0]-xc) + (x[1]-yc)*(x[1]-yc)) - r)) / 4.0",
+    degree=2, xc=drop_center_x, yc=drop_center_y, r=radius
+)
+
+# Project into V
+C_0_fenics = fe.project(C_0_expr, V)
+
+for idx in range(Q):
+    h_n[idx] = h_equil_init(idx, C_0_fenics)
 
     
 
@@ -416,21 +422,26 @@ for idx in range(Q):
     
     
 
-bilinear_forms_step2 = []
-linear_forms_step1 = []
-linear_forms_step2 = []
+bilinear_forms_g_step2 = []
+bilinear_forms_h_step2 = []
+linear_forms_g_step1 = []
+linear_forms_g_step2 = []
 
 # Define variational problems for step 2 (CN timestep)
 
 for idx in range(Q):
-    bilinear_forms_step2.append( alpha_plus**2*g_trial[idx]*v*fe.dx\
-        + alpha_plus*fe.dot( xi[idx], fe.grad(v) ) * g_trial[idx] * fe.dx\
-            + alpha_plus*fe.dot( xi[idx], fe.grad(g_trial[idx]) )*v*fe.dx\
+    
+    bilinear_form_expr =alpha_plus_g**2*g_trial[idx]*v*fe.dx\
+        + alpha_plus_g*fe.dot( xi[idx], fe.grad(v) ) * g_trial[idx] * fe.dx\
+            + alpha_plus_g*fe.dot( xi[idx], fe.grad(g_trial[idx]) )*v*fe.dx\
                 + fe.dot( xi[idx], fe.grad(g_trial[idx]) )\
-                    *fe.dot( xi[idx], fe.grad(v) )*fe.dx )
+                    *fe.dot( xi[idx], fe.grad(v) )*fe.dx
+                    
+    bilinear_forms_g_step2.append( bilinear_form_expr )
+    bilinear_forms_h_step2.append( bilinear_form_expr)
 
-    body_force_np1 = body_Force_extrap(g_n, g_nM1, idx, Force_density)
-    body_force_n = body_Force(vel(g_n), idx, Force_density)
+    body_force_g_np1 = body_Force_g_extrap(g_n, g_nM1, idx, Force_density)
+    body_force_g_n = body_Force_g(vel(g_n), idx, Force_density)
     
     linear_forms_step1.append( ( alpha_minus*alpha_plus*g_n[idx]*v\
         + alpha_minus*g_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
@@ -474,14 +485,14 @@ for n in range(0, num_steps):
             rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
         
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
-    bc_f2.apply(sys_mat_step2[2], rhs_vec_step2[2])
-    bc_f6.apply(sys_mat_step2[6], rhs_vec_step2[6])
+    bc_g5.apply(sys_mat_step2[5], rhs_vec_step2[5])
+    bc_g2.apply(sys_mat_step2[2], rhs_vec_step2[2])
+    bc_g6.apply(sys_mat_step2[6], rhs_vec_step2[6])
     
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat_step2[7], rhs_vec_step2[7])
-    bc_f4.apply(sys_mat_step2[4], rhs_vec_step2[4])
-    bc_f8.apply(sys_mat_step2[8], rhs_vec_step2[8])
+    bc_g7.apply(sys_mat_step2[7], rhs_vec_step2[7])
+    bc_g4.apply(sys_mat_step2[4], rhs_vec_step2[4])
+    bc_g8.apply(sys_mat_step2[8], rhs_vec_step2[8])
     
     # Solve linear system in each timestep
     for idx in range(Q):
@@ -494,12 +505,12 @@ for n in range(0, num_steps):
     for idx in range(Q):
         g_n[idx].assign( g_nP1[idx] )
         
-    fe.project(g_n[7], V, function=f5_lower_func)
-    fe.project(g_n[4], V, function=f2_lower_func)
-    fe.project(g_n[8], V, function=f6_lower_func)
-    fe.project(g_n[5], V, function=f7_upper_func)
-    fe.project(g_n[2], V, function=f4_upper_func)
-    fe.project(g_n[6], V, function=f8_upper_func)
+    fe.project(g_n[7], V, function=g5_lower_func)
+    fe.project(g_n[4], V, function=g2_lower_func)
+    fe.project(g_n[8], V, function=g6_lower_func)
+    fe.project(g_n[5], V, function=g7_upper_func)
+    fe.project(g_n[2], V, function=g4_upper_func)
+    fe.project(g_n[6], V, function=g8_upper_func)
     
     if n%1000 == 0:
         u_expr = vel(g_n)
