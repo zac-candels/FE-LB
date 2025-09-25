@@ -4,13 +4,13 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 3000
+T = 1000
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 20
+nx = ny = 5
 L_x = 30
 L_y = 30
 h = L_x/nx
@@ -159,7 +159,7 @@ def f_equil(f_list, vel_idx):
 
 # Define collision operator
 def coll_op(f_list, vel_idx):
-    return -( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / tau 
+    return -( f_list[vel_idx] - f_equil(f_list, vel_idx) ) / (tau + 0.5)
 
 def body_Force(vel, vel_idx, Force_density):
     prefactor = w[vel_idx]
@@ -292,7 +292,7 @@ for idx in range(Q):
 
 # Timestepping
 t = 0.0
-for n in range(1, 1000):
+for n in range(1, 2000):
     t += dt
     
     for idx in range(Q):
@@ -305,6 +305,13 @@ for n in range(1, 1000):
     for idx in range(Q):
         rhs_vec_streaming[idx] = ( fe.assemble(linear_forms_stream[idx]) )
         
+    fe.project(f_star[7], V, function=f5_lower_func)
+    fe.project(f_star[4], V, function=f2_lower_func)
+    fe.project(f_star[8], V, function=f6_lower_func)
+    fe.project(f_star[5], V, function=f7_upper_func)
+    fe.project(f_star[2], V, function=f4_upper_func)
+    fe.project(f_star[6], V, function=f8_upper_func)
+    
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
     bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
@@ -324,12 +331,6 @@ for n in range(1, 1000):
     for idx in range(Q):
         f_n[idx].assign( f_nP1[idx] )
         
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
     
     if n%100 == 0:
         u_expr = vel(f_n)
