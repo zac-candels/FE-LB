@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 1000
+T = 100
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 5
-L_x = 30
-L_y = 30
+L_x = 32
+L_y = 32
 h = L_x/nx
 
 error_vec = []
@@ -20,9 +20,8 @@ error_vec = []
 # Lattice speed of sound
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
-#nu = 1.0/6.0
-#tau = nu/c_s**2 + dt/2 
-tau = 2
+nu = 1.0/3.0
+tau = nu/c_s**2 + 0.5*dt 
 
 # Number of discrete velocities
 Q = 9
@@ -35,7 +34,6 @@ rho_init = 1.0
 u_wall = (0.0, 0.0)
 
 
-nu = tau/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 
 
@@ -263,8 +261,14 @@ linear_forms_stream = []
 bilinear_forms_collision = []
 linear_forms_collision = []
 
+n = fe.FacetNormal(mesh)
+opp_idx = {0:0, 1:3, 2:4, 3:1, 4:2, 5:7, 6:8, 7:5, 8:6}
+
 for idx in range(Q):
-    linear_forms_collision.append( (f_n[idx] + dt*coll_op(f_n, idx))*v*fe.dx )
+    
+    f_eq = f_equil(f_n, idx)
+    linear_forms_collision.append( ( f_n[idx]\
+                                    - dt/(tau + 0.5) * (f_n[idx] - f_eq) )*v*fe.dx  )
     
     bilinear_forms_stream.append( f_trial * v * fe.dx )
     
@@ -274,11 +278,28 @@ for idx in range(Q):
     dot_product_force_term = 0.5*dt**2 * fe.dot( xi[idx], fe.grad(v) )\
         * body_Force( vel(f_star), idx, Force_density ) * fe.dx
         
+    if idx in opp_idx:
+        # UFL scalar: dot product with facet normal
+        dot_xi_n = fe.dot(xi[idx], n)
+    
+        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
+        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
+                                   fe.Constant(1.0),
+                                   fe.Constant(0.0))
+    
+        # build surface term only for incoming distributions
+        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
+                   * dot_xi_n * indicator * fe.ds
+    else:
+        # no surface contribution for this idx
+        surface_term = fe.Constant(0.0) * v * fe.ds
+        
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot( xi[idx], fe.grad(f_star[idx]) )*fe.dx\
             + dt*v*body_Force( vel(f_star), idx, Force_density )*fe.dx\
                + double_dot_product_term\
-                    + dot_product_force_term
+                   + dot_product_force_term\
+                       + surface_term
     
     linear_forms_stream.append( lin_form_idx )
         
@@ -292,7 +313,7 @@ for idx in range(Q):
 
 # Timestepping
 t = 0.0
-for n in range(1, 2000):
+for n in range(1, num_steps):
     t += dt
     
     for idx in range(Q):
@@ -439,7 +460,7 @@ x_f = coords_f[:, 0]
 y_f = coords_f[:, 1]
 
 # 2) Find unique levels and check grid size
-x_unique = np.unique(x_f)
+x_unique = np.unique(x_f) 
 y_unique = np.unique(y_f)
 nx_f = len(x_unique)
 ny_f = len(y_unique)

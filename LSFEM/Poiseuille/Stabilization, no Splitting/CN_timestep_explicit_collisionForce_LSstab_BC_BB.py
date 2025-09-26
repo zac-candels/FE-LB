@@ -10,9 +10,9 @@ num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 20
-L_x = 10
-L_y = 20
+nx = ny = 5
+L_x = 30
+L_y = 30
 h = L_x/nx
 
 error_vec = []
@@ -317,71 +317,19 @@ bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 # Define variational problems
 
-bilinear_forms_step1 = []
-linear_forms_step1 = []
-
-for idx in range(Q):
-    bilinear_forms_step1.append( f_trial[idx] * v * fe.dx\
-                                     + dt*fe.dot( xi[idx], fe.grad(f_trial[idx]) )\
-                                         * v * fe.dx )
-    linear_forms_step1.append( ( f_n[idx] + dt*coll_op(f_n, idx)\
-      + dt * body_Force( vel(f_n), idx, Force_density) ) * v * fe.dx )
-        
-# Assemble matrices for first step
-sys_mat_step1 = []
-rhs_vec_step1 = [0]*Q
-for idx in range(Q):
-    sys_mat_step1.append( fe.assemble( bilinear_forms_step1[idx] ) )
 
 # Define FE functions to hold solution at nP1 timesteps
 f_nP1 = []
 for idx in range(Q):
     f_nP1.append(fe.Function(V))
 
-    
-t = 0
-for n in range(1):
-    t += dt
-    
-    for idx in range(Q):
-        rhs_vec_step1[idx] = ( fe.assemble( linear_forms_step1[idx] ) )
-        
-    # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat_step1[5], rhs_vec_step1[5])
-    bc_f2.apply(sys_mat_step1[2], rhs_vec_step1[2])
-    bc_f6.apply(sys_mat_step1[6], rhs_vec_step1[6])
-    
-    # Apply BCs for distributions 7, 4, 8
-    bc_f7.apply(sys_mat_step1[7], rhs_vec_step1[7])
-    bc_f4.apply(sys_mat_step1[4], rhs_vec_step1[4])
-    bc_f8.apply(sys_mat_step1[8], rhs_vec_step1[8])
-    
-    for idx in range(Q):
-        fe.solve( sys_mat_step1[idx], f_nP1[idx].vector(), rhs_vec_step1[idx] )
-        
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
-        
-# Now define finite element functions for the n - 1 timestep
-
 f_nM1 = []
 for idx in range(Q):
-    f_nM1.append( fe.Function(V) )
-    
-# Assign initial values to f_nM1
-for idx in range(Q):
-    f_nM1[idx].assign( f_n[idx] )
-    
-# Update f_n
-for idx in range(Q):
-    f_n[idx].assign( f_nP1[idx] )   
+    f_nM1.append( fe.Function(V) ) 
     
 
 bilinear_forms_step2 = []
+linear_forms_step1 = []
 linear_forms_step2 = []
 
 # Define variational problems for step 2 (CN timestep)
@@ -395,6 +343,16 @@ for idx in range(Q):
 
     body_force_np1 = body_Force_extrap(f_n, f_nM1, idx, Force_density)
     body_force_n = body_Force(vel(f_n), idx, Force_density)
+    
+    linear_forms_step1.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
+        + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
+        +   (1/tau)*( f_equil_extrap(f_n, f_n, idx) + f_equil(f_n, idx) ) * alpha_plus*v\
+        + (1/tau)*( f_equil_extrap(f_n, f_n, idx) + f_equil(f_n, idx) ) * fe.dot( xi[idx], fe.grad(v) )\
+            - fe.dot( xi[idx], fe.grad(f_n[idx]) )*alpha_plus*v\
+                - fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dot( xi[idx], fe.grad(v) )\
+                    + 0.5*(body_force_n + body_force_n)*alpha_plus*v\
+                        + 0.5*(body_force_n + body_force_n)\
+                            *fe.dot( xi[idx], fe.grad(v) ) )*fe.dx )
 
     linear_forms_step2.append( ( alpha_minus*alpha_plus*f_n[idx]*v\
         + alpha_minus*f_n[idx]*fe.dot( xi[idx], fe.grad(v) )\
@@ -415,11 +373,17 @@ for idx in range(Q):
     
     
 # CN timestepping
-for n in range(1, num_steps):
+t = 0
+for n in range(0, 100):
+    t += dt
     
     # Assemble RHS vectors
-    for idx in range(Q):
-        rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
+    if n == 0:
+        for idx in range(Q):
+            rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step1[idx]) )
+    else:
+        for idx in range(Q):
+            rhs_vec_step2[idx] = ( fe.assemble(linear_forms_step2[idx]) )
         
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat_step2[5], rhs_vec_step2[5])
@@ -580,5 +544,4 @@ for idx, fi in enumerate(f_n):
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
     
-
 
