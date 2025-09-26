@@ -320,7 +320,8 @@ for n in range(1, num_steps):
         rhs_vec_collision[idx] = fe.assemble( linear_forms_collision[idx] )
         
     for idx in range(Q):
-        fe.solve( sys_mat[idx], f_star[idx].vector(), rhs_vec_collision[idx] )
+        #fe.solve( sys_mat[idx], f_star[idx].vector(), rhs_vec_collision[idx] )
+        fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V)
     
     # Assemble RHS vectors
     for idx in range(Q):
