@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 5000
+T = 2000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 tau = 1
 
-nx = ny = 40
+nx = ny = 5
 L_x = L_y = 32
 h = L_x/nx
 
@@ -704,17 +704,6 @@ for n in range(1, num_steps):
     fe.project(w[7]*fe.Constant(rho_wall), V, function=f7_upper_func)
     fe.project(w[4]*fe.Constant(rho_wall), V, function=f4_upper_func)
     fe.project(w[8]*fe.Constant(rho_wall), V, function=f8_upper_func)
-    
-    for i in [4, 7, 8]:
-        f_out = f_eq_single(rho_wall, u_wall, xi[i], w[i])
-        bc_eq = fe.DirichletBC(V, fe.Constant(f_out), Bdy_Lower)
-        bc_eq.apply(f_list_n[i].vector())
-    
-    # Upper wall outgoing indices
-    for i in [2, 5, 6]:
-        f_out = f_eq_single(rho_wall, u_wall, xi[i], w[i])
-        bc_eq = fe.DirichletBC(V, fe.Constant(f_out), Bdy_Upper)
-        bc_eq.apply(f_list_n[i].vector())
         
     if n%1000 == 0:
         u_expr = vel(f_list_n)
