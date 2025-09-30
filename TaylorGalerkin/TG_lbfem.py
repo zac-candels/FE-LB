@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 100
-dt = 0.01
+T = 2000
+dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
@@ -21,7 +21,7 @@ error_vec = []
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau = nu/c_s**2 + 0.5*dt 
+tau = 1 #nu/c_s**2 + 0.5*dt 
 
 # Number of discrete velocities
 Q = 9
@@ -277,29 +277,13 @@ for idx in range(Q):
         
     dot_product_force_term = 0.5*dt**2 * fe.dot( xi[idx], fe.grad(v) )\
         * body_Force( vel(f_star), idx, Force_density ) * fe.dx
-        
-    if idx in opp_idx:
-        # UFL scalar: dot product with facet normal
-        dot_xi_n = fe.dot(xi[idx], n)
     
-        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
-        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
-                                   fe.Constant(1.0),
-                                   fe.Constant(0.0))
-    
-        # build surface term only for incoming distributions
-        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
-                   * dot_xi_n * indicator * fe.ds
-    else:
-        # no surface contribution for this idx
-        surface_term = fe.Constant(0.0) * v * fe.ds
         
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot( xi[idx], fe.grad(f_star[idx]) )*fe.dx\
             + dt*v*body_Force( vel(f_star), idx, Force_density )*fe.dx\
                + double_dot_product_term\
                    + dot_product_force_term\
-                       + surface_term
     
     linear_forms_stream.append( lin_form_idx )
         
@@ -310,18 +294,17 @@ rhs_vec_collision = [0]*Q
 for idx in range(Q):
     sys_mat.append( fe.assemble( bilinear_forms_stream[idx] ) )
     
-f_star_vals = []
-f_eq_vals = []
-f_n_vals_tg = []
-rhs_vals = []
 # Timestepping
 t = 0.0
-for n in range(2):
+for n in range(2000):
     t += dt
     
     for idx in range(Q):
         rhs_vec_collision[idx] = fe.assemble( linear_forms_collision[idx] )
-        fe.solve( sys_mat[idx], f_star[idx].vector(), rhs_vec_collision[idx] )
+        
+    for idx in range(Q):
+        f_eq = f_equil(f_n, idx)
+        fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V, function=f_star[idx])
     
     # Assemble RHS vectors
     for idx in range(Q):
@@ -347,7 +330,6 @@ for n in range(2):
     # Solve linear system in each timestep
     for idx in range(Q):
         fe.solve( sys_mat[idx], f_nP1[idx].vector(), rhs_vec_streaming[idx] )
-        rhs_vals.append( rhs_vec_streaming[idx].get_local() )
         
     # Update previous solutions
     
