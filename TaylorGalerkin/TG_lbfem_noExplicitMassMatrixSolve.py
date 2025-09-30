@@ -204,9 +204,9 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_n )
  
-f5_lower = f_n[7] # rho_expr
-f2_lower = f_n[4] # rho_expr 
-f6_lower = f_n[8] # rho_expr
+f5_lower = f_star[7] # rho_expr
+f2_lower = f_star[4] # rho_expr 
+f6_lower = f_star[8] # rho_expr
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
@@ -237,9 +237,9 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_n )
  
-f7_upper = f_n[5] # rho_expr
-f4_upper = f_n[2] # rho_expr 
-f8_upper = f_n[6] # rho_expr
+f7_upper = f_star[5] # rho_expr
+f4_upper = f_star[2] # rho_expr 
+f8_upper = f_star[6] # rho_expr
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
@@ -272,16 +272,16 @@ for idx in range(Q):
     
     bilinear_forms_stream.append( f_trial * v * fe.dx )
     
-    double_dot_product_term = -0.5*dt**2 * fe.dot( xi[idx], fe.grad(f_n[idx]) )\
+    double_dot_product_term = -0.5*dt**2 * fe.dot( xi[idx], fe.grad(f_star[idx]) )\
         * fe.dot( xi[idx], fe.grad(v) ) * fe.dx
         
     dot_product_force_term = 0.5*dt**2 * fe.dot( xi[idx], fe.grad(v) )\
-        * body_Force( vel(f_n), idx, Force_density ) * fe.dx
+        * body_Force( vel(f_star), idx, Force_density ) * fe.dx
     
         
-    lin_form_idx = f_n[idx]*v*fe.dx\
-        - dt*v*fe.dot( xi[idx], fe.grad(f_n[idx]) )*fe.dx\
-            + dt*v*body_Force( vel(f_n), idx, Force_density )*fe.dx\
+    lin_form_idx = f_star[idx]*v*fe.dx\
+        - dt*v*fe.dot( xi[idx], fe.grad(f_star[idx]) )*fe.dx\
+            + dt*v*body_Force( vel(f_star), idx, Force_density )*fe.dx\
                + double_dot_product_term\
                    + dot_product_force_term\
     
@@ -296,7 +296,7 @@ for idx in range(Q):
     
 # Timestepping
 t = 0.0
-for n in range(num_steps):
+for n in range(3):
     t += dt
     
     for idx in range(Q):
@@ -304,18 +304,18 @@ for n in range(num_steps):
         
     for idx in range(Q):
         f_eq = f_equil(f_n, idx)
-        f_n[idx] = fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V)
+        fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V, function=f_star[idx])
     
     # Assemble RHS vectors
     for idx in range(Q):
         rhs_vec_streaming[idx] = ( fe.assemble(linear_forms_stream[idx]) )
         
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
+    fe.project(f_star[7], V, function=f5_lower_func)
+    fe.project(f_star[4], V, function=f2_lower_func)
+    fe.project(f_star[8], V, function=f6_lower_func)
+    fe.project(f_star[5], V, function=f7_upper_func)
+    fe.project(f_star[2], V, function=f4_upper_func)
+    fe.project(f_star[6], V, function=f8_upper_func)
     
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
