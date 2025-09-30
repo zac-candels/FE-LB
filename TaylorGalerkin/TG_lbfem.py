@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
+T = 1000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
@@ -21,7 +21,7 @@ error_vec = []
 c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau = 1 #nu/c_s**2 + 0.5*dt 
+tau = nu/c_s**2 + 0.5*dt 
 
 # Number of discrete velocities
 Q = 9
@@ -204,9 +204,9 @@ def Bdy_Lower(x, on_boundary):
     
 rho_expr = sum( fk for fk in f_n )
  
-f5_lower = f_star[7] # rho_expr
-f2_lower = f_star[4] # rho_expr 
-f6_lower = f_star[8] # rho_expr
+f5_lower = f_n[7] # rho_expr
+f2_lower = f_n[4] # rho_expr 
+f6_lower = f_n[8] # rho_expr
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
@@ -237,9 +237,9 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum( fk for fk in f_n )
  
-f7_upper = f_star[5] # rho_expr
-f4_upper = f_star[2] # rho_expr 
-f8_upper = f_star[6] # rho_expr
+f7_upper = f_n[5] # rho_expr
+f4_upper = f_n[2] # rho_expr 
+f8_upper = f_n[6] # rho_expr
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
@@ -273,13 +273,29 @@ for idx in range(Q):
         
     dot_product_force_term = 0.5*dt**2 * fe.dot( xi[idx], fe.grad(v) )\
         * body_Force( vel(f_star), idx, Force_density ) * fe.dx
+        
+    if idx in opp_idx:
+    # UFL scalar: dot product with facet normal
+        dot_xi_n = fe.dot(xi[idx], n)
+    
+        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
+        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
+                                   fe.Constant(1.0),
+                                   fe.Constant(0.0))
+    
+        # build surface term only for incoming distributions
+        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
+                   * dot_xi_n * indicator * fe.ds
+    else:
+        # no surface contribution for this idx
+        surface_term = fe.Constant(0.0) * v * fe.ds
     
         
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot( xi[idx], fe.grad(f_star[idx]) )*fe.dx\
             + dt*v*body_Force( vel(f_star), idx, Force_density )*fe.dx\
                + double_dot_product_term\
-                   + dot_product_force_term\
+                   + dot_product_force_term # + surface_term
     
     linear_forms_stream.append( lin_form_idx )
         
@@ -292,23 +308,23 @@ for idx in range(Q):
     
 # Timestepping
 t = 0.0
-for n in range(2000):
+for n in range(num_steps):
     t += dt
         
     for idx in range(Q):
         f_eq = f_equil(f_n, idx)
-        fe.project( f_n[idx] - dt/(tau ) * (f_n[idx] - f_eq), V, function=f_star[idx])
+        fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V, function=f_star[idx])
     
     # Assemble RHS vectors
     for idx in range(Q):
         rhs_vec_streaming[idx] = ( fe.assemble(linear_forms_stream[idx]) )
         
-    fe.project(f_star[7], V, function=f5_lower_func)
-    fe.project(f_star[4], V, function=f2_lower_func)
-    fe.project(f_star[8], V, function=f6_lower_func)
-    fe.project(f_star[5], V, function=f7_upper_func)
-    fe.project(f_star[2], V, function=f4_upper_func)
-    fe.project(f_star[6], V, function=f8_upper_func)
+    fe.project(f_n[7], V, function=f5_lower_func)
+    fe.project(f_n[4], V, function=f2_lower_func)
+    fe.project(f_n[8], V, function=f6_lower_func)
+    fe.project(f_n[5], V, function=f7_upper_func)
+    fe.project(f_n[2], V, function=f4_upper_func)
+    fe.project(f_n[6], V, function=f8_upper_func)
     
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
