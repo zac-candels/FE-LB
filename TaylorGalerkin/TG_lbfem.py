@@ -266,10 +266,6 @@ opp_idx = {0:0, 1:3, 2:4, 3:1, 4:2, 5:7, 6:8, 7:5, 8:6}
 
 for idx in range(Q):
     
-    f_eq = f_equil(f_n, idx)
-    linear_forms_collision.append( ( f_n[idx]\
-                                    - dt/(tau + 0.5) * (f_n[idx] - f_eq) )*v*fe.dx  )
-    
     bilinear_forms_stream.append( f_trial * v * fe.dx )
     
     double_dot_product_term = -0.5*dt**2 * fe.dot( xi[idx], fe.grad(f_star[idx]) )\
@@ -298,13 +294,10 @@ for idx in range(Q):
 t = 0.0
 for n in range(2000):
     t += dt
-    
-    for idx in range(Q):
-        rhs_vec_collision[idx] = fe.assemble( linear_forms_collision[idx] )
         
     for idx in range(Q):
         f_eq = f_equil(f_n, idx)
-        fe.project( f_n[idx] - dt/(tau + 0.5) * (f_n[idx] - f_eq), V, function=f_star[idx])
+        fe.project( f_n[idx] - dt/(tau ) * (f_n[idx] - f_eq), V, function=f_star[idx])
     
     # Assemble RHS vectors
     for idx in range(Q):
