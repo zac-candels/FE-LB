@@ -1,15 +1,18 @@
 import fenics as fe
 import os
 import numpy as np
+import matplotlib 
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 plt.close('all')
 
 # Where to save the plots
-outDirName = "figures"
-os.system("mkdir -p %s"%outDirName)
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, "figures")
+os.makedirs(outDirName, exist_ok=True)
 
-T = 2000
+T = 1500
 dt = 0.1
 num_steps = int(np.ceil(T/dt))
 
@@ -447,7 +450,7 @@ plt.ylabel("y")
 #plt.show()
 
 # %%
-plt.rcParams['text.usetex'] = True
+#plt.rcParams['text.usetex'] = True
 # Plot velocity profile at x=L_x/2
 num_points_analytical = 200
 num_points_numerical = 10
@@ -467,14 +470,15 @@ for point in points:
     u_x_values.append(u_at_point[0] / u_max)
 
 
+WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
+outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
-
 output = os.path.join(outDirName, "felb.png")
 
 plt.figure()
 plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
 plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
+plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
 plt.xlabel(r"$y/L_y$", fontsize=20)
 plt.legend()
 plt.tick_params(direction="in")
@@ -483,7 +487,7 @@ plt.tick_params(direction="in")
 print("Saving figure to:", os.path.abspath(output))
 plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
 
-plt.show()
+#plt.show()
 plt.close()
 
 # %% Create grid of u_x and u_y values

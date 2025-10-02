@@ -9,11 +9,11 @@
 #SBATCH --ntasks=1               # Number of tasks (processes)
 #SBATCH --cpus-per-task=64         # Number of CPU cores per task
 
-# Run the executable
-module load singularity
-
 SIF=../../fenics.sif
 WORKDIR=$SLURM_SUBMIT_DIR
+
 module load cray-python
 
-singularity exec $SIF python3 $WORKDIR/TG_lbfem.py
+# Bind the working directory into /root/shared inside the container
+singularity exec --bind $SLURM_SUBMIT_DIR:/root/shared $SIF \
+    bash -c "cd /root/shared && python3 TG_lbfem.py"
