@@ -13,7 +13,7 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-dt = 0.1
+dt = 0.01
 num_steps = int(np.ceil(T/dt))
 
 
@@ -473,7 +473,8 @@ for point in points:
 WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
 outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
-output = os.path.join(outDirName, "felb.png")
+fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".png"
+output = os.path.join(outDirName, fig_name)
 
 plt.figure()
 plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
