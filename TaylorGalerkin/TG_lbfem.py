@@ -1,16 +1,21 @@
 import fenics as fe
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2400
+# Where to save the plots
+outDirName = "figures"
+os.system("mkdir -p %s"%outDirName)
+
+T = 2000
 dt = 0.1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 20
+nx = ny = 5
 L_x = 32
 L_y = 32
 h = L_x/nx
@@ -439,7 +444,7 @@ plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
 plt.title("Velocity field at final time")
 plt.xlabel("x")
 plt.ylabel("y")
-plt.show()
+#plt.show()
 
 # %%
 plt.rcParams['text.usetex'] = True
@@ -461,16 +466,25 @@ for point in points:
     u_at_point = u(point)
     u_x_values.append(u_at_point[0] / u_max)
 
+
+os.makedirs(outDirName, exist_ok=True)
+
+output = os.path.join(outDirName, "felb.png")
+
 plt.figure()
 plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
 plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
 plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
 plt.xlabel(r"$y/L_y$", fontsize=20)
-title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
-# plt.title(title_str)
 plt.legend()
 plt.tick_params(direction="in")
+
+
+print("Saving figure to:", os.path.abspath(output))
+plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+
 plt.show()
+plt.close()
 
 # %% Create grid of u_x and u_y values
 
