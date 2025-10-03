@@ -28,8 +28,8 @@ error_vec = []
 # Lattice speed of sound
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
-# nu = 1.0/3.0
-tau = 1.  # nu/c_s**2 + 0.5*dt
+nu = 1.0/3.0
+tau = nu/c_s**2 + 0.5*dt
 
 # Number of discrete velocities
 Q = 9
@@ -41,7 +41,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-nu = tau/3.
+#nu = tau/3.
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
 
 
@@ -375,12 +375,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    fe.project(f_n[7], V, function=f5_lower_func)
-    fe.project(f_n[4], V, function=f2_lower_func)
-    fe.project(f_n[8], V, function=f6_lower_func)
-    fe.project(f_n[5], V, function=f7_upper_func)
-    fe.project(f_n[2], V, function=f4_upper_func)
-    fe.project(f_n[6], V, function=f8_upper_func)
+    f5_lower_func.vector()[:] = f_n[7].vector()[:]
+    f2_lower_func.vector()[:] = f_n[4].vector()[:]
+    f6_lower_func.vector()[:] = f_n[8].vector()[:]
+    f7_upper_func.vector()[:] = f_n[5].vector()[:]
+    f4_upper_func.vector()[:] = f_n[2].vector()[:]
+    f8_upper_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -393,15 +393,20 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
+    solver_list = []
     for idx in range(Q):
-        fe.solve(sys_mat[idx], f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        A = sys_mat[idx]
+        solver = fe.LUSolver(A)
+        solver_list.append(solver)
+        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+
 
     # Update previous solutions
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
 
-    if n % 300 == 0:
+    if n % 3000 == 0:
         u_expr = vel(f_n)
         V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
         u_n = fe.project(u_expr, V_vec)
