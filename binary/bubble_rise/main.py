@@ -16,12 +16,7 @@ T = 1500
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
 
-
-Re = 0.96
 nx = ny = 5
-L_x = 32
-L_y = 32
-h = L_x/nx
 
 error_vec = []
 
@@ -29,31 +24,35 @@ error_vec = []
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau = nu/c_s**2 + 0.5*dt
+tau_l = 3.0
+tau_h = 0.3
+
+eta_l = 0.01
+eta_h = 1
+
+
+# Initial bubble diameter
+initBubbleDiam = 10
+#interfacial thickness
+eps = 0.05 * initBubbleDiam
 
 # Set parameters for Allen-Cahn equation
-M_tilde = 1 # Mobility parameter
-epsilon = 0.1 # Interfacial thickness
-beta = 1
-kappa = 1
+M_tilde = 0.05 # Mobility parameter
+
+sigma = 0.01
+
+
+beta = 2*sigma/eps
+kappa = 3*sigma*eps/2
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6041666e-5, 0.0])
 
-# Density on wall
-rho_wall = 1.0
-# Initial density
-rho_init = 1.0
+
 # Bulk density of heavy fluid
-rho_h = 1e2
+rho_h = 100
 # Bulk density of light fluid
-rho_l = 1e-2
-
-u_wall = (0.0, 0.0)
-
-#nu = tau/3.
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+rho_l = 1
 
 
 # D2Q9 lattice velocities
@@ -78,19 +77,20 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+L_x, L_y = 9*initBubbleDiam, 18*initBubbleDiam
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(9*initBubbleDiam, 18*initBubbleDiam), nx, nx)
 
 # Set periodic boundary conditions at left and right endpoints
 
 
 class PeriodicBoundaryX(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return fe.near(x[0], 0.0) and on_boundary
+    def inside(self, point, on_boundary):
+        return fe.near(point[1], 0.0) and on_boundary
 
-    def map(self, x, y):
+    def map(self, top_bdy, bottom_bdy):
         # Map left boundary to the right
-        y[0] = x[0] - L_x
-        y[1] = x[1]
+        bottom_bdy[0] = top_bdy[0] - 18*initBubbleDiam
+        bottom_bdy[1] = top_bdy[1]
 
 
 pbc = PeriodicBoundaryX()
@@ -107,7 +107,8 @@ f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
-u_n = fe.Function(V)
+vel_n = fe.Function(V)
+mu_n = fe.Function(V)
 
 v = fe.TestFunction(V)
 
@@ -126,6 +127,9 @@ for idx in range(Q):
 # Define density
 def rho(phi):
     return rho_h*phi + rho_l*(1 - phi)
+
+def tau_fn(phi):
+    return phi*tau_h + (1 - phi)*tau_l
 
 # Define dynamic pressure
 def dyn_pres(f_list):
@@ -207,6 +211,7 @@ xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
 #     return feq  # NumPy array
 
+
 # Define \Gamma
 def Gamma_vel(vel_arg, vel_idx):
     ci = xi[vel_idx]
@@ -223,30 +228,41 @@ def Gamma0(vel_idx):
     
 
 # Define collision operator
-def coll_op(f_list, vel_idx):
-    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (tau + 0.5)
+def coll_op(f_list, phi, vel_idx):
+    rel_time = tau_fn(phi)
+    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (rel_time + 0.5)
 
 
-def body_Force(f_list, phi, vel_idx):
+def body_Force(f_list, phi, mu, vel_idx):
     
+    grav = fe.Constant((0.0, 9.81))
     dynPres = dyn_pres(f_list)
     fluid_vel = vel(f_list)
     density = rho(phi)
     p = density * dynPres 
+    buoyancy = - grav*(density - rho_h)
+    tau = tau_fn(phi)
+    
+    eta = c_s**2 * density * tau * dt
     
     dynPres_grad = fe.grad(dynPres)
     p_grad = fe.grad(p)
     phi_grad = fe.grad(phi)
     density_grad = fe.grad(density)
     
+    sym_grad_u = 2 * fe.sym(fe.grad(fluid_vel))
+    
     term1 = -Gamma_vel(fluid_vel)*(xi[vel_idx] - fluid_vel)\
         * ( p_grad/density ) 
     
     term2 = Gamma0(vel_idx)*(xi[vel_idx] - fluid_vel)*dynPres_grad
     
+    term3 = Gamma_vel(fluid_vel, vel_idx)*(xi[vel_idx] - fluid_vel)\
+        *( phi_grad*mu/density + (eta/density**2)*sym_grad_u*density_grad\
+          + buoyancy/density )
     
 
-    return term1 + term2
+    return term1 + term2 + term3
 
 
 # Define Allen-Cahn mobility
@@ -257,9 +273,8 @@ def mobility(phi_n):
     abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-12)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
     
-    mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/epsilon * inv_abs_grad_phi_n )
+    mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
     return mob
-    
     
 
 
@@ -358,12 +373,13 @@ n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 
-lin_form_AC = f_trial * v * fe.dx - dt*v*fe.dot(u_n, fe.grad(phi_n))\
+lin_form_AC = f_trial * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))\
-        - 0.5*dt**2 * fe.dot(u_n, fe.grad(v)) * fe.dot(u_n, fe.grad(phi_n))
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n))
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)\
-    + kappa*fe.grad(phi_n)*fe.grad(v)*fe.dx # Also need surface term
+    + kappa*fe.grad(phi_n)*fe.grad(v)*fe.dx # Here, surface term
+    # is unnecessary but will be for CL dynamics
 
 for idx in range(Q):
 
@@ -373,7 +389,9 @@ for idx in range(Q):
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(vel(f_star), idx, Force_density) * fe.dx
+        * body_Force(f_star, phi_n, mu_n, idx) * fe.dx
+        
+    body_Force(f_star, phi_n, mu_n, idx)
 
     if idx in opp_idx:
         # UFL scalar: dot product with facet normal
@@ -393,18 +411,17 @@ for idx in range(Q):
 
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(vel(f_star), idx, Force_density)*fe.dx\
+        + dt*v*body_Force(f_star, phi_n, mu_n, idx)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
 
     linear_forms_stream.append(lin_form_idx)
 
 # Assemble matrices for first step
-sys_mat = []
+
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
-for idx in range(Q):
-    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+sys_mat = fe.assemble(bilinear_forms_stream[0])
 
 # Timestepping
 t = 0.0
@@ -414,15 +431,17 @@ for n in range(num_steps):
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
     
-    
-    
-
+    # Perform collision, get post-collision distributions f_i^*
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, idx)
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - dt/tau * (f_n_vec - f_eq_vec)
+        phi_vec = phi_n.vector().get_local()
+        
+        tau_vec = phi_vec*tau_h + (1 - phi_vec)*tau_l
+        
+        f_new = f_n_vec - dt/tau_vec * (f_n_vec - f_eq_vec)
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
@@ -439,46 +458,37 @@ for n in range(num_steps):
     f8_upper_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f5.apply(sys_mat, rhs_vec_streaming[5])
+    bc_f2.apply(sys_mat, rhs_vec_streaming[2])
+    bc_f6.apply(sys_mat, rhs_vec_streaming[6])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
+    bc_f7.apply(sys_mat, rhs_vec_streaming[7])
+    bc_f4.apply(sys_mat, rhs_vec_streaming[4])
+    bc_f8.apply(sys_mat, rhs_vec_streaming[8])
 
-    # Solve linear system in each timestep
+    # Solve linear system in each timestep, get f^{n+1}
     solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
+        A = sys_mat
         solver = fe.LUSolver(A)
         solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        
+    
+    phi_nP1 = fe.solve(sys_mat, rhs_AC)
+    mu_nP1 = fe.solve(sys_mat, rhs_mu)
 
 
     # Update previous solutions
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
-        
-    u_n = vel(f_n)
+    phi_n.assign(phi_nP1)
+    mu_n.assign(mu_nP1)
+    vel_n = vel(f_n)
+    
 
-    if n % 3000 == 0:
-        u_expr = vel(f_n)
-        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-        u_n = fe.project(u_expr, V_vec)
-        u_n_x = fe.project(u_n.split()[0], V)
-
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                            degree=2, u_max=u_max, L_y=L_y)
-        u_e = fe.interpolate(u_e, V)
-        error = np.abs(u_e.vector().get_local() -
-                       u_n_x.vector().get_local()).max()
-        print('t = %.4f: error = %.3g' % (t, error))
-        print('max u:', u_n_x.vector().get_local().max())
-        if n % 10 == 0:
-            error_vec.append(error)
 
 
 error_vec = np.asarray(error_vec)
@@ -512,47 +522,10 @@ plt.xlabel("x")
 plt.ylabel("y")
 #plt.show()
 
-# %%
-#plt.rcParams['text.usetex'] = True
-# Plot velocity profile at x=L_x/2
-num_points_analytical = 200
-num_points_numerical = 10
-y_values_analytical = np.linspace(0, L_y, num_points_analytical)
-y_values_numerical = np.linspace(0, L_y, num_points_numerical)
-x_fixed = L_x/2
-points = [(x_fixed, y) for y in y_values_numerical]
-u_x_values = []
-u_ex = np.linspace(0, L_y, num_points_analytical)
-nu = tau/3
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-for i in range(num_points_analytical):
-    u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
-
-for point in points:
-    u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max)
 
 
-WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
-outDirName = os.path.join(WORKDIR, "figures")
-os.makedirs(outDirName, exist_ok=True)
-fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".png"
-output = os.path.join(outDirName, fig_name)
-
-plt.figure()
-plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_y$", fontsize=20)
-plt.legend()
-plt.tick_params(direction="in")
 
 
-print("Saving figure to:", os.path.abspath(output))
-plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
-
-#plt.show()
-plt.close()
 
 # %% Create grid of u_x and u_y values
 
