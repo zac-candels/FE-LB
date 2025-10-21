@@ -15,8 +15,8 @@ os.makedirs(outDirName, exist_ok=True)
 T = 1500
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
-
-nx = ny = 5
+L_x, L_y = 100, 100
+nx = ny = 50
 
 error_vec = []
 
@@ -30,17 +30,19 @@ tau_h = 0.3
 eta_l = 0.01
 eta_h = 1
 
-
-# Initial bubble diameter
-initBubbleDiam = 10
+drop_radius = 30
+center_init_x = L_x/2
+center_init_y = L_y/4
 #interfacial thickness
-eps = 0.05 * initBubbleDiam
+eps = 4
+initBubbleDiam = 60
 
 # Set parameters for Allen-Cahn equation
 M_tilde = 0.05 # Mobility parameter
 
 sigma = 0.01
 
+theta = 30 # contact angle
 
 beta = 2*sigma/eps
 kappa = 3*sigma*eps/2
@@ -77,13 +79,18 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+
+# Set periodic boundary conditions at left and right endpoints
+
+
 L_x, L_y = 9*initBubbleDiam, 18*initBubbleDiam
 mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(9*initBubbleDiam, 18*initBubbleDiam), nx, nx)
 
 # Set periodic boundary conditions at left and right endpoints
 
 
-class PeriodicBoundaryX(fe.SubDomain):
+class PeriodicBoundaryY(fe.SubDomain):
     def inside(self, point, on_boundary):
         return fe.near(point[1], 0.0) and on_boundary
 
@@ -93,7 +100,7 @@ class PeriodicBoundaryX(fe.SubDomain):
         bottom_bdy[1] = top_bdy[1]
 
 
-pbc = PeriodicBoundaryX()
+pbc = PeriodicBoundaryY()
 
 
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
@@ -107,7 +114,8 @@ f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
-vel_n = fe.Function(V)
+V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+vel_n = fe.Function(V_vec)
 mu_n = fe.Function(V)
 
 v = fe.TestFunction(V)
@@ -149,67 +157,53 @@ def vel(f_list):
 
 
 # Define initial equilibrium distributions
-def f_equil_init(vel_idx, Force_density):
-    rho_init = fe.Constant(1.0)
-    rho_expr = fe.Constant(1.0)
+def f_equil_init(vel_idx):
+    
+    # We'll take \bar{p} := 1.0
+    return w[vel_idx] 
 
-    vel_0 = -fe.Constant((Force_density[0]*dt/(2*rho_init),
-                          Force_density[1]*dt/(2*rho_init)))
-
-    # u_expr = fe.project(V_vec, vel_0)
-
-    ci = xi[vel_idx]
-    ci_dot_u = fe.dot(ci, vel_0)
-    return w[vel_idx] * rho_expr * (
-        1
-        + ci_dot_u / c_s**2
-        + ci_dot_u**2 / (2*c_s**4)
-        - fe.dot(vel_0, vel_0) / (2*c_s**2)
-    )
 
 # Define equilibrium distribution
-
-
-def f_equil(f_list, vel_idx):
-    dyn_pres_expr = dyn_pres(f_list)
-    u_expr = vel(f_list)
-    ci = xi[vel_idx]
-    ci_dot_u = fe.dot(ci, u_expr)
-    return w[vel_idx] * (
-        dyn_pres_expr
-        + ci_dot_u
-        + ci_dot_u**2 / (2*c_s**2)
-        - fe.dot(u_expr, u_expr) / 2
-    )
+# def f_equil(f_list, vel_idx):
+#     dyn_pres_expr = dyn_pres(f_list)
+#     u_expr = vel(f_list)
+#     ci = xi[vel_idx]
+#     ci_dot_u = fe.dot(ci, u_expr)
+#     return w[vel_idx] * (
+#         dyn_pres_expr
+#         + ci_dot_u
+#         + ci_dot_u**2 / (2*c_s**2)
+#         - fe.dot(u_expr, u_expr) / 2
+#     )
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
-# def f_equil(f_list, idx):
-#     """
-#     Compute equilibrium distribution for direction idx
-#     Returns a NumPy array (values at all DoFs).
-#     """
-#     # Number of DoFs
-#     N = f_list[0].vector().size()
+def f_equil(f_list, idx):
+    """
+    Compute equilibrium distribution for direction idx
+    Returns a NumPy array (values at all DoFs).
+    """
+    # Number of DoFs
+    N = f_list[0].vector().size()
 
-#     # Stack all f_i values: shape (Q, N)
-#     f_stack = np.array([f.vector().get_local() for f in f_list])
+    # Stack all f_i values: shape (Q, N)
+    f_stack = np.array([f.vector().get_local() for f in f_list])
 
-#     # Compute density at each DoF
-#     rho_vec = np.sum(f_stack, axis=0)  # shape (N,)
+    # Compute density at each DoF
+    dyn_pres = np.sum(f_stack, axis=0)  # shape (N,)
 
-#     # Compute velocity at each DoF
-#     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)
-#     uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)
+    # Compute velocity at each DoF
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)
 
-#     u2 = ux_vec**2 + uy_vec**2
+    u2 = ux_vec**2 + uy_vec**2
 
-#     # Compute ci . u for this direction
-#     cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
+    # Compute ci . u for this direction
+    cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
+    
+    feq = w[idx]*( dyn_pres + cu + cu**2/(2*c_s**2) - u2/2)
 
-#     feq = w[idx] * rho_vec * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-#     return feq  # NumPy array
+    return feq  # NumPy array
 
 
 # Define \Gamma
@@ -252,14 +246,13 @@ def body_Force(f_list, phi, mu, vel_idx):
     
     sym_grad_u = 2 * fe.sym(fe.grad(fluid_vel))
     
-    term1 = -Gamma_vel(fluid_vel)*(xi[vel_idx] - fluid_vel)\
-        * ( p_grad/density ) 
+    term1 = -Gamma_vel(fluid_vel, vel_idx)\
+        *fe.dot( (xi[vel_idx] - fluid_vel),  p_grad/density ) 
     
-    term2 = Gamma0(vel_idx)*(xi[vel_idx] - fluid_vel)*dynPres_grad
+    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), dynPres_grad )
     
-    term3 = Gamma_vel(fluid_vel, vel_idx)*(xi[vel_idx] - fluid_vel)\
-        *( phi_grad*mu/density + (eta/density**2)*sym_grad_u*density_grad\
-          + buoyancy/density )
+    term3 = Gamma_vel(fluid_vel, vel_idx)\
+        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu )
     
 
     return term1 + term2 + term3
@@ -284,7 +277,20 @@ def mobility(phi_n):
 # Here we will take u_0 = 0.
 
 for idx in range(Q):
-    f_n[idx] = (fe.project(f_equil_init(idx, Force_density), V))
+    f_n[idx] = (fe.project(f_equil_init(idx), V))
+    
+# Initialize \phi
+phi_init = phi_init_expr = fe.Expression(
+    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    degree=2,  # polynomial degree used for interpolation
+    xc=center_init_x,
+    yc=center_init_y,
+    R=initBubbleDiam/2,
+    eps=eps
+)
+
+phi_n = fe.interpolate(phi_init_expr, V)
+
 
 
 # Define boundary conditions.
@@ -373,13 +379,12 @@ n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 
-lin_form_AC = f_trial * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))\
-    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n))
+lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
+    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
 
-lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)\
-    + kappa*fe.grad(phi_n)*fe.grad(v)*fe.dx # Here, surface term
-    # is unnecessary but will be for CL dynamics
+lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx
 
 for idx in range(Q):
 
@@ -423,6 +428,9 @@ rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 sys_mat = fe.assemble(bilinear_forms_stream[0])
 
+rhs_mu = fe.assemble(lin_form_mu)
+fe.solve(sys_mat, mu_n.vector(), rhs_mu)
+
 # Timestepping
 t = 0.0
 for n in range(num_steps):
@@ -441,7 +449,7 @@ for n in range(num_steps):
         
         tau_vec = phi_vec*tau_h + (1 - phi_vec)*tau_l
         
-        f_new = f_n_vec - dt/tau_vec * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
@@ -476,8 +484,8 @@ for n in range(num_steps):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
     
-    phi_nP1 = fe.solve(sys_mat, rhs_AC)
-    mu_nP1 = fe.solve(sys_mat, rhs_mu)
+    fe.solve(sys_mat, phi_nP1.vector(), rhs_AC)
+    fe.solve(sys_mat, mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -485,8 +493,21 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    mu_n.assign(mu_nP1)
-    vel_n = vel(f_n)
+    vel_expr = vel(f_n)
+    fe.project(vel_expr, V_vec, function=vel_n)
+    
+    if n % 1 == 0:
+        plt.figure()
+        coords = mesh.coordinates()
+        phi_vals = phi_n.compute_vertex_values(mesh)
+        plt.tricontourf(coords[:, 0], coords[:, 1], phi_vals, levels=50, cmap="RdBu_r")
+        plt.colorbar(label=r"$\phi$")
+        plt.title(f"phi at t = {t:.2f}")
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.tight_layout()
+    
+    a = 1
     
 
 

@@ -2,8 +2,8 @@ import fenics as fe
 import os
 import numpy as np
 import matplotlib 
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 
 plt.close('all')
 
@@ -13,7 +13,7 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-dt = 0.01
+dt = 0.001
 num_steps = int(np.ceil(T/dt))
 L_x, L_y = 100, 100
 nx = ny = 50
@@ -32,7 +32,7 @@ eta_h = 1
 
 drop_radius = 30
 center_init_x = L_x/2
-center_init_y = L_y/4
+center_init_y = 30
 #interfacial thickness
 eps = 4
 
@@ -284,6 +284,24 @@ phi_init = phi_init_expr = fe.Expression(
 
 phi_n = fe.interpolate(phi_init_expr, V)
 
+coords = mesh.coordinates()
+phi_vals = phi_n.compute_vertex_values(mesh)
+triangles = mesh.cells()  # get mesh connectivity
+triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+
+plt.figure(figsize=(6,5))
+plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+plt.colorbar(label=r"$\phi$")
+plt.title(f"phi at t = {0:.2f}")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.tight_layout()
+
+# Save the figure to your output folder
+out_file = os.path.join(outDirName, f"phi_t{0:05d}.png")
+plt.savefig(out_file, dpi=200)
+plt.close()
+
 
 
 # Define boundary conditions.
@@ -374,11 +392,12 @@ opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
+            + dt*v*mobility(phi_n)*np.cos(theta)*(phi_n - phi_n**2)*fe.ds
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa\
-        * np.cos(theta)*(phi_n - phi_n**2)*v*fe.dx
+        * np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
 
 for idx in range(Q):
 
@@ -490,17 +509,27 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 10 == 0:
-        plt.figure()
+    if n % 1 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
-        plt.tricontourf(coords[:, 0], coords[:, 1], phi_vals, levels=50, cmap="RdBu_r")
+        triangles = mesh.cells()  # get mesh connectivity
+        triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+    
+        plt.figure(figsize=(6,5))
+        plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
         plt.colorbar(label=r"$\phi$")
         plt.title(f"phi at t = {t:.2f}")
         plt.xlabel("x")
         plt.ylabel("y")
         plt.tight_layout()
-    
+        
+        # Save the figure to your output folder
+        out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+        plt.savefig(out_file, dpi=200)
+        plt.close()
+        
+    a = 1
+                
 
 
 
