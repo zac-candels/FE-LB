@@ -393,7 +393,7 @@ opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            + dt*v*mobility(phi_n)*np.cos(theta)*(phi_n - phi_n**2)*fe.ds
+            + dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*fe.ds
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa\
@@ -409,7 +409,6 @@ for idx in range(Q):
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
         * body_Force(f_star, phi_n, mu_n, idx) * fe.dx
         
-    body_Force(f_star, phi_n, mu_n, idx)
 
     if idx in opp_idx:
         # UFL scalar: dot product with facet normal
