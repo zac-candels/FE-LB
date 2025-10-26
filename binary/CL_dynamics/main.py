@@ -24,15 +24,15 @@ error_vec = []
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau_l = 3.0
-tau_h = 0.3
+tau_l = 3.0   # for light fluid
+tau_h = 0.7   # for heavy fluid (must be > 0.5)
 
 eta_l = 0.01
 eta_h = 1
 
 drop_radius = 30
 center_init_x = L_x/2
-center_init_y = 30
+center_init_y = 50
 #interfacial thickness
 eps = 4
 
@@ -186,8 +186,8 @@ def f_equil(f_list, idx):
     dyn_pres = np.sum(f_stack, axis=0)  # shape (N,)
 
     # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
 
     u2 = ux_vec**2 + uy_vec**2
 
@@ -265,7 +265,6 @@ def mobility(phi_n):
 
 
 # # Initialize distribution functions. We will use
-# f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
 
@@ -300,7 +299,8 @@ plt.tight_layout()
 # Save the figure to your output folder
 out_file = os.path.join(outDirName, f"phi_t{0:05d}.png")
 plt.savefig(out_file, dpi=200)
-plt.close()
+plt.show()
+#plt.close()
 
 
 
@@ -525,7 +525,7 @@ for n in range(num_steps):
         # Save the figure to your output folder
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
-        plt.close()
+        #plt.close()
         
     a = 1
                 
