@@ -133,7 +133,7 @@ def tau_fn(phi):
     return phi*tau_h + (1 - phi)*tau_l
 
 # Define dynamic pressure
-def dyn_pres(f_list):
+def get_pBar(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
         + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
@@ -183,7 +183,7 @@ def f_equil(f_list, idx):
     f_stack = np.array([f.vector().get_local() for f in f_list])
 
     # Compute density at each DoF
-    dyn_pres = np.sum(f_stack, axis=0)  # shape (N,)
+    p_bar = np.sum(f_stack, axis=0)  # shape (N,)
 
     # Compute velocity at each DoF
     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
@@ -194,7 +194,7 @@ def f_equil(f_list, idx):
     # Compute ci . u for this direction
     cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
     
-    feq = w[idx]*( dyn_pres + cu + cu**2/(2*c_s**2) - u2/2)
+    feq = w[idx]*( p_bar + cu + cu**2/(2*c_s**2) - u2/2)
 
     return feq  # NumPy array
 
@@ -214,25 +214,19 @@ def Gamma0(vel_idx):
     return w[vel_idx]
     
 
-# Define collision operator
-def coll_op(f_list, phi, vel_idx):
-    rel_time = tau_fn(phi)
-    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (rel_time + 0.5)
-
-
 def body_Force(f_list, phi, mu, vel_idx):
     
     grav = fe.Constant((0.0, 9.81))
-    dynPres = dyn_pres(f_list)
+    p_bar = get_pBar(f_list)
     fluid_vel = vel(f_list)
     density = rho(phi)
-    p = density * dynPres 
+    p = density * p_bar 
     buoyancy = - grav*(density - rho_h)
     tau = tau_fn(phi)
     
     eta = c_s**2 * density * tau * dt
     
-    dynPres_grad = fe.grad(dynPres)
+    p_bar_grad = fe.grad(p_bar)
     p_grad = fe.grad(p)
     phi_grad = fe.grad(phi)
     density_grad = fe.grad(density)
@@ -242,13 +236,17 @@ def body_Force(f_list, phi, mu, vel_idx):
     term1 = -Gamma_vel(fluid_vel, vel_idx)\
         *fe.dot( (xi[vel_idx] - fluid_vel),  p_grad/density ) 
     
-    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), dynPres_grad )
+    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), p_bar_grad )
     
     term3 = Gamma_vel(fluid_vel, vel_idx)\
-        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu )
+        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu/density )
+        
+    term4 = Gamma_vel(fluid_vel, vel_idx)\
+        *fe.dot( (xi[vel_idx] - fluid_vel),  sym_grad_u* density_grad )\
+            * (eta/density**2)
     
 
-    return term1 + term2 + term3
+    return term1 + term2 + term3 + term4
 
 
 # Define Allen-Cahn mobility
@@ -390,14 +388,27 @@ n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 
+# Create MeshFunction for boundary markers
+boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
+
+# Subdomain for bottom wall
+class Bottom(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[1], 0.0)
+
+bottom = Bottom()
+bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
+ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
+
+
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            + dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*fe.ds
+            + dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa\
-        * np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
+        #* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
 
 for idx in range(Q):
 
@@ -451,6 +462,12 @@ for n in range(num_steps):
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
     
+    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    rho_pre = np.sum(f_pre_stack, axis=0)
+    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+        
+    f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, idx)
@@ -463,8 +480,21 @@ for n in range(num_steps):
         
         f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
     
+        f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
+        
+    rho_post = np.sum(f_post_stack, axis=0)
+    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    
+    # ---- Compare ----
+    rho_diff = rho_post - rho_pre
+    momx_diff = momx_post - momx_pre
+    momy_diff = momy_post - momy_pre
+    print("max |Δρ|   =", np.max(np.abs(rho_diff)))
+    print("max |Δmomx|=", np.max(np.abs(momx_diff)))
+    print("max |Δmomy|=", np.max(np.abs(momy_diff)))
 
     # Assemble RHS vectors
     for idx in range(Q):
