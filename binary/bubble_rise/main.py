@@ -1,9 +1,10 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib 
-matplotlib.use('Agg')
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 
 plt.close('all')
 
@@ -15,8 +16,11 @@ os.makedirs(outDirName, exist_ok=True)
 T = 1500
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
-L_x, L_y = 100, 100
-nx = ny = 50
+
+
+initBubbleDiam = 60
+L_x, L_y = 9*initBubbleDiam, 9*initBubbleDiam
+nx = ny = 200
 
 error_vec = []
 
@@ -24,23 +28,23 @@ error_vec = []
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau_l = 3.0
-tau_h = 0.3
+tau_l = 735.8
+tau_h = 73575
 
-eta_l = 0.01
-eta_h = 1
+eta_l = 24.5
+eta_h = 2452.5
 
 drop_radius = 30
 center_init_x = L_x/2
-center_init_y = L_y/4
+center_init_y = L_y/2
 #interfacial thickness
-eps = 4
-initBubbleDiam = 60
+
+eps = initBubbleDiam * 0.05
 
 # Set parameters for Allen-Cahn equation
 M_tilde = 0.05 # Mobility parameter
 
-sigma = 0.01
+sigma = 245.25
 
 theta = 30 # contact angle
 
@@ -52,9 +56,9 @@ Q = 9
 
 
 # Bulk density of heavy fluid
-rho_h = 100
+rho_h = 1
 # Bulk density of light fluid
-rho_l = 1
+rho_l = 0.01
 
 
 # D2Q9 lattice velocities
@@ -84,19 +88,13 @@ mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 # Set periodic boundary conditions at left and right endpoints
 
 
-L_x, L_y = 9*initBubbleDiam, 18*initBubbleDiam
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(9*initBubbleDiam, 18*initBubbleDiam), nx, nx)
-
-# Set periodic boundary conditions at left and right endpoints
-
-
 class PeriodicBoundaryY(fe.SubDomain):
     def inside(self, point, on_boundary):
         return fe.near(point[1], 0.0) and on_boundary
 
     def map(self, top_bdy, bottom_bdy):
         # Map left boundary to the right
-        bottom_bdy[0] = top_bdy[0] - 18*initBubbleDiam
+        bottom_bdy[0] = top_bdy[0] - L_y
         bottom_bdy[1] = top_bdy[1]
 
 
@@ -140,7 +138,7 @@ def tau_fn(phi):
     return phi*tau_h + (1 - phi)*tau_l
 
 # Define dynamic pressure
-def dyn_pres(f_list):
+def get_pBar(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
         + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
@@ -190,18 +188,18 @@ def f_equil(f_list, idx):
     f_stack = np.array([f.vector().get_local() for f in f_list])
 
     # Compute density at each DoF
-    dyn_pres = np.sum(f_stack, axis=0)  # shape (N,)
+    p_bar = np.sum(f_stack, axis=0)  # shape (N,)
 
     # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
 
     u2 = ux_vec**2 + uy_vec**2
 
     # Compute ci . u for this direction
     cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
     
-    feq = w[idx]*( dyn_pres + cu + cu**2/(2*c_s**2) - u2/2)
+    feq = w[idx]*( p_bar + cu + cu**2/(2*c_s**2) - u2/2)
 
     return feq  # NumPy array
 
@@ -221,25 +219,19 @@ def Gamma0(vel_idx):
     return w[vel_idx]
     
 
-# Define collision operator
-def coll_op(f_list, phi, vel_idx):
-    rel_time = tau_fn(phi)
-    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (rel_time + 0.5)
-
-
 def body_Force(f_list, phi, mu, vel_idx):
     
     grav = fe.Constant((0.0, 9.81))
-    dynPres = dyn_pres(f_list)
+    p_bar = get_pBar(f_list)
     fluid_vel = vel(f_list)
     density = rho(phi)
-    p = density * dynPres 
+    p = density * p_bar 
     buoyancy = - grav*(density - rho_h)
     tau = tau_fn(phi)
     
     eta = c_s**2 * density * tau * dt
     
-    dynPres_grad = fe.grad(dynPres)
+    p_bar_grad = fe.grad(p_bar)
     p_grad = fe.grad(p)
     phi_grad = fe.grad(phi)
     density_grad = fe.grad(density)
@@ -249,13 +241,20 @@ def body_Force(f_list, phi, mu, vel_idx):
     term1 = -Gamma_vel(fluid_vel, vel_idx)\
         *fe.dot( (xi[vel_idx] - fluid_vel),  p_grad/density ) 
     
-    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), dynPres_grad )
+    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), p_bar_grad )
     
     term3 = Gamma_vel(fluid_vel, vel_idx)\
-        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu )
+        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu/density )
+        
+    term4 = Gamma_vel(fluid_vel, vel_idx)\
+        *fe.dot( (xi[vel_idx] - fluid_vel),  sym_grad_u* density_grad )\
+            * (eta/density**2)
+            
+    term5 = Gamma_vel(fluid_vel, vel_idx)\
+        *fe.dot( (xi[vel_idx] - fluid_vel), buoyancy ) / density
     
 
-    return term1 + term2 + term3
+    return term1 + term2 + term3 + term4 + term5
 
 
 # Define Allen-Cahn mobility
@@ -272,7 +271,6 @@ def mobility(phi_n):
 
 
 # # Initialize distribution functions. We will use
-# f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
 
@@ -291,6 +289,25 @@ phi_init = phi_init_expr = fe.Expression(
 
 phi_n = fe.interpolate(phi_init_expr, V)
 
+coords = mesh.coordinates()
+phi_vals = phi_n.compute_vertex_values(mesh)
+triangles = mesh.cells()  # get mesh connectivity
+triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+
+plt.figure(figsize=(6,5))
+plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+plt.colorbar(label=r"$\phi$")
+plt.title(f"phi at t = {0:.2f}")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.tight_layout()
+
+# Save the figure to your output folder
+out_file = os.path.join(outDirName, f"phi_t{0:05d}.png")
+plt.savefig(out_file, dpi=200)
+plt.show()
+#plt.close()
+
 
 
 # Define boundary conditions.
@@ -303,7 +320,43 @@ phi_n = fe.interpolate(phi_init_expr, V)
 tol = 1e-8
 
 
-def Bdy_Lower(x, on_boundary):
+def Bdy_Right(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[0], L_x, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+rho_expr = sum(fk for fk in f_n)
+
+f6_right = f_n[8]  # rho_expr
+f3_right = f_n[1]  # rho_expr
+f7_right = f_n[5]  # rho_expr
+
+f6_right_func = fe.Function(V)
+f3_right_func = fe.Function(V)
+f7_right_func = fe.Function(V)
+
+fe.project(f6_right, V, function=f6_right_func)
+fe.project(f3_right, V, function=f3_right_func)
+fe.project(f7_right, V, function=f7_right_func)
+
+bc_f6 = fe.DirichletBC(V, f6_right_func, Bdy_Right)
+bc_f3 = fe.DirichletBC(V, f3_right_func, Bdy_Right)
+bc_f7 = fe.DirichletBC(V, f7_right_func, Bdy_Right)
+
+# Similarly, we will define boundary conditions for f_7, f_4, and f_8
+# at the upper wall. Once again, boundary conditions simply reduce
+# to \rho * w_i
+
+
+tol = 1e-8
+
+
+def Bdy_Left(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 0, tol):
             return True
@@ -315,57 +368,21 @@ def Bdy_Lower(x, on_boundary):
 
 rho_expr = sum(fk for fk in f_n)
 
-f5_lower = f_n[7]  # rho_expr
-f2_lower = f_n[4]  # rho_expr
-f6_lower = f_n[8]  # rho_expr
+f5_left = f_n[7]  # rho_expr
+f1_left = f_n[3]  # rho_expr
+f8_left = f_n[6]  # rho_expr
 
-f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
+f5_left_func = fe.Function(V)
+f1_left_func = fe.Function(V)
+f8_left_func = fe.Function(V)
 
-fe.project(f5_lower, V, function=f5_lower_func)
-fe.project(f2_lower, V, function=f2_lower_func)
-fe.project(f6_lower, V, function=f6_lower_func)
+fe.project(f5_left, V, function=f5_left_func)
+fe.project(f1_left, V, function=f1_left_func)
+fe.project(f8_left, V, function=f8_left_func)
 
-bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
-
-# Similarly, we will define boundary conditions for f_7, f_4, and f_8
-# at the upper wall. Once again, boundary conditions simply reduce
-# to \rho * w_i
-
-
-tol = 1e-8
-
-
-def Bdy_Upper(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], L_y, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f7_upper = f_n[5]  # rho_expr
-f4_upper = f_n[2]  # rho_expr
-f8_upper = f_n[6]  # rho_expr
-
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
-
-fe.project(f7_upper, V, function=f7_upper_func)
-fe.project(f4_upper, V, function=f4_upper_func)
-fe.project(f8_upper, V, function=f8_upper_func)
-
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_f5 = fe.DirichletBC(V, f5_left_func, Bdy_Left)
+bc_f1 = fe.DirichletBC(V, f1_left_func, Bdy_Left)
+bc_f8 = fe.DirichletBC(V, f8_left_func, Bdy_Left)
 
 # Define variational problems
 
@@ -376,15 +393,15 @@ bilinear_forms_collision = []
 linear_forms_collision = []
 
 n = fe.FacetNormal(mesh)
-opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
+           
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx 
 
 for idx in range(Q):
 
@@ -396,29 +413,12 @@ for idx in range(Q):
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
         * body_Force(f_star, phi_n, mu_n, idx) * fe.dx
         
-    body_Force(f_star, phi_n, mu_n, idx)
-
-    if idx in opp_idx:
-        # UFL scalar: dot product with facet normal
-        dot_xi_n = fe.dot(xi[idx], n)
-
-        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
-        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
-                                   fe.Constant(1.0),
-                                   fe.Constant(0.0))
-
-        # build surface term only for incoming distributions
-        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
-            * dot_xi_n * indicator * fe.ds
-    else:
-        # no surface contribution for this idx
-        surface_term = fe.Constant(0.0) * v * fe.ds
 
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
         + dt*v*body_Force(f_star, phi_n, mu_n, idx)*fe.dx\
         + double_dot_product_term\
-        + dot_product_force_term + surface_term
+        + dot_product_force_term 
 
     linear_forms_stream.append(lin_form_idx)
 
@@ -439,6 +439,12 @@ for n in range(num_steps):
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
     
+    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    rho_pre = np.sum(f_pre_stack, axis=0)
+    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+        
+    f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, idx)
@@ -451,28 +457,42 @@ for n in range(num_steps):
         
         f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
     
+        f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
+        
+    rho_post = np.sum(f_post_stack, axis=0)
+    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    
+    # ---- Compare ----
+    rho_diff = rho_post - rho_pre
+    momx_diff = momx_post - momx_pre
+    momy_diff = momy_post - momy_pre
+    print("max |Δρ|   =", np.max(np.abs(rho_diff)))
+    print("max |Δmomx|=", np.max(np.abs(momx_diff)))
+    print("max |Δmomy|=", np.max(np.abs(momy_diff)))
 
     # Assemble RHS vectors
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_n[7].vector()[:]
-    f2_lower_func.vector()[:] = f_n[4].vector()[:]
-    f6_lower_func.vector()[:] = f_n[8].vector()[:]
-    f7_upper_func.vector()[:] = f_n[5].vector()[:]
-    f4_upper_func.vector()[:] = f_n[2].vector()[:]
-    f8_upper_func.vector()[:] = f_n[6].vector()[:]
+    f6_right_func.vector()[:] = f_n[8].vector()[:]
+    f3_right_func.vector()[:] = f_n[1].vector()[:]
+    f7_right_func.vector()[:] = f_n[5].vector()[:]
+    
+    f5_left_func.vector()[:] = f_n[7].vector()[:]
+    f1_left_func.vector()[:] = f_n[3].vector()[:]
+    f8_left_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat, rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat, rhs_vec_streaming[2])
     bc_f6.apply(sys_mat, rhs_vec_streaming[6])
+    bc_f3.apply(sys_mat, rhs_vec_streaming[3])
+    bc_f7.apply(sys_mat, rhs_vec_streaming[7])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat, rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat, rhs_vec_streaming[4])
+    bc_f5.apply(sys_mat, rhs_vec_streaming[5])
+    bc_f1.apply(sys_mat, rhs_vec_streaming[1])
     bc_f8.apply(sys_mat, rhs_vec_streaming[8])
 
     # Solve linear system in each timestep, get f^{n+1}
@@ -496,19 +516,27 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1 == 0:
-        plt.figure()
+    if n % 1 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
-        plt.tricontourf(coords[:, 0], coords[:, 1], phi_vals, levels=50, cmap="RdBu_r")
+        triangles = mesh.cells()  # get mesh connectivity
+        triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+    
+        plt.figure(figsize=(6,5))
+        plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
         plt.colorbar(label=r"$\phi$")
         plt.title(f"phi at t = {t:.2f}")
         plt.xlabel("x")
         plt.ylabel("y")
         plt.tight_layout()
-    
+        
+        # Save the figure to your output folder
+        out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+        plt.savefig(out_file, dpi=200)
+        #plt.close()
+        
     a = 1
-    
+                
 
 
 

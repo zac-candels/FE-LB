@@ -1,7 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib 
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 
@@ -555,6 +556,7 @@ for n in range(num_steps):
         # Save the figure to your output folder
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
+        plt.show()
         #plt.close()
         
     a = 1
