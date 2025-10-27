@@ -14,13 +14,13 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-dt = 0.01
+dt = 0.06
 num_steps = int(np.ceil(T/dt))
 
 
-initBubbleDiam = 60
+initBubbleDiam = 1
 L_x, L_y = 9*initBubbleDiam, 9*initBubbleDiam
-nx = ny = 200
+nx = ny = 100
 
 error_vec = []
 
@@ -28,13 +28,12 @@ error_vec = []
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
 nu = 1.0/3.0
-tau_l = 735.8
-tau_h = 73575
+tau_l = 0.049
+tau_h = tau_l * 100
 
-eta_l = 24.5
-eta_h = 2452.5
+eta_l = 9.81e-7
+eta_h = eta_l * 100
 
-drop_radius = 30
 center_init_x = L_x/2
 center_init_y = L_y/2
 #interfacial thickness
@@ -44,7 +43,7 @@ eps = initBubbleDiam * 0.05
 # Set parameters for Allen-Cahn equation
 M_tilde = 0.05 # Mobility parameter
 
-sigma = 245.25
+sigma = 9.81e-5
 
 theta = 30 # contact angle
 
@@ -460,18 +459,7 @@ for n in range(num_steps):
         f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
-        
-    rho_post = np.sum(f_post_stack, axis=0)
-    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-    # ---- Compare ----
-    rho_diff = rho_post - rho_pre
-    momx_diff = momx_post - momx_pre
-    momy_diff = momy_post - momy_pre
-    print("max |Δρ|   =", np.max(np.abs(rho_diff)))
-    print("max |Δmomx|=", np.max(np.abs(momx_diff)))
-    print("max |Δmomy|=", np.max(np.abs(momy_diff)))
 
     # Assemble RHS vectors
     for idx in range(Q):
@@ -516,7 +504,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1 == 0:  # plot every 10 steps
+    if n % 100 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -534,6 +522,18 @@ for n in range(num_steps):
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
         #plt.close()
+        
+        rho_post = np.sum(f_post_stack, axis=0)
+        momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+        momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+        
+        # ---- Compare ----
+        rho_diff = rho_post - rho_pre
+        momx_diff = momx_post - momx_pre
+        momy_diff = momy_post - momy_pre
+        print("max |Δρ|   =", np.max(np.abs(rho_diff)))
+        print("max |Δmomx|=", np.max(np.abs(momx_diff)))
+        print("max |Δmomy|=", np.max(np.abs(momy_diff)))
         
     a = 1
                 
