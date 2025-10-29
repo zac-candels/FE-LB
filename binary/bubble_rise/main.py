@@ -221,7 +221,7 @@ def Gamma0(vel_idx):
 
 def body_Force(f_list, phi, mu, vel_idx):
     
-    grav = fe.Constant((0.0, 9.81))
+    grav = fe.Constant((0.0, -9.81))
     p_bar = get_pBar(f_list)
     fluid_vel = vel(f_list)
     density = rho(phi)
@@ -279,7 +279,7 @@ for idx in range(Q):
     
 # Initialize \phi
 phi_init = phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * ( sqrt( pow(x[0]-xc,2) + pow(x[1]-yc,2) ) - R) / eps )",
+    "0.5 + 0.5 * tanh( 2.0 * ( sqrt( pow(x[0]-xc,2) + pow(x[1]-yc,2) ) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
@@ -505,7 +505,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 10 == 0:  # plot every 10 steps
+    if n % 2 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -536,7 +536,7 @@ for n in range(num_steps):
         print("max |Δmomx|=", np.max(np.abs(momx_diff)))
         print("max |Δmomy|=", np.max(np.abs(momy_diff)))
         
-    a = 1
+        a = 1
                 
 
 
