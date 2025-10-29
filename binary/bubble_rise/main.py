@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
+#import matplotlib
+#matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 
@@ -14,52 +14,53 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-dt = 0.06
+CFL = 0.2
+initBubbleDiam = 1
+L_x, L_y = 9*initBubbleDiam, 9*initBubbleDiam
+nx, ny = 200, 400
+h = L_x/nx
+dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
 
-initBubbleDiam = 1
-L_x, L_y = 9*initBubbleDiam, 9*initBubbleDiam
-nx = ny = 100
+g = 9.81
 
-error_vec = []
-
+# Density of heavier phase
+rho_h = 0.001
+rho_l = rho_h/100
 # Lattice speed of sound
-c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
+c_s2 = 1/3
+c_s = np.sqrt(c_s2)
 
-nu = 1.0/3.0
-tau_l = 0.049
-tau_h = tau_l * 100
+# Bond number
+Bo = 100
 
-eta_l = 9.81e-7
-eta_h = eta_l * 100
+# Morton number
+Mo = 1000
 
-center_init_x = L_x/2
-center_init_y = L_y/2
-#interfacial thickness
+# Cahn number
+Cn = 0.05
 
-eps = initBubbleDiam * 0.05
+eps = Cn * initBubbleDiam
 
-# Set parameters for Allen-Cahn equation
-M_tilde = 0.05 # Mobility parameter
+sigma = g*rho_h*initBubbleDiam**2/Bo
 
-sigma = 9.81e-5
+eta_h = (Mo * sigma**3 * rho_h)**(1/4)
+eta_l = eta_h/100
 
-theta = 30 # contact angle
+beta = 12*sigma/eps
 
-beta = 2*sigma/eps
-kappa = 3*sigma*eps/2
+kappa = 3*sigma*eps/2 
 
-# Number of discrete velocities
+# Relaxation times for heavier and lighter phases
+tau_h = eta_h / (c_s2 * rho_h * dt )
+tau_l =  eta_l / (c_s2 * rho_h * dt )
+
+M_tilde = 0.05
+
+center_init_x, center_init_y = L_x/2, L_y/2
+
 Q = 9
-
-
-# Bulk density of heavy fluid
-rho_h = 1
-# Bulk density of light fluid
-rho_l = 0.01
-
-
 # D2Q9 lattice velocities
 xi = [
     fe.Constant((0.0,  0.0)),
@@ -92,9 +93,9 @@ class PeriodicBoundaryY(fe.SubDomain):
         return fe.near(point[1], 0.0) and on_boundary
 
     def map(self, top_bdy, bottom_bdy):
-        # Map left boundary to the right
-        bottom_bdy[0] = top_bdy[0] - L_y
-        bottom_bdy[1] = top_bdy[1]
+        # Correct mapping for periodicity in Y (mapping y=Ly to y=0)
+        bottom_bdy[0] = top_bdy[0]  # X-coordinate remains the same
+        bottom_bdy[1] = top_bdy[1] - L_y # Y-coordinate shifts by -L_y
 
 
 pbc = PeriodicBoundaryY()
@@ -278,7 +279,7 @@ for idx in range(Q):
     
 # Initialize \phi
 phi_init = phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    "0.5 - 0.5 * tanh( 2.0 * ( sqrt( pow(x[0]-xc,2) + pow(x[1]-yc,2) ) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
@@ -357,7 +358,7 @@ tol = 1e-8
 
 def Bdy_Left(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 0, tol):
+        if fe.near(x[0], 0, tol):
             return True
         else:
             return False
@@ -504,7 +505,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 100 == 0:  # plot every 10 steps
+    if n % 10 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -539,8 +540,6 @@ for n in range(num_steps):
                 
 
 
-
-error_vec = np.asarray(error_vec)
 # %%
 u_expr = vel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
