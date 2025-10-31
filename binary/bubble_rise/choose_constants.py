@@ -2,7 +2,7 @@ import numpy as np
 
 T = 1500
 CFL = 0.2
-d = 1
+d = 5
 L_x, L_y = 9*d, 9*d
 nx = ny = 100
 h = L_x/nx
@@ -10,7 +10,8 @@ dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
 
-g = 9.81
+g = 0.0981
+sigma = 0.1
 
 # Density of heavier phase
 rho_h = 0.001
@@ -28,7 +29,8 @@ Cn = 0.05
 
 eps = Cn * d
 
-sigma = g*rho_h*d**2/Bo
+rho_h = sigma*Bo*g / d**2
+rho_l = rho_h/100
 
 eta_h = (Mo * sigma**3 * rho_h)**(1/4)
 eta_l = eta_h/100

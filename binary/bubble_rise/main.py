@@ -15,7 +15,7 @@ os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
-initBubbleDiam = 1
+initBubbleDiam = 5
 L_x, L_y = 9*initBubbleDiam, 9*initBubbleDiam
 nx, ny = 200, 400
 h = L_x/nx
@@ -23,14 +23,12 @@ dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
 
-g = 9.81
+g = 0.0981
+sigma = 0.1
 
-# Density of heavier phase
-rho_h = 0.001
-rho_l = rho_h/100
 # Lattice speed of sound
+c_s = np.sqrt(1/3)
 c_s2 = 1/3
-c_s = np.sqrt(c_s2)
 
 # Bond number
 Bo = 100
@@ -43,7 +41,8 @@ Cn = 0.05
 
 eps = Cn * initBubbleDiam
 
-sigma = g*rho_h*initBubbleDiam**2/Bo
+rho_h = sigma*Bo*g / initBubbleDiam**2
+rho_l = rho_h/100
 
 eta_h = (Mo * sigma**3 * rho_h)**(1/4)
 eta_l = eta_h/100
@@ -56,7 +55,7 @@ kappa = 3*sigma*eps/2
 tau_h = eta_h / (c_s2 * rho_h * dt )
 tau_l =  eta_l / (c_s2 * rho_h * dt )
 
-M_tilde = 0.05
+M_tilde = 1
 
 center_init_x, center_init_y = L_x/2, L_y/2
 
