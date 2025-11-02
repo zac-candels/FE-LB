@@ -53,7 +53,7 @@ kappa = 3*sigma*eps/2
 
 # Relaxation times for heavier and lighter phases
 tau_h = eta_h / (c_s2 * rho_h * dt )
-tau_l =  eta_l / (c_s2 * rho_h * dt )
+tau_l =  eta_l / (c_s2 * rho_l * dt )
 
 M_tilde = 1
 
@@ -82,7 +82,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -220,7 +220,7 @@ def Gamma0(vel_idx):
 
 def body_Force(f_list, phi, mu, vel_idx):
     
-    grav = fe.Constant((0.0, -9.81))
+    grav = fe.Constant((0.0, -g))
     p_bar = get_pBar(f_list)
     fluid_vel = vel(f_list)
     density = rho(phi)
@@ -294,7 +294,7 @@ triangles = mesh.cells()  # get mesh connectivity
 triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
 
 plt.figure(figsize=(6,5))
-plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+plt.tricontourf(triang, phi_vals, levels=90, cmap="RdBu_r")
 plt.colorbar(label=r"$\phi$")
 plt.title(f"phi at t = {0:.2f}")
 plt.xlabel("x")
