@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-#import matplotlib
-#matplotlib.use("TkAgg")
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 
@@ -55,7 +55,7 @@ kappa = 3*sigma*eps/2
 tau_h = eta_h / (c_s2 * rho_h * dt )
 tau_l =  eta_l / (c_s2 * rho_l * dt )
 
-M_tilde = 1
+M_tilde = 0.01
 
 center_init_x, center_init_y = L_x/2, L_y/2
 
@@ -394,6 +394,8 @@ linear_forms_collision = []
 n = fe.FacetNormal(mesh)
 
 
+bilin_form_AC = f_trial * v * fe.dx
+
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
@@ -425,10 +427,15 @@ for idx in range(Q):
 
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
-sys_mat = fe.assemble(bilinear_forms_stream[0])
+sys_mat = []
+for idx in range(Q):
+    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
 
+phi_mat = fe.assemble(bilin_form_AC)
+mu_mat = fe.assemble(bilin_form_AC)
 rhs_mu = fe.assemble(lin_form_mu)
-fe.solve(sys_mat, mu_n.vector(), rhs_mu)
+
+fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 # Timestepping
 t = 0.0
@@ -474,26 +481,26 @@ for n in range(num_steps):
     f8_left_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f6.apply(sys_mat, rhs_vec_streaming[6])
-    bc_f3.apply(sys_mat, rhs_vec_streaming[3])
-    bc_f7.apply(sys_mat, rhs_vec_streaming[7])
+    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f3.apply(sys_mat[3], rhs_vec_streaming[3])
+    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f5.apply(sys_mat, rhs_vec_streaming[5])
-    bc_f1.apply(sys_mat, rhs_vec_streaming[1])
-    bc_f8.apply(sys_mat, rhs_vec_streaming[8])
+    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f1.apply(sys_mat[1], rhs_vec_streaming[1])
+    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep, get f^{n+1}
     solver_list = []
     for idx in range(Q):
-        A = sys_mat
+        A = sys_mat[idx]
         solver = fe.LUSolver(A)
         solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
     
-    fe.solve(sys_mat, phi_nP1.vector(), rhs_AC)
-    fe.solve(sys_mat, mu_n.vector(), rhs_mu)
+    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
+    fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -504,7 +511,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 2 == 0:  # plot every 10 steps
+    if n % 1 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
