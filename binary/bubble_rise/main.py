@@ -24,7 +24,7 @@ num_steps = int(np.ceil(T/dt))
 
 
 g = 0.0981
-sigma = 0.1
+sigma = 0.005 #0.1
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -41,8 +41,8 @@ Cn = 0.05
 
 eps = Cn * initBubbleDiam
 
-rho_h = sigma*Bo*g / initBubbleDiam**2
-rho_l = rho_h/100
+rho_h = 1#sigma*Bo*g / initBubbleDiam**2
+rho_l = 1#rho_h/100
 
 eta_h = (Mo * sigma**3 * rho_h)**(1/4)
 eta_l = eta_h/100
@@ -52,8 +52,8 @@ beta = 12*sigma/eps
 kappa = 3*sigma*eps/2 
 
 # Relaxation times for heavier and lighter phases
-tau_h = eta_h / (c_s2 * rho_h * dt )
-tau_l =  eta_l / (c_s2 * rho_l * dt )
+tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
+tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 M_tilde = 0.01
 
@@ -511,7 +511,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1 == 0:  # plot every 10 steps
+    if n % 30 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -538,9 +538,9 @@ for n in range(num_steps):
         rho_diff = rho_post - rho_pre
         momx_diff = momx_post - momx_pre
         momy_diff = momy_post - momy_pre
-        print("max |Δρ|   =", np.max(np.abs(rho_diff)))
-        print("max |Δmomx|=", np.max(np.abs(momx_diff)))
-        print("max |Δmomy|=", np.max(np.abs(momy_diff)))
+        print("max |drho|   =", np.max(np.abs(rho_diff)))
+        print("max |d_x_momentum|=", np.max(np.abs(momx_diff)))
+        print("max |d_y_momentum|=", np.max(np.abs(momy_diff)))
         
         a = 1
                 
