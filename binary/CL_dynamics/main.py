@@ -14,49 +14,54 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-dt = 0.001
+CFL = 0.2
+initBubbleDiam = 5
+L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
+nx, ny = 200, 400
+h = L_x/nx
+dt = h*CFL
 num_steps = int(np.ceil(T/dt))
-L_x, L_y = 100, 100
-nx = ny = 50
 
-error_vec = []
+
+g = 0.0981
+sigma = 0.005 #0.1
 
 # Lattice speed of sound
-c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
+c_s = np.sqrt(1/3)
+c_s2 = 1/3
 
-nu = 1.0/3.0
-tau_l = 3.0   # for light fluid
-tau_h = 0.7   # for heavy fluid (must be > 0.5)
+# Bond number
+Bo = 100
 
-eta_l = 0.01
-eta_h = 1
+# Morton number
+Mo = 1000
 
-drop_radius = 30
-center_init_x = L_x/2
-center_init_y = 50
-#interfacial thickness
-eps = 4
+# Cahn number
+Cn = 0.05
 
-# Set parameters for Allen-Cahn equation
-M_tilde = 0.05 # Mobility parameter
+eps = Cn * initBubbleDiam
 
-sigma = 0.01
+rho_h = 1#sigma*Bo*g / initBubbleDiam**2
+rho_l = 1#rho_h/100
 
-theta = 30 # contact angle
+eta_h = (Mo * sigma**3 * rho_h)**(1/4)
+eta_l = eta_h/100
 
-beta = 2*sigma/eps
-kappa = 3*sigma*eps/2
+beta = 12*sigma/eps
 
-# Number of discrete velocities
+kappa = 3*sigma*eps/2 
+
+# Relaxation times for heavier and lighter phases
+tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
+tau_l = 1# eta_l / (c_s2 * rho_l * dt )
+
+theta = 30 * np.pi / 180
+
+M_tilde = 0.01
+
+center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
+
 Q = 9
-
-
-# Bulk density of heavy fluid
-rho_h = 100
-# Bulk density of light fluid
-rho_l = 1
-
-
 # D2Q9 lattice velocities
 xi = [
     fe.Constant((0.0,  0.0)),
@@ -276,7 +281,7 @@ phi_init = phi_init_expr = fe.Expression(
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
-    R=drop_radius,
+    R=initBubbleDiam/2,
     eps=eps
 )
 
@@ -401,6 +406,7 @@ bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
 ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
 
+bilin_form_AC = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
@@ -450,10 +456,16 @@ for idx in range(Q):
 
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
-sys_mat = fe.assemble(bilinear_forms_stream[0])
 
+sys_mat = []
+for idx in range(Q):
+    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+
+phi_mat = fe.assemble(bilin_form_AC)
+mu_mat = fe.assemble(bilin_form_AC)
 rhs_mu = fe.assemble(lin_form_mu)
-fe.solve(sys_mat, mu_n.vector(), rhs_mu)
+
+fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 # Timestepping
 t = 0.0
@@ -463,12 +475,12 @@ for n in range(num_steps):
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
     
-    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    rho_pre = np.sum(f_pre_stack, axis=0)
-    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    # rho_pre = np.sum(f_pre_stack, axis=0)
+    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
         
-    f_post_stack = np.zeros_like(f_pre_stack)
+    # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, idx)
@@ -481,21 +493,21 @@ for n in range(num_steps):
         
         f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
     
-        f_post_stack[idx, :] = f_new
+        # f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
         
-    rho_post = np.sum(f_post_stack, axis=0)
-    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    # rho_post = np.sum(f_post_stack, axis=0)
+    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-    # ---- Compare ----
-    rho_diff = rho_post - rho_pre
-    momx_diff = momx_post - momx_pre
-    momy_diff = momy_post - momy_pre
-    print("max |Δρ|   =", np.max(np.abs(rho_diff)))
-    print("max |Δmomx|=", np.max(np.abs(momx_diff)))
-    print("max |Δmomy|=", np.max(np.abs(momy_diff)))
+    # # ---- Compare ----
+    # rho_diff = rho_post - rho_pre
+    # momx_diff = momx_post - momx_pre
+    # momy_diff = momy_post - momy_pre
+    # print("max |drho|   =", np.max(np.abs(rho_diff)))
+    # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)))
+    # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)))
 
     # Assemble RHS vectors
     for idx in range(Q):
@@ -509,26 +521,26 @@ for n in range(num_steps):
     f8_upper_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat, rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat, rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat, rhs_vec_streaming[6])
+    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
+    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat, rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat, rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat, rhs_vec_streaming[8])
+    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
+    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
+    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep, get f^{n+1}
     solver_list = []
     for idx in range(Q):
-        A = sys_mat
+        A = sys_mat[idx]
         solver = fe.LUSolver(A)
         solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
     
-    fe.solve(sys_mat, phi_nP1.vector(), rhs_AC)
-    fe.solve(sys_mat, mu_n.vector(), rhs_mu)
+    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
+    fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -539,7 +551,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1 == 0:  # plot every 10 steps
+    if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -559,12 +571,10 @@ for n in range(num_steps):
         plt.show()
         #plt.close()
         
-    a = 1
+        a = 1
                 
 
 
-
-error_vec = np.asarray(error_vec)
 # %%
 u_expr = vel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)

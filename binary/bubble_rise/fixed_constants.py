@@ -531,7 +531,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 30 == 0:  # plot every 10 steps
+    if n % 1 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
