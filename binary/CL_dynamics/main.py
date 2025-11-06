@@ -662,3 +662,29 @@ for idx, fi in enumerate(f_n):
 
 # Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
+
+#%% Create grid for \phi at final time
+
+# 1) Extract the coordinates of each degree of freedom in V
+coords = V.tabulate_dof_coordinates().reshape(-1, 2)
+x = coords[:, 0]
+y = coords[:, 1]
+
+# 2) Find unique levels and check grid size
+x_unique = np.unique(x)
+y_unique = np.unique(y)
+nx = len(x_unique)
+ny = len(y_unique)
+assert nx * ny == x.size, "grid size mismatch for f_i"
+
+# 3) Compute lexicographic ordering so that slow index=y, fast=x
+order_phi = np.lexsort((x, y))
+
+# 4) Loop over all distributions, sort & reshape
+phi_grid = []
+# flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
+phi_vals = phi_n.vector().get_local()
+phi_sorted = phi_vals[order_phi]
+phi_grid = phi_sorted.reshape((ny, nx))
+    # Optional: if you want to name them individually:
+    # globals()[f"f{idx}_grid"] = fi_grid
