@@ -393,6 +393,10 @@ linear_forms_collision = []
 n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
+alpha = np.arccos( np.sin(theta)*np.sin(theta) )
+Omega = 2 * np.sign( np.pi/2 - theta )*np.sqrt(
+    np.cos(alpha/3)*( 1 - np.cos(alpha/2) ) )
+grad_phi_dot_n = Omega*np.sqrt(2 * kappa * beta)/kappa
 
 # Create MeshFunction for boundary markers
 boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
@@ -411,7 +415,7 @@ bilin_form_AC = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+            - dt*v*fe.Constant(grad_phi_dot_n)*mobility(phi_n)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
@@ -551,7 +555,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1000 == 0:  # plot every 10 steps
+    if n % 10 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
