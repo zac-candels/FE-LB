@@ -55,7 +55,7 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta = 30 * np.pi / 180
+theta = 90 * np.pi / 180
 
 M_tilde = 0.01
 
@@ -276,7 +276,7 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init_expr = fe.Expression(
+phi_init = phi_init_expr = fe.Expression(
     "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,

@@ -4,17 +4,20 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
+T = 2
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = np.array([5, 10, 15, 20])
+nx = ny = np.array([3, 4, 5, 6])
 err = np.zeros(4)
 conv_rate = np.zeros(4)
 L_x = L_y = 32
 h = L_x/nx
+
+f_conv = open("conv_rate.txt", "w")
+f_conv.write("nx   h   err_infty   conv_rate  \n")
 for i in range(len(nx)):
     
     # Lattice speed of sound
@@ -460,6 +463,9 @@ for i in range(len(nx)):
     err[i] = error
     if i > 0:
         conv_rate[i] = np.log10(err[i]/err[i-1])/np.log10(h[i]/h[i-1])
+    file_arg = f"{nx[i]:10d} {h[i]:15.6e} {err[i]:15.6e} {conv_rate[i]:15.6f}\n"
+    f_conv.write(file_arg)
+f_conv.close()
         
 
     

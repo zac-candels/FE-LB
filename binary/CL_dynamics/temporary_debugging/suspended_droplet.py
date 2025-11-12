@@ -59,7 +59,7 @@ theta = 30 * np.pi / 180
 
 M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
+center_init_x, center_init_y = L_x/2, L_y/2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -276,7 +276,7 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init_expr = fe.Expression(
+phi_init = phi_init_expr = fe.Expression(
     "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
