@@ -500,9 +500,6 @@ t = 0.0
 for n in range(num_steps):
     t += dt
     
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
-    
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
     # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
@@ -562,6 +559,9 @@ for n in range(num_steps):
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
+        
+    rhs_AC = fe.assemble(lin_form_AC)
+    rhs_mu = fe.assemble(lin_form_mu)
     
     phi_solver.solve(phi_mat, phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_mat, mu_n.vector(), rhs_mu)
@@ -572,26 +572,6 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    vel_expr = vel(f_n)
-    
-    f_n_local = [f_n[idx].vector().get_local() for idx in range(Q)]
-    f_n_stack = np.stack(f_n_local, axis=0)  # Shape: (9, N)
-    
-    # Compute momentum (vectorized over all directions)
-    mom_x = np.sum(f_n_stack * xi_array[:, 0][:, None], axis=0)  # (N,)
-    mom_y = np.sum(f_n_stack * xi_array[:, 1][:, None], axis=0)  # (N,)
-    
-    ux = mom_x / c_s**2
-    uy = mom_y / c_s**2
-    
-    velocity_components = np.column_stack([ux, uy])  # Shape: (N, 2)
-
-    # Flatten in the correct DOF order: x-dof, y-dof, x-dof, y-dof, ...
-    vel_array = velocity_components.ravel()  # Shape: (2*N,)
-    
-    # Set directly into the Function's vector
-    vel_n.vector().set_local(vel_array)
-    vel_n.vector().apply("insert")
     
     if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()

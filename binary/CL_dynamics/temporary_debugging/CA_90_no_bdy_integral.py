@@ -5,20 +5,23 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
+import time 
+
+start_time = time.time() 
 
 plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_ca90_no_bdy_integral")
+outDirName = os.path.join(WORKDIR, "figures_speedup")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
 initBubbleDiam = 5
-L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 200, 400
-h = L_x/nx
+L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
+nx, ny = 100, 100
+h = min(L_x/nx, L_y/ny)
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
@@ -276,7 +279,7 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init = phi_init_expr = fe.Expression(
+phi_init_expr = fe.Expression(
     "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
@@ -407,11 +410,12 @@ bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
 ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
 
 bilin_form_AC = f_trial * v * fe.dx
+bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+            - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
@@ -460,9 +464,33 @@ rhs_vec_collision = [0]*Q
 sys_mat = []
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+    
+solver_list = []
+for idx in range(Q):
+    A = sys_mat[idx]
+
+    # Create CG solver
+    solver = fe.KrylovSolver("cg", "ilu")  # use ILU preconditioner
+    solver.set_operator(A)
+
+    # Optional: set solver parameters
+    prm = solver.parameters
+    prm["absolute_tolerance"] = 1e-12
+    prm["relative_tolerance"] = 1e-8
+    prm["maximum_iterations"] = 1000
+    prm["nonzero_initial_guess"] = False
+
+    solver_list.append(solver)
 
 phi_mat = fe.assemble(bilin_form_AC)
-mu_mat = fe.assemble(bilin_form_AC)
+mu_mat = fe.assemble(bilin_form_mu)
+phi_solver = fe.KrylovSolver("cg", "ilu")
+phi_solver.set_operator(phi_mat)
+
+mu_solver = fe.KrylovSolver("cg", "ilu")
+mu_solver.set_operator(mu_mat)
+
+
 rhs_mu = fe.assemble(lin_form_mu)
 
 fe.solve(mu_mat, mu_n.vector(), rhs_mu)
@@ -471,9 +499,6 @@ fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 t = 0.0
 for n in range(num_steps):
     t += dt
-    
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
@@ -531,16 +556,15 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep, get f^{n+1}
-    solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
-        solver = fe.LUSolver(A)
-        solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
+        
+    rhs_AC = fe.assemble(lin_form_AC)
+    rhs_mu = fe.assemble(lin_form_mu)
     
-    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
-    fe.solve(mu_mat, mu_n.vector(), rhs_mu)
+    phi_solver.solve(phi_mat, phi_nP1.vector(), rhs_AC)
+    mu_solver.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -548,8 +572,6 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    vel_expr = vel(f_n)
-    fe.project(vel_expr, V_vec, function=vel_n)
     
     if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
@@ -568,8 +590,8 @@ for n in range(num_steps):
         # Save the figure to your output folder
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
-        plt.show()
-        #plt.close()
+        #plt.show()
+        plt.close()
         
         a = 1
                 
@@ -688,3 +710,7 @@ phi_sorted = phi_vals[order_phi]
 phi_grid = phi_sorted.reshape((ny, nx))
     # Optional: if you want to name them individually:
     # globals()[f"f{idx}_grid"] = fi_grid
+
+end_time = time.time()
+
+print("time elapsed: ", end_time - start_time)

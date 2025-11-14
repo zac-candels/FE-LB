@@ -15,7 +15,7 @@ os.makedirs(outDirName, exist_ok=True)
 T = 1800
 
 Re = 0.96
-nx = ny = np.array([4, 8, 12, 16, 20])
+nx = ny = np.array([2, 4, 6])
 err = np.zeros(len(nx))
 conv_rate = np.zeros(len(nx))
 L_x = 32
@@ -362,6 +362,23 @@ for i in range(len(nx)):
     for idx in range(Q):
         sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
 
+    solver_list = []
+    for idx in range(Q):
+        A = sys_mat[idx]
+
+        # Create CG solver
+        solver = fe.KrylovSolver("cg", "ilu")  # use ILU preconditioner
+        solver.set_operator(A)
+
+        # Optional: set solver parameters
+        prm = solver.parameters
+        prm["absolute_tolerance"] = 1e-12
+        prm["relative_tolerance"] = 1e-8
+        prm["maximum_iterations"] = 1000
+        prm["nonzero_initial_guess"] = False
+
+        solver_list.append(solver)
+
     # Timestepping
     t = 0.0
     for n in range(num_steps):
@@ -400,11 +417,7 @@ for i in range(len(nx)):
         bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
         # Solve linear system in each timestep
-        solver_list = []
         for idx in range(Q):
-            A = sys_mat[idx]
-            solver = fe.LUSolver(A)
-            solver_list.append(solver)
             solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
 
 

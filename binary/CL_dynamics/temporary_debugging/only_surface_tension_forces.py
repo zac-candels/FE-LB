@@ -255,7 +255,7 @@ def body_Force(f_list, phi, mu, vel_idx):
             * (eta/density**2)
     
 
-    return term1 + term2 + term3 + term4
+    return term3 
 
 
 # Define Allen-Cahn mobility
@@ -418,8 +418,8 @@ lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
             - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-        - kappa*np.cos(theta)*np.sqrt(2*kappa*beta)*v*(phi_n - phi_n**2)*ds_bottom
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
+        #* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
 
 for idx in range(Q):
 
