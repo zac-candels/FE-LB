@@ -10,14 +10,14 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
+outDirName = os.path.join(WORKDIR, "figures_wetting_bc_on_Mu")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
 initBubbleDiam = 5
 L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 100, 200
+nx, ny = 200, 400
 h = min(L_x/nx, L_y/ny)
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
@@ -59,7 +59,7 @@ theta = 30 * np.pi / 180
 
 M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, L_y/2
+center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -84,7 +84,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -277,8 +277,8 @@ for idx in range(Q):
     
 # Initialize \phi
 phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (fmax(fabs(x[0]-xc), fabs(x[1]-yc)) - R) / eps )",
-    degree=2,
+    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
     R=initBubbleDiam/2,
@@ -410,12 +410,11 @@ bilin_form_AC = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
-        #* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
+        - kappa*np.cos(theta)*np.sqrt(2*kappa*beta)*v*(phi_n - phi_n**2)*ds_bottom
 
 for idx in range(Q):
 
@@ -551,7 +550,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 100 == 0:  # plot every 10 steps
+    if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity

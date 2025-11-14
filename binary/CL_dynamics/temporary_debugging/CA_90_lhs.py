@@ -10,15 +10,15 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
+outDirName = os.path.join(WORKDIR, "figures_ca90_lhs")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
 initBubbleDiam = 5
 L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 100, 200
-h = min(L_x/nx, L_y/ny)
+nx, ny = 200, 400
+h = L_x/nx
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
@@ -55,11 +55,11 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta = 30 * np.pi / 180
+theta = 90 * np.pi / 180
 
 M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, L_y/2
+center_init_x, center_init_y = 3, initBubbleDiam/2 - 2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -84,7 +84,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -276,9 +276,9 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (fmax(fabs(x[0]-xc), fabs(x[1]-yc)) - R) / eps )",
-    degree=2,
+phi_init = phi_init_expr = fe.Expression(
+    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
     R=initBubbleDiam/2,
@@ -551,7 +551,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 100 == 0:  # plot every 10 steps
+    if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity

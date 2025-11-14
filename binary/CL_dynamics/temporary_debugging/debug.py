@@ -10,14 +10,14 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
+outDirName = os.path.join(WORKDIR, "figures_debug")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
 initBubbleDiam = 5
 L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 100, 200
+nx, ny = 200, 200
 h = min(L_x/nx, L_y/ny)
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
@@ -59,7 +59,7 @@ theta = 30 * np.pi / 180
 
 M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, L_y/2
+center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -84,19 +84,22 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
 # Set periodic boundary conditions at left and right endpoints
 
 
 class PeriodicBoundaryX(fe.SubDomain):
-    def inside(self, point, on_boundary):
-        return fe.near(point[0], 0.0) and on_boundary
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[0], 0.0)
 
-    def map(self, right_bdy, left_bdy):
-        # Map left boundary to the right
-        left_bdy[0] = right_bdy[0] - L_x
-        left_bdy[1] = right_bdy[1]
+    def map(self, x, y):
+        if fe.near(x[0], L_x):
+            y[0] = x[0] - L_x
+            y[1] = x[1]
+        else:
+            y[0] = x[0]
+            y[1] = x[1]
 
 
 pbc = PeriodicBoundaryX()
@@ -129,6 +132,15 @@ phi_nP1 = fe.Function(V)
 f_star = []
 for idx in range(Q):
     f_star.append(fe.Function(V))
+    
+
+coords = mesh.coordinates()
+
+
+fe.plot(mesh)
+plt.gca().set_aspect('equal')
+plt.title("Mesh (FEniCS built-in)")
+plt.show()
 
 
 # Define density
@@ -277,8 +289,8 @@ for idx in range(Q):
     
 # Initialize \phi
 phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (fmax(fabs(x[0]-xc), fabs(x[1]-yc)) - R) / eps )",
-    degree=2,
+    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
     R=initBubbleDiam/2,
@@ -411,7 +423,7 @@ bilin_form_AC = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+            - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
@@ -552,6 +564,11 @@ for n in range(num_steps):
     fe.project(vel_expr, V_vec, function=vel_n)
     
     if n % 100 == 0:  # plot every 10 steps
+    
+        f_stack = np.array([fi.vector().get_local() for fi in f_n])
+        mom_x = np.sum(f_stack * xi_array[:,0][:,None])
+        print("total horizontal momentum:", mom_x)
+        
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity

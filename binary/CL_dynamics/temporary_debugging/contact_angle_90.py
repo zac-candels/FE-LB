@@ -10,7 +10,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
+outDirName = os.path.join(WORKDIR, "figures_ca90")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500

@@ -13,21 +13,23 @@ outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1800
-dt = 0.01
-num_steps = int(np.ceil(T/dt))
-
 
 Re = 0.96
-nx = ny = np.array([3, 4, 5])
+nx = ny = np.array([4, 8, 12, 16, 20])
 err = np.zeros(len(nx))
 conv_rate = np.zeros(len(nx))
 L_x = 32
 L_y = 32
 h = L_x/nx
 
+
+
 f_conv = open("conv_rate.txt", "w")
 f_conv.write("nx   h   err_infty  conv_rate \n")
 for i in range(len(nx)):
+
+    dt = 0.001 * h[i]
+    num_steps = int(np.ceil(T/dt))
 
     # Lattice speed of sound
     c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
@@ -433,6 +435,45 @@ for i in range(len(nx)):
                 
             file_arg = f"{nx[i]:10d} {h[i]:15.6e} {err[i]:15.6e} {conv_rate[i]:15.6f}\n"
             f_conv.write(file_arg)
+    
+    u_expr = vel(f_n)
+    V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+    u = fe.project(u_expr, V_vec)
+    num_points_analytical = 200
+    num_points_numerical = 10
+    y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+    y_values_numerical = np.linspace(0, L_y, num_points_numerical)
+    x_fixed = L_x/2
+    points = [(x_fixed, y) for y in y_values_numerical]
+    u_x_values = []
+    u_ex = np.linspace(0, L_y, num_points_analytical)
+    nu = tau/3
+    u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+    for j in range(num_points_analytical):
+        u_ex[j] = (1 - (2*y_values_analytical[j]/L_y - 1)**2)
+
+    for point in points:
+        u_at_point = u(point)
+        u_x_values.append(u_at_point[0] / u_max)
+
+
+    WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
+    outDirName = os.path.join(WORKDIR, "figures")
+    os.makedirs(outDirName, exist_ok=True)
+    fig_name = "nx = " + str(nx[i]) + ".png"
+    output = os.path.join(outDirName, fig_name)
+
+    plt.figure()
+    plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+    plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+    plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+    plt.xlabel(r"$y/L_y$", fontsize=20)
+    plt.legend()
+    plt.tick_params(direction="in")
+
+
+    print("Saving figure to:", os.path.abspath(output))
+    plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
         
 f_conv.close()
 
