@@ -558,13 +558,14 @@ for n in range(num_steps):
     # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+
         
         
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
     
-    phi_solver.solve(phi_mat, phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_mat, mu_n.vector(), rhs_mu)
+    phi_solver.solve(phi_nP1.vector(), rhs_AC)
+    mu_solver.solve(mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -572,6 +573,8 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
+    vel_expr = vel(f_n)
+    fe.project(vel_expr, V_vec, function=vel_n)
     
     if n % 1000 == 0:  # plot every 10 steps
         coords = mesh.coordinates()

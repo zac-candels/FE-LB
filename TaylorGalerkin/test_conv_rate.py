@@ -15,7 +15,7 @@ os.makedirs(outDirName, exist_ok=True)
 T = 1800
 
 Re = 0.96
-nx = ny = np.array([2, 4, 6])
+nx = ny = np.array([4, 8, 16, 32])
 err = np.zeros(len(nx))
 conv_rate = np.zeros(len(nx))
 L_x = 32
