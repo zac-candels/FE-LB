@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
+#import matplotlib
+#matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time 
@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_speedup")
+outDirName = os.path.join(WORKDIR, "figures_wetting_bc_on_mu")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -414,8 +414,7 @@ bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\

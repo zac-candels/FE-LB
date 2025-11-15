@@ -1,0 +1,28 @@
+/home/zcandels/miniconda3/envs/fenicsproject/lib/python3.10/site-packages/dolfin/jit/jit.py:121: RuntimeWarning: mpi4py.MPI.Session size changed, may indicate binary incompatibility. Expected 32 from C header, got 40 from PyObject
+  def compile_class(cpp_data, mpi_comm=MPI.comm_world):
+/home/zcandels/miniconda3/envs/fenicsproject/lib/python3.10/site-packages/dolfin/jit/jit.py:46: RuntimeWarning: mpi4py.MPI.Session size changed, may indicate binary incompatibility. Expected 32 from C header, got 40 from PyObject
+  if MPI.size(mpi_comm) == 1:
+Traceback (most recent call last):
+  File "/home/zcandels/FE-LB/binary/CL_dynamics/temporary_debugging/only_surface_tension_forces.py", line 560, in <module>
+    solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+RuntimeError: 
+
+*** -------------------------------------------------------------------------
+*** DOLFIN encountered an error. If you are not able to resolve this issue
+*** using the information listed below, you can ask for help at
+***
+***     fenics-support@googlegroups.com
+***
+*** Remember to include the error message listed below and, if possible,
+*** include a *minimal* running example to reproduce the error.
+***
+*** -------------------------------------------------------------------------
+*** Error:   Unable to solve linear system using PETSc Krylov solver.
+*** Reason:  Solution failed to converge in 0 iterations (PETSc reason DIVERGED_NANORINF, residual norm ||r|| = -nan).
+*** Where:   This error was encountered inside PETScKrylovSolver.cpp.
+*** Process: 0
+*** 
+*** DOLFIN version: 2019.1.0
+*** Git changeset:  828b3965c3ebcd128da494c596c78b17c0a303da
+*** -------------------------------------------------------------------------
+

@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
+#import matplotlib
+#matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time 
@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_speedup")
+outDirName = os.path.join(WORKDIR, "figures_ca90_no_bdy_integral")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500

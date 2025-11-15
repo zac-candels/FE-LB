@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_only_surface_tension")
+outDirName = os.path.join(WORKDIR, "figures_full_body_force_and_wetting_bc_const_mob")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -60,7 +60,7 @@ tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 theta = 30 * np.pi / 180
 
-M_tilde = 0.01
+M_tilde = 0.00001
 
 center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
@@ -255,7 +255,7 @@ def body_Force(f_list, phi, mu, vel_idx):
             * (eta/density**2)
     
 
-    return term3 
+    return term1 + term2 + term3 + term4
 
 
 # Define Allen-Cahn mobility
@@ -413,8 +413,9 @@ bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
-    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
+    - dt*fe.dot(fe.grad(v), M_tilde*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
+         - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
