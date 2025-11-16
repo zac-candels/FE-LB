@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_full_body_force_and_wetting_bc_const_mob")
+outDirName = os.path.join(WORKDIR, "figures_full_body_force_and_wetting_bc_const_mob_increase_wetBC")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -415,7 +415,7 @@ bilin_form_mu = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), M_tilde*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-         - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
+         - 100*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
