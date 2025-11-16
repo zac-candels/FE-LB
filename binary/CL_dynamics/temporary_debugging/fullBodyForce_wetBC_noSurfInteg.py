@@ -5,20 +5,23 @@ import numpy as np
 #matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
+import time 
+
+start_time = time.time() 
 
 plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_ca90_lhs")
+outDirName = os.path.join(WORKDIR, "figures_fullForce_wetBC_noSurfInteg")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
 CFL = 0.2
 initBubbleDiam = 5
-L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 200, 400
-h = L_x/nx
+L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
+nx, ny = 100, 100
+h = min(L_x/nx, L_y/ny)
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
@@ -57,9 +60,9 @@ tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 theta = 90 * np.pi / 180
 
-M_tilde = 0.01
+M_tilde = 0.00001
 
-center_init_x, center_init_y = 5, initBubbleDiam/2 - 2
+center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -260,7 +263,7 @@ def body_Force(f_list, phi, mu, vel_idx):
 def mobility(phi_n):
     grad_phi_n = fe.grad(phi_n)
     
-    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-12)
+    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
     
     mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
@@ -276,7 +279,7 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init = phi_init_expr = fe.Expression(
+phi_init_expr = fe.Expression(
     "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
     degree=2,  # polynomial degree used for interpolation
     xc=center_init_x,
@@ -407,11 +410,12 @@ bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
 ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
 
 bilin_form_AC = f_trial * v * fe.dx
+bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
-    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
+    - dt*fe.dot(fe.grad(v), M_tilde*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+         - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
@@ -448,7 +452,7 @@ for idx in range(Q):
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
         + dt*v*body_Force(f_star, phi_n, mu_n, idx)*fe.dx\
         + double_dot_product_term\
-        + dot_product_force_term + surface_term
+        + dot_product_force_term 
 
     linear_forms_stream.append(lin_form_idx)
 
@@ -460,9 +464,33 @@ rhs_vec_collision = [0]*Q
 sys_mat = []
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+    
+solver_list = []
+for idx in range(Q):
+    A = sys_mat[idx]
+
+    # Create CG solver
+    solver = fe.KrylovSolver("cg", "ilu")  # use ILU preconditioner
+    solver.set_operator(A)
+
+    # Optional: set solver parameters
+    prm = solver.parameters
+    prm["absolute_tolerance"] = 1e-12
+    prm["relative_tolerance"] = 1e-8
+    prm["maximum_iterations"] = 1000
+    prm["nonzero_initial_guess"] = False
+
+    solver_list.append(solver)
 
 phi_mat = fe.assemble(bilin_form_AC)
-mu_mat = fe.assemble(bilin_form_AC)
+mu_mat = fe.assemble(bilin_form_mu)
+phi_solver = fe.KrylovSolver("cg", "ilu")
+phi_solver.set_operator(phi_mat)
+
+mu_solver = fe.KrylovSolver("cg", "ilu")
+mu_solver.set_operator(mu_mat)
+
+
 rhs_mu = fe.assemble(lin_form_mu)
 
 fe.solve(mu_mat, mu_n.vector(), rhs_mu)
@@ -471,9 +499,6 @@ fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 t = 0.0
 for n in range(num_steps):
     t += dt
-    
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
@@ -531,16 +556,15 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep, get f^{n+1}
-    solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
-        solver = fe.LUSolver(A)
-        solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
+        
+    rhs_AC = fe.assemble(lin_form_AC)
+    rhs_mu = fe.assemble(lin_form_mu)
     
-    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
-    fe.solve(mu_mat, mu_n.vector(), rhs_mu)
+    phi_solver.solve(phi_nP1.vector(), rhs_AC)
+    mu_solver.solve(mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -551,7 +575,7 @@ for n in range(num_steps):
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 1000 == 0:  # plot every 10 steps
+    if n % 100 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
         phi_vals = phi_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
@@ -572,6 +596,7 @@ for n in range(num_steps):
         plt.close()
         
         a = 1
+    #print("n = ", n)
                 
 
 
@@ -688,3 +713,7 @@ phi_sorted = phi_vals[order_phi]
 phi_grid = phi_sorted.reshape((ny, nx))
     # Optional: if you want to name them individually:
     # globals()[f"f{idx}_grid"] = fi_grid
+
+end_time = time.time()
+
+print("time elapsed: ", end_time - start_time)
