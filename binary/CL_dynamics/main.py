@@ -148,12 +148,15 @@ def get_pBar(f_list):
 
 # Define velocity
 
-def vel(f_list):
+def vel(f_list, phi):
+    
+    density = rho(phi)
+    
     distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
         + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
 
-    velocity = distr_fn_sum/c_s**2
+    velocity = distr_fn_sum/(c_s**2 * density)
 
     return velocity
 
@@ -180,11 +183,16 @@ def f_equil_init(vel_idx):
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
-def f_equil(f_list, idx):
+def f_equil(f_list, phi, idx):
     """
     Compute equilibrium distribution for direction idx
     Returns a NumPy array (values at all DoFs).
     """
+    
+    phi_vec = phi.vector().get_local()
+    
+    density_vec = rho_h*phi_vec + rho_l*(1 - phi_vec)
+    
     # Number of DoFs
     N = f_list[0].vector().size()
 
@@ -195,8 +203,10 @@ def f_equil(f_list, idx):
     p_bar = np.sum(f_stack, axis=0)  # shape (N,)
 
     # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)\
+        /( density_vec * c_s**2 )
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)\
+        /( density_vec *c_s**2 )
 
     u2 = ux_vec**2 + uy_vec**2
 
@@ -227,7 +237,7 @@ def body_Force(f_list, phi, mu, vel_idx):
     
     grav = fe.Constant((0.0, 9.81))
     p_bar = get_pBar(f_list)
-    fluid_vel = vel(f_list)
+    fluid_vel = vel(f_list, phi)
     density = rho(phi)
     p = density * p_bar 
     buoyancy = - grav*(density - rho_h)
@@ -415,7 +425,7 @@ bilin_form_mu = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
@@ -508,7 +518,7 @@ for n in range(num_steps):
     # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     for idx in range(Q):
-        f_eq_vec = f_equil(f_n, idx)
+        f_eq_vec = f_equil(f_n, phi_n, idx)
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
@@ -572,7 +582,7 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    vel_expr = vel(f_n)
+    vel_expr = vel(f_n, phi_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
     if n % 1000 == 0:  # plot every 10 steps
@@ -592,15 +602,15 @@ for n in range(num_steps):
         # Save the figure to your output folder
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
-        #plt.show()
-        plt.close()
+        plt.show()
+        #plt.close()
         
         a = 1
                 
 
 
 # %%
-u_expr = vel(f_n)
+u_expr = vel(f_n, phi_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 
