@@ -375,12 +375,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_n[7].vector()[:]
-    f2_lower_func.vector()[:] = f_n[4].vector()[:]
-    f6_lower_func.vector()[:] = f_n[8].vector()[:]
-    f7_upper_func.vector()[:] = f_n[5].vector()[:]
-    f4_upper_func.vector()[:] = f_n[2].vector()[:]
-    f8_upper_func.vector()[:] = f_n[6].vector()[:]
+    f5_lower_func.vector()[:] = f_star[7].vector()[:]
+    f2_lower_func.vector()[:] = f_star[4].vector()[:]
+    f6_lower_func.vector()[:] = f_star[8].vector()[:]
+    f7_upper_func.vector()[:] = f_star[5].vector()[:]
+    f4_upper_func.vector()[:] = f_star[2].vector()[:]
+    f8_upper_func.vector()[:] = f_star[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -407,18 +407,24 @@ for n in range(num_steps):
         f_n[idx].assign(f_nP1[idx])
 
     if n % 3000 == 0:
-        u_expr = vel(f_n)
-        V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-        u_n = fe.project(u_expr, V_vec)
-        u_n_x = fe.project(u_n.split()[0], V)
+        # u_expr = vel(f_n)
+        # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+        # u_n = fe.project(u_expr, V_vec)
+        # u_n_x = fe.project(u_n.split()[0], V)
+        
+        u_new, v_new = 0, 0
+        
+        for i in range(Q):
+            xi_new = xi[i].values()
+            u_new += f_n[i].vector().get_local()*xi_new[0]
+            v_new += f_n[i].vector().get_local()*xi_new[1]
 
         u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                             degree=2, u_max=u_max, L_y=L_y)
         u_e = fe.interpolate(u_e, V)
-        error = np.abs(u_e.vector().get_local() -
-                       u_n_x.vector().get_local()).max()
+        error = np.linalg.norm(u_e.vector().get_local() - u_new)
         print('t = %.4f: error = %.3g' % (t, error))
-        print('max u:', u_n_x.vector().get_local().max())
+        print('max u:', u_new.max())
         if n % 10 == 0:
             error_vec.append(error)
 

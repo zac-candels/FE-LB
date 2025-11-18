@@ -60,7 +60,7 @@ tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 theta = 30 * np.pi / 180
 
-M_tilde = 0.00001
+M_tilde = 0.0001
 
 center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 

@@ -60,7 +60,7 @@ tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 theta = 30 * np.pi / 180
 
-M_tilde = 0.00001
+M_tilde = 0.0001
 
 center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
@@ -414,12 +414,12 @@ bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), M_tilde*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-         - 100*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
+       #  - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa\
-        #* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa\
+        * np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
 
 for idx in range(Q):
 

@@ -1,10 +1,12 @@
 import fenics as fe
 import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 3000
+T = 2000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
@@ -374,7 +376,7 @@ for idx in range(Q):
     
 # CN timestepping
 t = 0
-for n in range(0, 100):
+for n in range(0, num_steps):
     t += dt
     
     # Assemble RHS vectors

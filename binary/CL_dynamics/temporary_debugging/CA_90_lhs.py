@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-#import matplotlib
-#matplotlib.use("TkAgg")
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 
@@ -17,7 +17,7 @@ T = 1500
 CFL = 0.2
 initBubbleDiam = 5
 L_x, L_y = 4*initBubbleDiam, 4*initBubbleDiam
-nx, ny = 200, 400
+nx, ny = 200, 200
 h = L_x/nx
 dt = h*CFL
 num_steps = int(np.ceil(T/dt))
