@@ -6,15 +6,15 @@ import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 2000
+T = 20000
 dt = 1
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 5
-L_x = 30
-L_y = 30
+L_x = 32
+L_y = 32
 h = L_x/nx
 
 error_vec = []
@@ -491,6 +491,7 @@ title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
 plt.legend()
 plt.tick_params(direction="in")
 plt.show()
+plt.savefig("/home/zcandels/Desktop/felb.pdf")
 
 #%% Create grid of u_x and u_y values
 

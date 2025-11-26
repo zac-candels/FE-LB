@@ -12,7 +12,7 @@ WORKDIR = os.getcwd()
 outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
-T = 1500
+T = 2000
 dt = 0.01
 num_steps = int(np.ceil(T/dt))
 
@@ -458,6 +458,7 @@ plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
 plt.title("Velocity field at final time")
 plt.xlabel("x")
 plt.ylabel("y")
+plt.savefig("/home/zcandels/Desktop/felb.pdf")
 #plt.show()
 
 # %%
@@ -484,7 +485,7 @@ for point in points:
 WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
 outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
-fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".png"
+fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".pdf"
 output = os.path.join(outDirName, fig_name)
 
 plt.figure()
@@ -497,7 +498,7 @@ plt.tick_params(direction="in")
 
 
 print("Saving figure to:", os.path.abspath(output))
-plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+plt.savefig(output, dpi=400, format='pdf', bbox_inches='tight')
 
 #plt.show()
 plt.close()

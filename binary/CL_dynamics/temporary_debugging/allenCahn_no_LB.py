@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-#import matplotlib
-#matplotlib.use("TkAgg")
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time 
@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_full_body_force_and_wetting_bc_const_mob_increase_wetBC")
+outDirName = os.path.join(WORKDIR, "figures_allenCahn_no_LB_Cn0.05")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -22,7 +22,7 @@ initBubbleDiam = 5
 L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
 nx, ny = 100, 100
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL
+dt = h*CFL*0.1
 num_steps = int(np.ceil(T/dt))
 
 
@@ -40,7 +40,7 @@ Bo = 100
 Mo = 1000
 
 # Cahn number
-Cn = 0.05
+Cn = 0.1
 
 eps = Cn * initBubbleDiam
 
@@ -49,6 +49,7 @@ rho_l = 1#rho_h/100
 
 eta_h = (Mo * sigma**3 * rho_h)**(1/4)
 eta_l = eta_h/100
+
 
 beta = 12*sigma/eps
 
@@ -60,9 +61,9 @@ tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
 theta = 30 * np.pi / 180
 
-M_tilde = 0.0001
+M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
+center_init_x, center_init_y = L_x/2, 0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -127,6 +128,7 @@ f_nP1 = []
 for idx in range(Q):
     f_nP1.append(fe.Function(V))
 phi_nP1 = fe.Function(V)
+mu_nP1 = fe.Function(V)
 
 # Define FE functions to hold post-collision distributions
 f_star = []
@@ -255,7 +257,7 @@ def body_Force(f_list, phi, mu, vel_idx):
             * (eta/density**2)
     
 
-    return term1 + term2 + term3 + term4
+    return term3
 
 
 # Define Allen-Cahn mobility
@@ -280,15 +282,15 @@ for idx in range(Q):
     
 # Initialize \phi
 phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
-    degree=2,  # polynomial degree used for interpolation
+    "x[1] > -1e-16 ? 0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps ) : 0",
+    degree=4,  # polynomial degree used for interpolation
     xc=center_init_x,
     yc=center_init_y,
     R=initBubbleDiam/2,
     eps=eps
 )
 
-phi_n = fe.interpolate(phi_init_expr, V)
+phi_n = fe.project(phi_init_expr, V)
 
 coords = mesh.coordinates()
 phi_vals = phi_n.compute_vertex_values(mesh)
@@ -412,14 +414,11 @@ ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_i
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
-    - dt*fe.dot(fe.grad(v), M_tilde*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-         - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*M_tilde*(phi_n - phi_n**2)*ds_bottom
+lin_form_AC = phi_n * v * fe.dx - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
+           - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx # - np.sqrt(2*kappa*beta)/kappa
-        #* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
 
 for idx in range(Q):
 
@@ -493,7 +492,11 @@ mu_solver.set_operator(mu_mat)
 
 rhs_mu = fe.assemble(lin_form_mu)
 
-fe.solve(mu_mat, mu_n.vector(), rhs_mu)
+mu_solver.solve(mu_n.vector(), rhs_mu)
+
+
+fe.plot(mu_n)
+plt.colorbar()
 
 # Timestepping
 t = 0.0
@@ -538,12 +541,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_n[7].vector()[:]
-    f2_lower_func.vector()[:] = f_n[4].vector()[:]
-    f6_lower_func.vector()[:] = f_n[8].vector()[:]
-    f7_upper_func.vector()[:] = f_n[5].vector()[:]
-    f4_upper_func.vector()[:] = f_n[2].vector()[:]
-    f8_upper_func.vector()[:] = f_n[6].vector()[:]
+    f5_lower_func.vector()[:] = f_star[7].vector()[:]
+    f2_lower_func.vector()[:] = f_star[4].vector()[:]
+    f6_lower_func.vector()[:] = f_star[8].vector()[:]
+    f7_upper_func.vector()[:] = f_star[5].vector()[:]
+    f4_upper_func.vector()[:] = f_star[2].vector()[:]
+    f8_upper_func.vector()[:] = f_star[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -564,7 +567,7 @@ for n in range(num_steps):
     rhs_mu = fe.assemble(lin_form_mu)
     
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_n.vector(), rhs_mu)
+    mu_solver.solve(mu_nP1.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -572,6 +575,7 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
+    mu_n.assign(mu_nP1)
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
@@ -596,7 +600,6 @@ for n in range(num_steps):
         plt.close()
         
         a = 1
-    #print("n = ", n)
                 
 
 
