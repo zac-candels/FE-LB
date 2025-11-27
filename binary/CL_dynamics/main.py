@@ -20,7 +20,7 @@ T = 1500
 CFL = 0.2
 initBubbleDiam = 5
 L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
-nx, ny = 400, 400
+nx, ny = 100, 100
 h = min(L_x/nx, L_y/ny)
 dt = h*CFL*0.1
 num_steps = int(np.ceil(T/dt))
@@ -40,7 +40,7 @@ Bo = 100
 Mo = 1000
 
 # Cahn number
-Cn = 0.1
+Cn = 0.05
 
 eps = Cn * initBubbleDiam
 
@@ -88,7 +88,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -281,16 +281,24 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init_expr = fe.Expression(
-    "x[1] > -1e-16 ? 0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps ) : 0",
-    degree=4,  # polynomial degree used for interpolation
-    xc=center_init_x,
-    yc=center_init_y,
-    R=initBubbleDiam/2,
-    eps=eps
-)
+# phi_init_expr = fe.Expression(
+#     "x[1] > -1e-16 ? 0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps ) : 0",
+#     degree=4,  # polynomial degree used for interpolation
+#     xc=center_init_x,
+#     yc=center_init_y,
+#     R=initBubbleDiam/2,
+#     eps=eps
+# )
 
-phi_n = fe.project(phi_init_expr, V)
+try: 
+   from ufl import tanh
+except ImportError:
+    from ufl_legacy import tanh
+x = fe.SpatialCoordinate(mesh)
+R = initBubbleDiam / 2
+phi_expr = 0.5 - 0.5 * tanh( 2.0 * (fe.sqrt((x[0]-center_init_x)**2 + (x[1]-center_init_y)**2) - R) / eps )
+
+phi_n = fe.project(phi_expr, V)
 
 coords = mesh.coordinates()
 phi_vals = phi_n.compute_vertex_values(mesh)
@@ -488,7 +496,9 @@ mu_mat = fe.assemble(bilin_form_mu)
 phi_solver = fe.KrylovSolver("cg", "ilu")
 phi_solver.set_operator(phi_mat)
 
-mu_solver = fe.KrylovSolver("cg", "ilu")
+mu_solver = fe.LUSolver("mumps")
+#mu_solver = fe.KrylovSolver("cg", "ilu")
+
 mu_solver.set_operator(mu_mat)
 
 
@@ -498,7 +508,6 @@ mu_solver.solve(mu_n.vector(), rhs_mu)
 
 
 fe.plot(mu_n)
-plt.colorbar()
 
 # Timestepping
 t = 0.0
