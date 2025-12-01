@@ -503,65 +503,11 @@ t = 0.0
 for n in range(num_steps):
     t += dt
     
-    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    # rho_pre = np.sum(f_pre_stack, axis=0)
-    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
-        
-    # f_post_stack = np.zeros_like(f_pre_stack)
-    # Perform collision, get post-collision distributions f_i^*
-    for idx in range(Q):
-        f_eq_vec = f_equil(f_n, idx)
-        #f_eq_vec = f_eq.vector().get_local()
-        f_n_vec = f_n[idx].vector().get_local()
-        
-        phi_vec = phi_n.vector().get_local()
-        
-        tau_vec = phi_vec*tau_h + (1 - phi_vec)*tau_l
-        
-        f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
-    
-        # f_post_stack[idx, :] = f_new
-        f_star[idx].vector().set_local(f_new)
-        f_star[idx].vector().apply("insert")
         
     # rho_post = np.sum(f_post_stack, axis=0)
     # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
     # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-    # # ---- Compare ----
-    # rho_diff = rho_post - rho_pre
-    # momx_diff = momx_post - momx_pre
-    # momy_diff = momy_post - momy_pre
-    # print("max |drho|   =", np.max(np.abs(rho_diff)))
-    # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)))
-    # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)))
-
-    # Assemble RHS vectors
-    for idx in range(Q):
-        rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
-
-    f5_lower_func.vector()[:] = f_star[7].vector()[:]
-    f2_lower_func.vector()[:] = f_star[4].vector()[:]
-    f6_lower_func.vector()[:] = f_star[8].vector()[:]
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
-
-    # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
-
-    # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
-
-    # Solve linear system in each timestep, get f^{n+1}
-    for idx in range(Q):
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
-        
         
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
