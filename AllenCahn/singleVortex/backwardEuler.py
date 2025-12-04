@@ -8,9 +8,12 @@ import matplotlib.tri as tri
 
 plt.close('all')
 
+#fe.parameters["std_out_all_processes"] = False
+#fe.set_log_level(fe.LogLevel.ERROR)
+
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "zalesakFigures")
+outDirName = os.path.join(WORKDIR, "singleVortexBE")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 4
@@ -18,7 +21,7 @@ CFL = 0.2
 L_x, L_y = 1, 1
 nx, ny = 128, 128
 h = L_x/nx
-dt = h/17000
+dt = h*0.01
 num_steps = int(np.ceil(T/dt))
 
 
@@ -52,15 +55,12 @@ V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
 f_trial = fe.TrialFunction(V)
 
-phi_n = fe.Function(V)
+c_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 vel_n = fe.Function(V_vec)
-mu_n = fe.Function(V)
-mu_nP1 = fe.Function(V)
-
 v = fe.TestFunction(V)
 
-phi_nP1 = fe.Function(V)
+c_nP1 = fe.Function(V)
 
 u_expr = fe.Expression(
     (
@@ -74,18 +74,18 @@ u_expr = fe.Expression(
 vel_n = fe.project(u_expr, V_vec)
 
 # Define Allen-Cahn mobility
-def mobility(phi_n):
-    grad_phi_n = fe.grad(phi_n)
+def mobility(c_n):
+    grad_c_n = fe.grad(c_n)
 
-    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
-    inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
+    abs_grad_c_n = fe.sqrt(fe.dot(grad_c_n, grad_c_n) + 1e-6)
+    inv_abs_grad_c_n = 1.0 / abs_grad_c_n
 
-    mob = (1/np.pi)*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
+    mob = (1/np.pi)*( 1 - 4*c_n*(1 - c_n)/eps * inv_abs_grad_c_n )
     return mob
 
 
-# Initialize \phi
-phi_init_expr = fe.Expression(
+# Initialize \c
+c_init_expr = fe.Expression(
     "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps ) ",
     degree=4,  # polynomial degree used for interpolation
     xc=0.5,
@@ -94,93 +94,32 @@ phi_init_expr = fe.Expression(
     eps=eps
 )
 
-phi_n = fe.project(phi_init_expr, V)
+c_n = fe.project(c_init_expr, V)
 
-coords = mesh.coordinates()
-phi_vals = phi_n.compute_vertex_values(mesh)
-triangles = mesh.cells()  # get mesh connectivity
-triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
-
-plt.figure(figsize=(6,5))
-plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-plt.colorbar(label=r"$\phi$")
-plt.title(f"phi at t = {0:.2f}")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.tight_layout()
-
-# Save the figure to your output folder
-out_file = os.path.join(outDirName, f"phi_t{0:05d}.png")
-plt.savefig(out_file, dpi=200)
-plt.show()
-#plt.close()
-
-
-
-# Define boundary conditions.
-
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
-# Since we are applying equilibrium boundary conditions
-# and assuming no slip on solid walls, f_i^{eq} reduces to
-# \rho * w_i
-
-
-
-
-# Create MeshFunction for boundary markers
-boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
-
-# Subdomain for bottom wall
-class Bottom(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0)
-
-bottom = Bottom()
-bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
-ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
-
-bilin_form_AC = f_trial * v * fe.dx
-
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
-    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-           
-
-
-phi_mat = fe.assemble(bilin_form_AC)
-
-
-# Timestepping
-t = 0.0
-for n in range(num_steps):
-    t += dt
+F = c_nP1*v*fe.dx + dt*fe.dot(vel_n, fe.grad(c_nP1))*v*fe.dx\
+    + dt*mobility(c_n)*fe.dot(fe.grad(c_nP1),fe.grad(v))*fe.dx - c_n*v*fe.dx 
     
+    
+
+t = 0
+for n in range(num_steps):
+    
+    t += dt
     u_expr.t = t
     vel_n.assign(fe.project(u_expr, V_vec))
-
-        
-    # rho_post = np.sum(f_post_stack, axis=0)
-    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-        
-    rhs_AC = fe.assemble(lin_form_AC)
+    fe.solve(F == 0, c_nP1)
     
-    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
-
-
-    # Update previous solutions
-
-    phi_n.assign(phi_nP1)
+    c_n.assign(c_nP1)
     
-    if n % 1000 == 0:  # plot every 10 steps
+    if n % 100 == 0:  # plot every 10 steps
         coords = mesh.coordinates()
-        phi_vals = phi_n.compute_vertex_values(mesh)
+        c_vals = c_n.compute_vertex_values(mesh)
         triangles = mesh.cells()  # get mesh connectivity
         triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
     
         plt.figure(figsize=(6,5))
-        plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+        plt.tricontourf(triang, c_vals, levels=50, cmap="RdBu_r")
         plt.colorbar(label=r"$\phi$")
         plt.title(f"phi at t = {t:.2f}")
         plt.xlabel("x")
@@ -191,14 +130,6 @@ for n in range(num_steps):
         out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
         plt.savefig(out_file, dpi=200)
         plt.show()
-        
-        a = 1
-                
-
-
-# %%
-
-
 
 
 

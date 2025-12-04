@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_allenCahn_no_LB_Cn0.05")
+outDirName = os.path.join(WORKDIR, "figures_allenCahn_no_LB_Cn0.05_symmetrized")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -88,7 +88,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 # Set periodic boundary conditions at left and right endpoints
 
