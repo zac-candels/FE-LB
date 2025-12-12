@@ -27,26 +27,39 @@ num_steps = int(np.ceil(T/dt))
 gammaBar = 1
 eps = 0.7*h
 
-center_init_x, center_init_y = L_x/2, L_y/2
+xc=0.5
+yc=0.75
+R=0.15
 
 
 # Set up domain. For simplicity, do unit square mesh.
 mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
-# Set periodic boundary conditions at left and right endpoints
-class PeriodicBoundaryY(fe.SubDomain):
-    def inside(self, point, on_boundary):
-        # bottom boundary (y=0)
-        return fe.near(point[1], 0.0) and on_boundary
+class PeriodicBoundary2D(fe.SubDomain):
+    # Define the "master boundary": x=0 or y=0
+    def inside(self, x, on_boundary):
+        # This is true for points on the left or bottom edges (master edges)
+        return ( (fe.near(x[0], 0) or fe.near(x[1], 0)) and
+                 on_boundary and
+                 not ((fe.near(x[0], 0) and fe.near(x[1], L_y)) or
+                      (fe.near(x[0], L_x) and fe.near(x[1], 0))) )
 
+    # Map slave boundary points onto the master boundary
     def map(self, x, y):
-        # map top boundary (y=Ly) to bottom (y=0)
-        # In FEniCS the map signature is map(self, x, y) where x is a point on master boundary,
-        # and y is the mapped point; set y[...] accordingly.
-        y[0] = x[0]
-        y[1] = x[1] - L_y
+        if fe.near(x[0], L_x) and fe.near(x[1], L_y):
+            # Top-right corner → bottom-left corner
+            y[0] = x[0] - L_x
+            y[1] = x[1] - L_y
+        elif fe.near(x[0], L_x):
+            # Right boundary → left boundary
+            y[0] = x[0] - L_x
+            y[1] = x[1]
+        elif fe.near(x[1], L_y):
+            # Top boundary → bottom boundary
+            y[0] = x[0]
+            y[1] = x[1] - L_y
 
-pbc = PeriodicBoundaryY()
+pbc = PeriodicBoundary2D()
 
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 
@@ -85,15 +98,33 @@ def mobility(c_n):
 
 
 # Initialize \c
-c_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps ) ",
-    degree=2,  # polynomial degree used for interpolation
-    xc=0.5,
-    yc=0.75,
-    R=0.15,
-    eps=eps
-)
-c_n = fe.project(c_init_expr, V)
+
+tol = eps
+
+class CircleExpr(fe.UserExpression):
+    def __init__(self, xc, yc, R, tol, inside=True, **kwargs):
+        super().__init__(**kwargs)
+        self.xc = xc
+        self.yc = yc
+        self.R  = R
+        self.tol = tol
+        self.inside = inside
+    def eval(self, values, x):
+        dx = x[0] - self.xc
+        dy = x[1] - self.yc
+        d = (dx*dx + dy*dy)**0.5
+        if self.inside:
+            # 1 inside disk, 0 outside
+            values[0] = 1.0 if d <= self.R + 1e-12 else 0.0
+        else:
+            # 1 on the circle boundary within tol, 0 elsewhere
+            values[0] = 1.0 if abs(d - self.R) <= self.tol else 0.0
+    def value_shape(self):
+        return ()
+
+c_init_expr = CircleExpr(xc, yc, R, tol, inside=True, degree=2)
+
+c_n = fe.interpolate(c_init_expr, V)
 
 coords = mesh.coordinates()
 c_vals = c_n.compute_vertex_values(mesh)
