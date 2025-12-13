@@ -1,19 +1,34 @@
-#!/bin/bash
-#SBATCH --job-name=SV-BE-CL
+#!/bin/bash --login
+#SBATCH --job-name=TG
 #SBATCH --output=output.log
 #SBATCH --error=error.log
 #SBATCH --time=24:00:00
+
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32     # MPI ranks per node (adjust)
+#SBATCH --cpus-per-task=1
+
 #SBATCH --partition=standard
 #SBATCH --account=ec288-wetting
 #SBATCH --qos=lowpriority
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=250
+#SBATCH --exclusive
 
-module load singularity
+# Load Cray Python (required for srun/MPI environment)
+module load cray-python
+
+# DO NOT load singularity unless module spider confirms it exists
+# If singularity is installed system-wide, this is enough:
+which singularity || which apptainer
+
+# Pass cpus-per-task to srun (per HPC docs)
+export SRUN_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK}
 
 SIF=../../../../fenics-gmsh.sif
 WORKDIR=$SLURM_SUBMIT_DIR
 
-# Bind the working directory into /root/shared inside the container
-singularity exec --bind $SLURM_SUBMIT_DIR:/root/shared $SIF \
-    bash -c "cd /root/shared && python3 BE.py"
+# Launch MPI ranks with srun
+srun --distribution=block:block --hint=nomultithread \
+     singularity exec \
+     --bind $WORKDIR:/root/shared \
+     $SIF \
+     python3 /root/shared/TG.py
