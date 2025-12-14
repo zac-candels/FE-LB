@@ -28,7 +28,7 @@ h = L_x/nx
 dt = 0.1*h
 num_steps = int(np.ceil(T/dt))
 
-gammaBar = 1
+gammaBar = 0.1
 eps = 0.7*h
 
 xc=0.5
@@ -145,12 +145,12 @@ c_mat = fe.assemble(bilin_form_AC)
 c_solver = fe.KrylovSolver("cg", "ilu")
 c_solver.set_operator(c_mat)
 prm = c_solver.parameters
-prm["absolute_tolerance"] = 1e-12
+prm["absolute_tolerance"] = 1e-14
 prm["relative_tolerance"] = 1e-8
 prm["maximum_iterations"] = 1000
 prm["nonzero_initial_guess"] = False
 
-vtkfile = fe.File('TG_output/solution.pvd')
+vtkfile = fe.File('TG_output_gammaBar0.1/solution.pvd')
 
 
 t = 0
