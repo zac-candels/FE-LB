@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=SV-BE
+#SBATCH --job-name=M_0.005
 #SBATCH --output=output.log
 #SBATCH --error=error.log
 #SBATCH --time=24:00:00
@@ -7,7 +7,7 @@
 #SBATCH --account=ec288-wetting
 #SBATCH --qos=lowpriority
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=250
+#SBATCH --cpus-per-task=288
 
 module load singularity
 
@@ -16,4 +16,4 @@ WORKDIR=$SLURM_SUBMIT_DIR
 
 # Bind the working directory into /root/shared inside the container
 singularity exec --bind $SLURM_SUBMIT_DIR:/root/shared $SIF \
-    bash -c "cd /root/shared && python3 backwardEuler.py"
+    bash -c "cd /root/shared && python3 singleVortex_serial.py"
