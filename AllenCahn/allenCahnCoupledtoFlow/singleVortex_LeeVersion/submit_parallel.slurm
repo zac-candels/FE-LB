@@ -6,7 +6,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=32     # MPI ranks per node (adjust)
-#SBATCH --cpus-per-task=5
+#SBATCH --cpus-per-task=1
 
 #SBATCH --partition=standard
 #SBATCH --account=ec288-wetting

@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 
 from mpi4py import MPI
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
+comm = fe.MPI.comm_world
+rank = fe.MPI.rank(comm)
 
 plt.close('all')
 
@@ -36,7 +36,7 @@ eps = 0.7*h
 center_init_x, center_init_y = L_x/2, L_y/2
 
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
+mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny)
 
 class PeriodicBoundary2D(fe.SubDomain):
     # Define the "master boundary": x=0 or y=0

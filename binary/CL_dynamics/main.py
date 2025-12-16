@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("TkAgg")
+#import matplotlib
+#matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time 
@@ -13,7 +13,7 @@ plt.close('all')
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
+outDirName = os.path.join(WORKDIR, "figures_CA30")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
@@ -59,9 +59,9 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta = 90 * np.pi / 180
+theta = 30 * np.pi / 180
 
-M_tilde = 0.01
+M_tilde = 0.005
 
 center_init_x, center_init_y = L_x/2, 0
 
@@ -261,14 +261,13 @@ def body_Force(f_list, phi, mu, vel_idx):
 
 
 # Define Allen-Cahn mobility
-
 def mobility(phi_n):
     grad_phi_n = fe.grad(phi_n)
-    
+
     abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
-    
-    mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
+
+    mob = M_tilde*eps*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
     return mob
     
 
@@ -425,10 +424,9 @@ bilin_form_mu = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-           - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx #- np.sqrt(2*kappa*beta)/kappa* np.cos(theta)*(phi_n - phi_n**2)*v*fe.ds
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa* np.cos(theta)*(phi_n - phi_n**2)*v*ds_bottom
 
 for idx in range(Q):
 
@@ -484,7 +482,7 @@ for idx in range(Q):
 
     # Optional: set solver parameters
     prm = solver.parameters
-    prm["absolute_tolerance"] = 1e-12
+    prm["absolute_tolerance"] = 1e-13
     prm["relative_tolerance"] = 1e-8
     prm["maximum_iterations"] = 1000
     prm["nonzero_initial_guess"] = False
