@@ -17,12 +17,12 @@ outDirName = os.path.join(WORKDIR, "figures_CA30")
 os.makedirs(outDirName, exist_ok=True)
 
 T = 1500
-CFL = 0.2
+CFL = 0.1
 initBubbleDiam = 5
 L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
 nx, ny = 100, 100
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL*0.1
+dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
 
@@ -59,7 +59,7 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta = 30 * np.pi / 180
+theta = 60 * np.pi / 180
 
 M_tilde = 0.005
 
@@ -257,7 +257,7 @@ def body_Force(f_list, phi, mu, vel_idx):
             * (eta/density**2)
     
 
-    return term3
+    return term1 + term2 + term3 + term4
 
 
 # Define Allen-Cahn mobility
@@ -267,7 +267,7 @@ def mobility(phi_n):
     abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
 
-    mob = M_tilde*eps*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
+    mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
     return mob
     
 
@@ -289,15 +289,17 @@ for idx in range(Q):
 #     eps=eps
 # )
 
-try: 
-   from ufl import tanh
-except ImportError:
-    from ufl_legacy import tanh
-x = fe.SpatialCoordinate(mesh)
-R = initBubbleDiam / 2
-phi_expr = 0.5 - 0.5 * tanh( 2.0 * (fe.sqrt((x[0]-center_init_x)**2 + (x[1]-center_init_y)**2) - R) / eps )
+# Initialize \phi
+phi_init = phi_init_expr = fe.Expression(
+    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+    degree=2,  # polynomial degree used for interpolation
+    xc=center_init_x,
+    yc=center_init_y,
+    R=initBubbleDiam/2,
+    eps=eps
+)
 
-phi_n = fe.project(phi_expr, V)
+phi_n = fe.interpolate(phi_init_expr, V)
 
 coords = mesh.coordinates()
 phi_vals = phi_n.compute_vertex_values(mesh)
@@ -426,7 +428,8 @@ lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa* np.cos(theta)*(phi_n - phi_n**2)*v*ds_bottom
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx - np.sqrt(2*kappa*beta)/kappa\
+        * np.cos(theta)*(phi_n - phi_n**2)*v*ds_bottom
 
 for idx in range(Q):
 
@@ -475,18 +478,7 @@ for idx in range(Q):
 solver_list = []
 for idx in range(Q):
     A = sys_mat[idx]
-
-    # Create CG solver
-    solver = fe.KrylovSolver("cg", "ilu")  # use ILU preconditioner
-    solver.set_operator(A)
-
-    # Optional: set solver parameters
-    prm = solver.parameters
-    prm["absolute_tolerance"] = 1e-13
-    prm["relative_tolerance"] = 1e-8
-    prm["maximum_iterations"] = 1000
-    prm["nonzero_initial_guess"] = False
-
+    solver = fe.LUSolver(A)
     solver_list.append(solver)
 
 phi_mat = fe.assemble(bilin_form_AC)
@@ -502,7 +494,7 @@ mu_solver.set_operator(mu_mat)
 
 rhs_mu = fe.assemble(lin_form_mu)
 
-mu_solver.solve(mu_n.vector(), rhs_mu)
+mu_solver.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 
 fe.plot(mu_n)
@@ -511,6 +503,12 @@ fe.plot(mu_n)
 t = 0.0
 for n in range(num_steps):
     t += dt
+    
+    print("n = ", n)
+    
+    rhs_AC = fe.assemble(lin_form_AC)
+    rhs_mu = fe.assemble(lin_form_mu)
+    
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
@@ -550,12 +548,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_star[7].vector()[:]
-    f2_lower_func.vector()[:] = f_star[4].vector()[:]
-    f6_lower_func.vector()[:] = f_star[8].vector()[:]
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    f5_lower_func.vector()[:] = f_n[7].vector()[:]
+    f2_lower_func.vector()[:] = f_n[4].vector()[:]
+    f6_lower_func.vector()[:] = f_n[8].vector()[:]
+    f7_upper_func.vector()[:] = f_n[5].vector()[:]
+    f4_upper_func.vector()[:] = f_n[2].vector()[:]
+    f8_upper_func.vector()[:] = f_n[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -571,12 +569,11 @@ for n in range(num_steps):
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
-        
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
     
-    phi_solver.solve(phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    
+    #phi_solver.solve(phi_nP1.vector(), rhs_AC)
+    fe.solve(phi_mat, phi_nP1.vector(), rhs_AC)
+    fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -584,7 +581,6 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    mu_n.assign(mu_nP1)
     vel_expr = vel(f_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
