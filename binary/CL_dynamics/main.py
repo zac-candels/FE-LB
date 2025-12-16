@@ -12,9 +12,7 @@ start_time = time.time()
 plt.close('all')
 
 # Where to save the plots
-WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures_speedup")
-os.makedirs(outDirName, exist_ok=True)
+
 
 T = 1500
 CFL = 0.2
@@ -58,7 +56,12 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta = 30 * np.pi / 180
+theta_deg = 30
+theta = theta_deg * np.pi / 180
+
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, f"figures_CA{theta_deg}")
+os.makedirs(outDirName, exist_ok=True)
 
 M_tilde = 0.01
 

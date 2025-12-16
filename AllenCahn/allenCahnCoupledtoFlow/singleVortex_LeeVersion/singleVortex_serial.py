@@ -91,7 +91,7 @@ def mobility(phi_n):
     abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
 
-    mob = M_tilde*eps*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
+    mob = M_tilde( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
     return mob
 
 
