@@ -5,7 +5,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
-import time 
+import time
+ 
+comm = fe.MPI.comm_world
+rank = fe.MPI.rank(comm)
 
 start_time = time.time() 
 
@@ -90,7 +93,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
+mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -266,7 +269,7 @@ def body_Force(f_list, phi, mu, vel_idx):
 def mobility(phi_n):
     grad_phi_n = fe.grad(phi_n)
     
-    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-12)
+    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
     inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
     
     mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
@@ -417,12 +420,12 @@ bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx#\
-           # - (1/10)*dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
+            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-        - kappa*np.cos(theta)*np.sqrt(2*kappa*beta)*v*(phi_n - phi_n**2)*ds_bottom
+        #- (1/kappa)*np.cos(theta)*np.sqrt(2*kappa*beta)*v*(phi_n - phi_n**2)*ds_bottom
 
 for idx in range(Q):
 
@@ -473,7 +476,7 @@ for idx in range(Q):
     A = sys_mat[idx]
 
     # Create CG solver
-    solver = fe.KrylovSolver("cg", "ilu")  # use ILU preconditioner
+    solver = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
     solver.set_operator(A)
 
     # Optional: set solver parameters
@@ -487,10 +490,10 @@ for idx in range(Q):
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
-phi_solver = fe.KrylovSolver("cg", "ilu")
+phi_solver = fe.LUSolver("mumps")
 phi_solver.set_operator(phi_mat)
 
-mu_solver = fe.KrylovSolver("cg", "ilu")
+mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
 
@@ -498,10 +501,20 @@ rhs_mu = fe.assemble(lin_form_mu)
 
 fe.solve(mu_mat, mu_n.vector(), rhs_mu)
 
+outfile = fe.XDMFFile(comm, f"{outDirName}/solution.xdmf")
+outfile.parameters["flush_output"] = True
+outfile.parameters["functions_share_mesh"] = True
+outfile.parameters["rewrite_function_mesh"] = False
+
 # Timestepping
 t = 0.0
 for n in range(num_steps):
     t += dt
+    
+    print("n = ", n)
+    
+    rhs_AC = fe.assemble(lin_form_AC)
+    rhs_mu = fe.assemble(lin_form_mu)
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
@@ -562,12 +575,9 @@ for n in range(num_steps):
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
-        
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
     
-    phi_solver.solve(phi_mat, phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_mat, mu_n.vector(), rhs_mu)
+    phi_solver.solve(phi_nP1.vector(), rhs_AC)
+    mu_solver.solve(mu_n.vector(), rhs_mu)
 
 
     # Update previous solutions
@@ -575,28 +585,29 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
+    vel_expr = vel(f_n)
+    fe.project(vel_expr, V_vec, function=vel_n)
     
-    if n % 10 == 0:  # plot every 10 steps
-        coords = mesh.coordinates()
-        phi_vals = phi_n.compute_vertex_values(mesh)
-        triangles = mesh.cells()  # get mesh connectivity
-        triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
-    
-        plt.figure(figsize=(6,5))
-        plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-        plt.colorbar(label=r"$\phi$")
-        plt.title(f"phi at t = {t:.2f}")
-        plt.xlabel("x")
-        plt.ylabel("y")
-        plt.tight_layout()
+    if rank == 0:
+        if n % 10 == 0:  # plot every 10 steps
+            coords = mesh.coordinates()
+            phi_vals = phi_n.compute_vertex_values(mesh)
+            triangles = mesh.cells()  # get mesh connectivity
+            triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
         
-        # Save the figure to your output folder
-        out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
-        plt.savefig(out_file, dpi=200)
-        #plt.show()
-        plt.close()
-        
-        a = 1
+            plt.figure(figsize=(6,5))
+            plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+            plt.colorbar(label=r"$\phi$")
+            plt.title(f"phi at t = {t:.2f}")
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.tight_layout()
+            
+            # Save the figure to your output folder
+            out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+            plt.savefig(out_file, dpi=200)
+            #plt.show()
+            plt.close()
                 
 
 
