@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=TG
+#SBATCH --job-name=CA120
 #SBATCH --output=output_p.log
 #SBATCH --error=error_p.log
 #SBATCH --time=24:00:00

@@ -59,7 +59,7 @@ kappa = 3*sigma*eps/2
 tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
 tau_l = 1# eta_l / (c_s2 * rho_l * dt )
 
-theta_deg = 30
+theta_deg = 120
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
@@ -421,7 +421,7 @@ bilin_form_mu = f_trial * v * fe.dx
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
     - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
         - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*(np.cos(theta)*np.sqrt(2*kappa*beta)/kappa)*v*mobility(phi_n)*(phi_n - phi_n**2)*ds_bottom
+            - dt*np.cos(theta)*v*mobility(phi_n)*4*phi_n*(1 - phi_n)/eps*ds_bottom
 
 lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
