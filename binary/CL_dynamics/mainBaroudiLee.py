@@ -590,6 +590,8 @@ for n in range(num_steps):
     
     if rank == 0:
         if n % 10 == 0:  # plot every 10 steps
+            outfile.write(phi_n, t)
+
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
             triangles = mesh.cells()  # get mesh connectivity
