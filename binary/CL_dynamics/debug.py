@@ -1,8 +1,8 @@
 import fenics as fe
 import os
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
+# import matplotlib
+# matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
@@ -462,6 +462,12 @@ for idx in range(Q):
 
     linear_forms_stream.append(lin_form_idx)
 
+eval_pts_x = np.linspace(0, L_x, 200)
+eval_pts = []
+fn_pts = []
+for i in range(len(eval_pts_x)):
+    eval_pts.append( fe.Point(eval_pts_x[i], 0.1) )
+
 # Assemble matrices for first step
 
 rhs_vec_streaming = [0]*Q
@@ -508,10 +514,11 @@ outfile.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
+
+mass = fe.assemble(phi_n*fe.dx) 
+
 for n in range(num_steps):
     t += dt
-    
-    print("n = ", n)
     
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
@@ -589,25 +596,45 @@ for n in range(num_steps):
     fe.project(vel_expr, V_vec, function=vel_n)
     
     if rank == 0:
-        if n % 10 == 0:  # plot every 10 steps
+        if n % 1000 == 0:  # plot every 10 steps
+        
+            mass = fe.assemble(phi_n*fe.dx)
+            print("mass = ", mass)
+        
+            fn_pts = []
+            for idx in range(len(eval_pts)):
+                fn_pts.append( phi_n(eval_pts[idx]) )
+                
+            plt.figure()
+            plt.plot(eval_pts_x, fn_pts)
+            plt.xlabel(r"$x$")
+            plt.ylabel(r"$\phi$")
+            plt.title(f"phi at y = 0.1, t = {t}")
+            plt.show()
+                
+            outfile.write(phi_n, t)
+        
+        
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
             triangles = mesh.cells()  # get mesh connectivity
             triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
         
-            plt.figure(figsize=(6,5))
-            plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-            plt.colorbar(label=r"$\phi$")
-            plt.title(f"phi at t = {t:.2f}")
-            plt.xlabel("x")
-            plt.ylabel("y")
-            plt.tight_layout()
+            # plt.figure(figsize=(6,5))
+            # plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+            # plt.colorbar(label=r"$\phi$")
+            # plt.title(f"phi at t = {t:.2f}")
+            # plt.xlabel("x")
+            # plt.ylabel("y")
+            # plt.tight_layout()
             
             # Save the figure to your output folder
-            out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
-            plt.savefig(out_file, dpi=200)
-            #plt.show()
-            plt.close()
+            # out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+            # plt.savefig(out_file, dpi=200)
+            # plt.show()
+            #plt.close()
+            
+            a=1
                 
 
 
