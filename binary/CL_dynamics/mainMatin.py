@@ -27,37 +27,29 @@ dt = h*CFL
 num_steps = int(np.ceil(T/dt))
 
 
-g = 0.0981
 sigma = 0.005 #0.1
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 c_s2 = 1/3
 
-# Bond number
-Bo = 100
-
-# Morton number
-Mo = 1000
-
 # Cahn number
 Cn = 0.05
 
 eps = Cn * initBubbleDiam
 
-rho_h = 1#sigma*Bo*g / initBubbleDiam**2
-rho_l = 1#rho_h/100
+rho_h = 1
+rho_l = 1
 
-eta_h = (Mo * sigma**3 * rho_h)**(1/4)
-eta_l = eta_h/100
+beta = 24*sigma/eps
 
-beta = 12*sigma/eps
+kappa = 3*sigma*eps
 
-kappa = 3*sigma*eps/2 
+M_tilde = 0.01
 
 # Relaxation times for heavier and lighter phases
-tau_h = 1 #eta_h / (c_s2 * rho_h * dt )
-tau_l = 1# eta_l / (c_s2 * rho_l * dt )
+tau_h = 1
+tau_l = 1
 
 theta_deg = 30
 theta = theta_deg * np.pi / 180
@@ -66,7 +58,7 @@ WORKDIR = os.getcwd()
 outDirName = os.path.join(WORKDIR, f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
-M_tilde = 0.01
+
 
 center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
 
@@ -141,25 +133,27 @@ for idx in range(Q):
 
 
 # Define density
-def rho(phi):
+def getDens(phi):
     return rho_h*phi + rho_l*(1 - phi)
 
-def tau_fn(phi):
-    return phi*tau_h + (1 - phi)*tau_l
+def getTau(phi):
+    inv_tau = phi/tau_h + (1 - phi)/tau_l
+    return 1.0 / inv_tau
 
 # Define dynamic pressure
-def get_pBar(f_list):
+def getPres(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
         + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
 # Define velocity
 
-def vel(f_list):
+def getVel(f_list, phi):
     distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
         + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
 
-    velocity = distr_fn_sum/c_s**2
+    density = getDens(phi)
+    velocity = distr_fn_sum/(density*c_s**2)
 
     return velocity
 
@@ -186,7 +180,7 @@ def f_equil_init(vel_idx):
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
-def f_equil(f_list, idx):
+def f_equil(f_list, phi, idx):
     """
     Compute equilibrium distribution for direction idx
     Returns a NumPy array (values at all DoFs).
@@ -197,8 +191,13 @@ def f_equil(f_list, idx):
     # Stack all f_i values: shape (Q, N)
     f_stack = np.array([f.vector().get_local() for f in f_list])
 
+    # Compute pressure at each DoF
+    pres = np.sum(f_stack, axis=0)  # shape (N,)
+    
     # Compute density at each DoF
-    p_bar = np.sum(f_stack, axis=0)  # shape (N,)
+    density_ufl = getDens(phi)
+    density_fn = fe.project(density_ufl, V)
+    density_vec = density_fn.vector().get_local()
 
     # Compute velocity at each DoF
     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
@@ -209,13 +208,15 @@ def f_equil(f_list, idx):
     # Compute ci . u for this direction
     cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
     
-    feq = w[idx]*( p_bar + cu + cu**2/(2*c_s**2) - u2/2)
+    f_eq = w[idx]*( 
+        pres + density_vec*c_s2 * ( cu / c_s2 + (cu**2 - c_s2*u2)/(2*c_s2**2) ) )
 
-    return feq  # NumPy array
+    return f_eq  # NumPy array
 
 
 # Define \Gamma
-def Gamma_vel(vel_arg, vel_idx):
+def Gamma_vel(f_list, phi, vel_idx):
+    vel_arg = getVel(f_list, phi)
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_arg)
     return w[vel_idx] * (
@@ -231,37 +232,18 @@ def Gamma0(vel_idx):
 
 def body_Force(f_list, phi, mu, vel_idx):
     
-    grav = fe.Constant((0.0, 9.81))
-    p_bar = get_pBar(f_list)
-    fluid_vel = vel(f_list)
-    density = rho(phi)
-    p = density * p_bar 
-    buoyancy = - grav*(density - rho_h)
-    tau = tau_fn(phi)
+    fluid_vel = getVel(f_list, phi)
+    density = getDens(phi)
     
-    eta = c_s**2 * density * tau * dt
+    velocity_prefactor = xi[vel_idx] - fluid_vel
     
-    p_bar_grad = fe.grad(p_bar)
-    p_grad = fe.grad(p)
-    phi_grad = fe.grad(phi)
-    density_grad = fe.grad(density)
+    term1 = fe.grad( density* c_s2 )*( Gamma_vel(f_list, phi, vel_idx)\
+                                     - Gamma0(vel_idx) )
     
-    sym_grad_u = 2 * fe.sym(fe.grad(fluid_vel))
-    
-    term1 = -Gamma_vel(fluid_vel, vel_idx)\
-        *fe.dot( (xi[vel_idx] - fluid_vel),  p_grad/density ) 
-    
-    term2 = Gamma0(vel_idx)*fe.dot( (xi[vel_idx] - fluid_vel), p_bar_grad )
-    
-    term3 = Gamma_vel(fluid_vel, vel_idx)\
-        *fe.dot( (xi[vel_idx] - fluid_vel), phi_grad*mu/density )
-        
-    term4 = Gamma_vel(fluid_vel, vel_idx)\
-        *fe.dot( (xi[vel_idx] - fluid_vel),  sym_grad_u* density_grad )\
-            * (eta/density**2)
+    term2 = mu * fe.grad(phi) * Gamma_vel(f_list, phi, vel_idx)
     
 
-    return term1 + term2 + term3 + term4
+    return fe.dot( velocity_prefactor, term1 + term2 )
 
 
 # Define Allen-Cahn mobility
@@ -523,14 +505,14 @@ for n in range(num_steps):
         
     # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
+    
+    tau_fn = getTau(phi_n)
+    tau_func = fe.project(tau_fn, V)
+    tau_vec = tau_func.vector().get_local()
     for idx in range(Q):
-        f_eq_vec = f_equil(f_n, idx)
+        f_eq_vec = f_equil(f_n, phi_n, idx)
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
-        
-        phi_vec = phi_n.vector().get_local()
-        
-        tau_vec = phi_vec*tau_h + (1 - phi_vec)*tau_l
         
         f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
     
@@ -585,7 +567,7 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     phi_n.assign(phi_nP1)
-    vel_expr = vel(f_n)
+    vel_expr = getVel(f_n, phi_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
     if rank == 0:
@@ -614,7 +596,7 @@ for n in range(num_steps):
 
 
 # %%
-u_expr = vel(f_n)
+u_expr = getVel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 
