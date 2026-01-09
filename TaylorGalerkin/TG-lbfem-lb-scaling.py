@@ -18,21 +18,20 @@ dx = 1e-5
 num_steps = int(np.ceil(T/dt))
 
 # Physical parameters
-w = 1e-3
+channel_width = 1e-3
 nu = 1e-6
 rho_water = 1e3
 
 # Reference parameters
-lc = dx
-tc = dt
-u_c = lc/tc
+l_c = dx
+t_c = dt
+u_c = l_c/t_c
 rho_c = rho_water
 
-w_bar = w/lc
-h_bar = dx/lc
+w_bar = channel_width/l_c
 
 
-nx = int(w_bar / h_bar)
+nx = int(channel_width / dx)
 
 
 error_vec = []
@@ -44,8 +43,8 @@ tau = 0.55
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([rho_water*9.81, 0.0])
-F_bar = Force_density / ( rho_c * lc/tc**2 )
+Force_density = np.array([2.768e-16, 0.0])
+F_bar = np.array([2.78e-16, 0.0])
 
 # Density on wall
 rho_wall = 1.0
@@ -54,7 +53,7 @@ rho_init = 1.0
 u_wall = (0.0, 0.0)
 
 #nu = tau/3.
-u_max = Force_density[0]*w**2/(8*rho_init*nu)
+u_max = 0.208 #Force_density[0]*w**2/(8*rho_init*nu)
 
 
 # D2Q9 lattice velocities
@@ -431,8 +430,9 @@ for n in range(num_steps):
             u_new += f_n[i].vector().get_local()*xi_new[0]
             v_new += f_n[i].vector().get_local()*xi_new[1]
 
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                            degree=2, u_max=u_max, L_y=w_bar)
+        u_e = fe.Expression('(t_c/l_c)*u_max*( 1 - pow( (w*2*x[1] -1), 2 ) )',
+                            degree=2, u_max=u_max, t_c = t_c,
+                            l_c = l_c, w=channel_width)
         u_e = fe.interpolate(u_e, V)
         error = np.linalg.norm(u_e.vector().get_local() - u_new)
         print('t = %.4f: error = %.3g' % (t, error))
@@ -512,8 +512,8 @@ plt.tick_params(direction="in")
 print("Saving figure to:", os.path.abspath(output))
 plt.savefig(output, dpi=400, format='pdf', bbox_inches='tight')
 
-#plt.show()
-plt.close()
+plt.show()
+#plt.close()
 
 # %% Create grid of u_x and u_y values
 
