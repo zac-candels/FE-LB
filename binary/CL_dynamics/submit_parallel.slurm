@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=CA30
-#SBATCH --output=output_p.log
-#SBATCH --error=error_p.log
+#SBATCH --job-name=db
+#SBATCH --output=output_db.log
+#SBATCH --error=error_db.log
 #SBATCH --time=24:00:00
 
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=32     # MPI ranks per node (adjust)
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=3     # MPI ranks per node (adjust)
 #SBATCH --cpus-per-task=1
 
 #SBATCH --partition=standard
@@ -31,4 +31,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/main.py
+     python3 /root/shared/debug.py

@@ -23,7 +23,7 @@ initBubbleDiam = 5
 L_x, L_y = 2*initBubbleDiam, 2*initBubbleDiam
 nx, ny = 100, 100
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL
+dt = h*CFL / 10
 num_steps = int(np.ceil(T/dt))
 
 
@@ -55,7 +55,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "nx100_M_tilde0.01_Cn0.05_sigma0.005_dt_hCFLDiv10") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -536,12 +536,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_n[7].vector()[:]
-    f2_lower_func.vector()[:] = f_n[4].vector()[:]
-    f6_lower_func.vector()[:] = f_n[8].vector()[:]
-    f7_upper_func.vector()[:] = f_n[5].vector()[:]
-    f4_upper_func.vector()[:] = f_n[2].vector()[:]
-    f8_upper_func.vector()[:] = f_n[6].vector()[:]
+    f5_lower_func.vector()[:] = f_star[7].vector()[:]
+    f2_lower_func.vector()[:] = f_star[4].vector()[:]
+    f6_lower_func.vector()[:] = f_star[8].vector()[:]
+    f7_upper_func.vector()[:] = f_star[5].vector()[:]
+    f4_upper_func.vector()[:] = f_star[2].vector()[:]
+    f8_upper_func.vector()[:] = f_star[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -572,6 +572,9 @@ for n in range(num_steps):
     
     if rank == 0:
         if n % 10 == 0:  # plot every 10 steps
+
+            total_mass = fe.assemble(phi_n*fe.dx)
+            print("total mass = ", total_mass)
             outfile.write(phi_n, t)
 
             coords = mesh.coordinates()
@@ -596,7 +599,7 @@ for n in range(num_steps):
 
 
 # %%
-u_expr = getVel(f_n)
+u_expr = getVel(f_n, phi_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 

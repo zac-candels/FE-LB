@@ -596,7 +596,7 @@ for n in range(num_steps):
     fe.project(vel_expr, V_vec, function=vel_n)
     
     if rank == 0:
-        if n % 1000 == 0:  # plot every 10 steps
+        if n % 100 == 0:  # plot every 10 steps
         
             mass = fe.assemble(phi_n*fe.dx)
             print("mass = ", mass)
@@ -620,19 +620,19 @@ for n in range(num_steps):
             triangles = mesh.cells()  # get mesh connectivity
             triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
         
-            # plt.figure(figsize=(6,5))
-            # plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-            # plt.colorbar(label=r"$\phi$")
-            # plt.title(f"phi at t = {t:.2f}")
-            # plt.xlabel("x")
-            # plt.ylabel("y")
-            # plt.tight_layout()
+            plt.figure(figsize=(6,5))
+            plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
+            plt.colorbar(label=r"$\phi$")
+            plt.title(f"phi at t = {t:.2f}")
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.tight_layout()
             
-            # Save the figure to your output folder
-            # out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
-            # plt.savefig(out_file, dpi=200)
-            # plt.show()
-            #plt.close()
+            #Save the figure to your output folder
+            out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+            plt.savefig(out_file, dpi=200)
+            #plt.show()
+            plt.close()
             
             a=1
                 
