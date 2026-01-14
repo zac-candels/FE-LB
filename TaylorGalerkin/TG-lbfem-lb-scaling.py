@@ -2,7 +2,7 @@ import fenics as fe
 import os
 import numpy as np
 import matplotlib 
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 plt.close('all')
@@ -41,6 +41,7 @@ error_vec = []
 c_s = np.sqrt( 1./3. )
 
 tau = 0.55
+dt = 0.01
 
 # Number of discrete velocities
 Q = 9
@@ -331,10 +332,10 @@ for idx in range(Q):
 
     bilinear_forms_stream.append(f_trial * v * fe.dx)
 
-    double_dot_product_term = -0.5 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
+    double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
-    dot_product_force_term = 0.5 * fe.dot(xi[idx], fe.grad(v))\
+    dot_product_force_term = 0.5*dt**2* fe.dot(xi[idx], fe.grad(v))\
         * body_Force(vel(f_star), idx, F_bar) * fe.dx
 
     if idx in opp_idx:
@@ -354,8 +355,8 @@ for idx in range(Q):
         surface_term = fe.Constant(0.0) * v * fe.ds
 
     lin_form_idx = f_star[idx]*v*fe.dx\
-        - v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + v*body_Force(vel(f_star), idx, Force_density)*fe.dx\
+        - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
+        + dt*v*body_Force(vel(f_star), idx, Force_density)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
 
@@ -378,7 +379,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - 1/tau * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - dt/tau * (f_n_vec - f_eq_vec)
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
