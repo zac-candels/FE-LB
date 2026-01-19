@@ -68,7 +68,7 @@ os.makedirs(outDirName, exist_ok=True)
 
 M_tilde = 0.01
 
-center_init_x, center_init_y = L_x/2, initBubbleDiam/2 - 2
+center_init_x, center_init_y = L_x/2, 0 # Initialize droplet with contact angle 90 degrees.
 
 Q = 9
 # D2Q9 lattice velocities
