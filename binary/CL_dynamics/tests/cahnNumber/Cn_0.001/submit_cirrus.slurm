@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=dt_smaller
-#SBATCH --output=dt_smaller_out.log
-#SBATCH --error=dt_smaller_err.log
+#SBATCH --job-name=Cn0.001
+#SBATCH --output=Cn0.001_out.log
+#SBATCH --error=Cn0.001_err.log
 #SBATCH --time=24:00:00
 #SBATCH --partition=standard
 #SBATCH --account=ec288-wetting
@@ -11,7 +11,7 @@
 
 module load singularity
 
-SIF=../../../fenics-gmsh.sif
+SIF=../../../../../../fenics-gmsh.sif
 WORKDIR=$SLURM_SUBMIT_DIR
 
 # Bind the working directory into /root/shared inside the container
