@@ -1,0 +1,7 @@
+{
+ "nx": 100,
+ "M_tilde": 0.01,
+ "Cn": 0.05,
+ "theta_E": 30,
+ "initDropDiam": 5
+ }
