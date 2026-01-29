@@ -12,41 +12,43 @@ WORKDIR = os.getcwd()
 outDirName = os.path.join(WORKDIR, "figures")
 os.makedirs(outDirName, exist_ok=True)
 
-T = 2000
-dt = 1.667e-6
-dx = 1e-5
+# Here we will simulate Poiseuille flow in a 
+# channel of width 1e-3, fluid density \rho = 1e3,
+# viscosity 1e-6, and g = 10.
+
+# Let us first define the characteristic length and density scales.
+l_c = 1e-5
+rho_c = 1e3
+
+# Since our channel has width 1e-3, in lattice units this is 
+L_y = 1e-3 / l_c
+
+# Now we determine a value of \bar{\tau}. We will start
+# by trying \bar{\tau} = 0.55.
+tau = 0.55
+
+# Then, the corresponding body force is 2.78e-6.
+
+
+T = 20000
+dt = 0.05
 num_steps = int(np.ceil(T/dt))
 
-# Physical parameters
-w = 1e-3
-nu = 1e-6
-rho_water = 1e3
 
-# Reference parameters
-lc = dx
-tc = dt
-u_c = lc/tc
-rho_c = rho_water
-
-w_bar = w/lc
-h_bar = dx/lc
-
-
-nx = int(w_bar / h_bar)
-
+Re = 0.96
+nx = ny = 5
+L_y = 40
+L_x = L_y
+h = L_x/nx
 
 error_vec = []
 
 # Lattice speed of sound
-c_s = np.sqrt( 1./3. )
-
-tau = 0.55
-dt = 0.01
+c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([rho_water*9.81, 0.0])
-F_bar = Force_density / ( rho_c * lc/tc**2 )
+Force_density = np.array([2.78e-6, 0.0])
 
 # Density on wall
 rho_wall = 1.0
@@ -54,21 +56,20 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-#nu = tau/3.
-u_max = Force_density[0]*w**2/(8*rho_init*nu)
+u_max = 0.208
 
 
 # D2Q9 lattice velocities
 xi = [
     fe.Constant((0.0,  0.0)),
-    fe.Constant((1,  0.0)),
-    fe.Constant((0.0,  1)),
-    fe.Constant((-1,  0.0)),
-    fe.Constant((0.0, -1)),
-    fe.Constant((1, 1)),
-    fe.Constant((-1, 1)),
-    fe.Constant((-1, -1)),
-    fe.Constant((1, -1)),
+    fe.Constant((1.0,  0.0)),
+    fe.Constant((0.0,  1.0)),
+    fe.Constant((-1.0,  0.0)),
+    fe.Constant((0.0, -1.0)),
+    fe.Constant((1.0,  1.0)),
+    fe.Constant((-1.0,  1.0)),
+    fe.Constant((-1.0, -1.0)),
+    fe.Constant((1.0, -1.0)),
 ]
 
 # Corresponding weights
@@ -80,7 +81,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(w_bar, w_bar), nx, nx)
+mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -91,7 +92,7 @@ class PeriodicBoundaryX(fe.SubDomain):
 
     def map(self, right_bdy, left_bdy):
         # Map left boundary to the right
-        left_bdy[0] = right_bdy[0] - w_bar
+        left_bdy[0] = right_bdy[0] - L_x
         left_bdy[1] = right_bdy[1]
 
 
@@ -139,8 +140,8 @@ def vel(f_list):
 
     vel_term1 = distr_fn_sum/density
 
-    F = fe.Constant((F_bar[0], F_bar[1]))
-    vel_term2 = F / (2 * density)
+    F = fe.Constant((Force_density[0], Force_density[1]))
+    vel_term2 = F * dt / (2 * density)
 
     return vel_term1 + vel_term2
 
@@ -150,8 +151,8 @@ def f_equil_init(vel_idx, Force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
-    vel_0 = -fe.Constant((F_bar[0]/(2*rho_init),
-                          F_bar[1]/(2*rho_init)))
+    vel_0 = -fe.Constant((Force_density[0]*dt/(2*rho_init),
+                          Force_density[1]*dt/(2*rho_init)))
 
     # u_expr = fe.project(V_vec, vel_0)
 
@@ -213,18 +214,18 @@ def f_equil(f_list, idx):
 
 
 def coll_op(f_list, vel_idx):
-    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (tau)
+    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (tau + 0.5)
 
 
-def body_Force(vel, vel_idx, F_bar):
+def body_Force(vel, vel_idx, Force_density):
     prefactor = w[vel_idx]
     inverse_cs2 = 1 / c_s**2
     inverse_cs4 = 1 / c_s**4
 
-    xi_dot_prod_F = xi[vel_idx][0]*F_bar[0]\
-        + xi[vel_idx][1]*F_bar[1]
+    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
+        + xi[vel_idx][1]*Force_density[1]
 
-    u_dot_prod_F = vel[0]*F_bar[0] + vel[1]*F_bar[1]
+    u_dot_prod_F = vel[0]*Force_density[0] + vel[1]*Force_density[1]
 
     xi_dot_u = xi[vel_idx][0]*vel[0] + xi[vel_idx][1]*vel[1]
 
@@ -291,7 +292,7 @@ tol = 1e-8
 
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], w_bar, tol):
+        if fe.near(x[1], L_y, tol):
             return True
         else:
             return False
@@ -335,8 +336,8 @@ for idx in range(Q):
     double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
-    dot_product_force_term = 0.5*dt**2* fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(vel(f_star), idx, F_bar) * fe.dx
+    dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
+        * body_Force(vel(f_star), idx, Force_density) * fe.dx
 
     if idx in opp_idx:
         # UFL scalar: dot product with facet normal
@@ -348,7 +349,7 @@ for idx in range(Q):
                                    fe.Constant(0.0))
 
         # build surface term only for incoming distributions
-        surface_term = 0.5 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
+        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
             * dot_xi_n * indicator * fe.ds
     else:
         # no surface contribution for this idx
@@ -379,7 +380,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - dt/tau * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - dt/(tau ) * (f_n_vec - f_eq_vec)
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
@@ -419,7 +420,7 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
 
-    if n % 1 == 0:
+    if n % 3000 == 0:
         # u_expr = vel(f_n)
         # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
         # u_n = fe.project(u_expr, V_vec)
@@ -433,13 +434,55 @@ for n in range(num_steps):
             v_new += f_n[i].vector().get_local()*xi_new[1]
 
         u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                            degree=2, u_max=u_max, L_y=w_bar)
+                            degree=2, u_max=u_max, L_y=L_y)
         u_e = fe.interpolate(u_e, V)
         error = np.linalg.norm(u_e.vector().get_local() - u_new)
         print('t = %.4f: error = %.3g' % (t, error))
         print('max u:', u_new.max())
+
+        num_points_analytical = 200
+        num_points_numerical = 10
+        y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+        y_values_numerical = np.linspace(0, L_y, num_points_numerical)
+        x_fixed = L_x/2
+        points = [(x_fixed, y) for y in y_values_numerical]
+        u_x_values = []
+        u_ex = np.linspace(0, L_y, num_points_analytical)
+        nu = tau/3
+        u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+        for i in range(num_points_analytical):
+            u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
+
+        for point in points:
+            u_expr = vel(f_n)
+            V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+            u = fe.project(u_expr, V_vec)
+            u_at_point = u(point)
+            u_x_values.append(u_at_point[0] / u_max)
+
+
+
+        fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+        output = os.path.join(outDirName, fig_name)
+
+        plt.figure()
+        plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+        plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+        plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+        plt.xlabel(r"$y/L_y$", fontsize=20)
+        plt.legend()
+        plt.tick_params(direction="in")
+
+
+        print("Saving figure to:", os.path.abspath(output))
+        plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+
+        #plt.show()
+        plt.close()
         if n % 10 == 0:
             error_vec.append(error)
+
+
 
 
 error_vec = np.asarray(error_vec)
@@ -472,49 +515,12 @@ plt.title("Velocity field at final time")
 plt.xlabel("x")
 plt.ylabel("y")
 plt.savefig("/home/zcandels/Desktop/felb.pdf")
-plt.show()
+#plt.show()
 
 # %%
 #plt.rcParams['text.usetex'] = True
 # Plot velocity profile at x=L_x/2
-num_points_analytical = 200
-num_points_numerical = 10
-y_values_analytical = np.linspace(0, w_bar, num_points_analytical)
-y_values_numerical = np.linspace(0, w_bar, num_points_numerical)
-x_fixed = w_bar/2
-points = [(x_fixed, y) for y in y_values_numerical]
-u_x_values = []
-u_ex = np.linspace(0, w_bar, num_points_analytical)
-nu = tau/3
-u_max = Force_density[0]*w_bar**2/(8*rho_init*nu)
-for i in range(num_points_analytical):
-    u_ex[i] = (1 - (2*y_values_analytical[i]/w_bar - 1)**2)
 
-for point in points:
-    u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max)
-
-
-WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
-outDirName = os.path.join(WORKDIR, "figures")
-os.makedirs(outDirName, exist_ok=True)
-fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".pdf"
-output = os.path.join(outDirName, fig_name)
-
-plt.figure()
-plt.plot(y_values_numerical/w_bar, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/w_bar, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_y$", fontsize=20)
-plt.legend()
-plt.tick_params(direction="in")
-
-
-print("Saving figure to:", os.path.abspath(output))
-plt.savefig(output, dpi=400, format='pdf', bbox_inches='tight')
-
-#plt.show()
-plt.close()
 
 # %% Create grid of u_x and u_y values
 
