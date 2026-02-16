@@ -5,35 +5,59 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+comm = fe.MPI.comm_world
+rank = fe.MPI.rank(comm)
+
 plt.close('all')
 
-# Where to save the plots
-WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "figures")
-os.makedirs(outDirName, exist_ok=True)
 
-T = 2000
-dt = 0.01
+
+# Here we will simulate Poiseuille flow in a 
+# channel of width 1e-3, fluid density \rho = 1e3,
+# viscosity 1e-6, and g = 10.
+
+# Let us first define the characteristic length and density scales.
+l_c = 1e-5
+rho_c = 1e3
+
+# Since our channel has width 1e-3, in lattice units this is 
+L_y = 1e-3 / l_c
+
+# Now we determine a value of \bar{\tau}. We will start
+# by trying \bar{\tau} = 0.55.
+
+
+
+# Then, the corresponding body force is 2.78e-6.
+
+
+T = 100000
+dt = 0.001
+
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 5
-L_x = 32
 L_y = 32
+L_x = L_y
 h = L_x/nx
+
+# Where to save the plots
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, f"tc{dt}_lc{l_c}_h{h}")
+os.makedirs(outDirName, exist_ok=True)
 
 error_vec = []
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
-
 nu = 1.0/3.0
 tau = nu/c_s**2 + 0.5*dt
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6041666e-5, 0.0])
+Force_density = np.array([2.60416666e-5, 0.0])
 
 # Density on wall
 rho_wall = 1.0
@@ -41,8 +65,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-#nu = tau/3.
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+u_max = 0.01
 
 
 # D2Q9 lattice velocities
@@ -67,7 +90,7 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
+mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -307,6 +330,8 @@ bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 # Define variational problems
 
 bilinear_forms_stream = []
+bilin_forms_stream_mass_action = []
+lumpedMassMatrices = []
 linear_forms_stream = []
 
 bilinear_forms_collision = []
@@ -317,7 +342,16 @@ opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 for idx in range(Q):
 
-    bilinear_forms_stream.append(f_trial * v * fe.dx)
+    mass_form = f_trial * v * fe.dx
+    bilinear_forms_stream.append(mass_form)
+    mass_action_form = fe.action(mass_form, fe.Constant(1))
+    M_lumped = fe.assemble(mass_form)
+    M_lumped.zero()
+    M_lumped.set_diagonal(fe.assemble(mass_action_form))
+    M_vect = fe.assemble(mass_action_form)
+    lumpedMassMatrices.append(M_vect)
+    
+    
 
     double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
@@ -353,8 +387,6 @@ for idx in range(Q):
 sys_mat = []
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
-for idx in range(Q):
-    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
 
 # Timestepping
 t = 0.0
@@ -366,7 +398,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - dt/tau * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - dt/(tau  ) * (f_n_vec - f_eq_vec)
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
@@ -383,50 +415,99 @@ for n in range(num_steps):
     f8_upper_func.vector()[:] = f_star[6].vector()[:]
 
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f5.apply(rhs_vec_streaming[5])
+    bc_f2.apply(rhs_vec_streaming[2])
+    bc_f6.apply(rhs_vec_streaming[6])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
+    bc_f7.apply(rhs_vec_streaming[7])
+    bc_f4.apply(rhs_vec_streaming[4])
+    bc_f8.apply(rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
-    solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
-        solver = fe.LUSolver(A)
-        solver_list.append(solver)
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        f_nP1[idx].vector().set_local(rhs_vec_streaming[idx].get_local()\
+                                      /lumpedMassMatrices[idx].get_local())
+            
+    bc_f5.apply(f_nP1[5].vector() )
+    bc_f2.apply(f_nP1[2].vector() )
+    bc_f6.apply(f_nP1[6].vector() )
+    
+    bc_f7.apply(f_nP1[7].vector() )
+    bc_f4.apply(f_nP1[4].vector() )
+    bc_f8.apply(f_nP1[8].vector() )
 
 
     # Update previous solutions
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
-
-    if n % 3000 == 0:
-        # u_expr = vel(f_n)
-        # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-        # u_n = fe.project(u_expr, V_vec)
-        # u_n_x = fe.project(u_n.split()[0], V)
         
-        u_new, v_new = 0, 0
-        
-        for i in range(Q):
-            xi_new = xi[i].values()
-            u_new += f_n[i].vector().get_local()*xi_new[0]
-            v_new += f_n[i].vector().get_local()*xi_new[1]
+    if rank == 0:
 
-        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                            degree=2, u_max=u_max, L_y=L_y)
-        u_e = fe.interpolate(u_e, V)
-        error = np.linalg.norm(u_e.vector().get_local() - u_new)
-        print('t = %.4f: error = %.3g' % (t, error))
-        print('max u:', u_new.max())
-        if n % 10 == 0:
-            error_vec.append(error)
+        if n % 3000 == 0:
+            # u_expr = vel(f_n)
+            # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
+            # u_n = fe.project(u_expr, V_vec)
+            # u_n_x = fe.project(u_n.split()[0], V)
+            
+            u_new, v_new = 0, 0
+            
+            for i in range(Q):
+                xi_new = xi[i].values()
+                u_new += f_n[i].vector().get_local()*xi_new[0]
+                v_new += f_n[i].vector().get_local()*xi_new[1]
+    
+            u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
+                                degree=2, u_max=u_max, L_y=L_y)
+            u_e = fe.interpolate(u_e, V)
+            error = np.linalg.norm(u_e.vector().get_local() - u_new)
+            print('t = %.4f: error = %.3g' % (t, error))
+            print('max u:', u_new.max())
+    
+            num_points_analytical = 200
+            num_points_numerical = 10
+            y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+            y_values_numerical = np.linspace(0, L_y, num_points_numerical)
+            x_fixed = L_x/2
+            points = [(x_fixed, y) for y in y_values_numerical]
+            u_x_values = []
+            u_ex = np.linspace(0, L_y, num_points_analytical)
+            nu = tau/3
+            u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+            for i in range(num_points_analytical):
+                u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
+    
+            for point in points:
+                u_expr = vel(f_n)
+                V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+                u = fe.project(u_expr, V_vec)
+                u_at_point = u(point)
+                u_x_values.append(u_at_point[0] / u_max)
+    
+    
+    
+            fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+            output = os.path.join(outDirName, fig_name)
+    
+            plt.figure()
+            plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+            plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+            plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+            plt.xlabel(r"$y/L_y$", fontsize=20)
+            plt.legend()
+            plt.tick_params(direction="in")
+    
+    
+            print("Saving figure to:", os.path.abspath(output))
+            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+    
+            #plt.show()
+            plt.close()
+            if n % 10 == 0:
+                error_vec.append(error)
+
+
 
 
 error_vec = np.asarray(error_vec)
@@ -464,44 +545,7 @@ plt.savefig("/home/zcandels/Desktop/felb.pdf")
 # %%
 #plt.rcParams['text.usetex'] = True
 # Plot velocity profile at x=L_x/2
-num_points_analytical = 200
-num_points_numerical = 10
-y_values_analytical = np.linspace(0, L_y, num_points_analytical)
-y_values_numerical = np.linspace(0, L_y, num_points_numerical)
-x_fixed = L_x/2
-points = [(x_fixed, y) for y in y_values_numerical]
-u_x_values = []
-u_ex = np.linspace(0, L_y, num_points_analytical)
-nu = tau/3
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-for i in range(num_points_analytical):
-    u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
 
-for point in points:
-    u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max)
-
-
-WORKDIR = os.getcwd()  # this will be correct if you `cd` into /root/shared
-outDirName = os.path.join(WORKDIR, "figures")
-os.makedirs(outDirName, exist_ok=True)
-fig_name = "felb_dt" + str(dt) + "_simTime" + str(T) + ".pdf"
-output = os.path.join(outDirName, fig_name)
-
-plt.figure()
-plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_y$", fontsize=20)
-plt.legend()
-plt.tick_params(direction="in")
-
-
-print("Saving figure to:", os.path.abspath(output))
-plt.savefig(output, dpi=400, format='pdf', bbox_inches='tight')
-
-#plt.show()
-plt.close()
 
 # %% Create grid of u_x and u_y values
 
