@@ -378,6 +378,13 @@ rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+    
+# Solve linear system in each timestep
+solver_list = []
+for idx in range(Q):
+    A = sys_mat[idx]
+    solver = fe.LUSolver(A)
+    solver_list.append(solver)
 
 # Timestepping
 t = 0.0
@@ -416,11 +423,7 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
-    solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
-        solver = fe.LUSolver(A)
-        solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
 
 
