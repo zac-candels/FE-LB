@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import time
+
+start_time = time.time()
 
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -32,7 +35,7 @@ L_y = 1e-3 / l_c
 
 
 T = 100000
-dt = 0.1
+dt = 0.0001
 
 num_steps = int(np.ceil(T/dt))
 
@@ -53,7 +56,7 @@ error_vec = []
 # Lattice speed of sound
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
 nu = 1.0/3.0
-tau = nu/c_s**2 + 0.5*dt
+tau = 1
 
 # Number of discrete velocities
 Q = 9
@@ -378,13 +381,6 @@ rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
-    
-# Solve linear system in each timestep
-solver_list = []
-for idx in range(Q):
-    A = sys_mat[idx]
-    solver = fe.LUSolver(A)
-    solver_list.append(solver)
 
 # Timestepping
 t = 0.0
@@ -423,7 +419,11 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
+    solver_list = []
     for idx in range(Q):
+        A = sys_mat[idx]
+        solver = fe.LUSolver(A)
+        solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
 
 
@@ -432,7 +432,7 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
         
-    if rank == 0:
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
         if n % 3000 == 0:
             # u_expr = vel(f_n)
@@ -451,8 +451,10 @@ for n in range(num_steps):
                                 degree=2, u_max=u_max, L_y=L_y)
             u_e = fe.interpolate(u_e, V)
             error = np.linalg.norm(u_e.vector().get_local() - u_new)
-            print('t = %.4f: error = %.3g' % (t, error))
-            print('max u:', u_new.max())
+            time_elapsed = time.time() - start_time
+            print('t = %.4f: error = %.3g' % (t, error), flush=True)
+            print('max u:', u_new.max(), flush=True)
+            print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
     
             num_points_analytical = 200
             num_points_numerical = 10
