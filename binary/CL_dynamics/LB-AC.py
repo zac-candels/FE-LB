@@ -26,9 +26,14 @@ L_y = 1*initDropDiam
 nx = 80
 ny = 60
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 10
+dt = h*CFL / 10000
 num_steps = int(np.ceil(T/dt))
 
+beta_mass_diff = 0.00000001
+Pe = 0.1275
+Re = 0.1
+Cn = 0.05
+We = 1
 
 sigma = 0.005 #0.1
 
@@ -36,17 +41,12 @@ sigma = 0.005 #0.1
 c_s = np.sqrt(1/3)
 c_s2 = 1/3
 
-# Cahn number
-Cn = 0.05
-
-eps = Cn * initDropDiam
 
 rho_h = 1
 rho_l = 1
 
-beta = 24*sigma/eps
-
-kappa = 3*sigma*eps
+beta = 24*sigma/0.25
+kappa = 3*sigma*0.25
 
 M_tilde = 0.01
 
@@ -106,13 +106,15 @@ class PeriodicBoundaryX(fe.SubDomain):
 pbc = PeriodicBoundaryX()
 
 
-V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
 
 
 # Define trial and test functions, as well as
 # finite element functions at previous timesteps
 
 f_trial = fe.TrialFunction(V)
+phi_trial = fe.TrialFunction(V)
+mu_trial = fe.TrialFunction(V)
 f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
@@ -128,6 +130,7 @@ f_nP1 = []
 for idx in range(Q):
     f_nP1.append(fe.Function(V))
 phi_nP1 = fe.Function(V)
+mu_nP1 = fe.Function(V)
 
 # Define FE functions to hold post-collision distributions
 f_star = []
@@ -167,19 +170,6 @@ def f_equil_init(vel_idx):
     # We'll take \bar{p} := 1.0
     return w[vel_idx] 
 
-
-# Define equilibrium distribution
-# def f_equil(f_list, vel_idx):
-#     dyn_pres_expr = dyn_pres(f_list)
-#     u_expr = vel(f_list)
-#     ci = xi[vel_idx]
-#     ci_dot_u = fe.dot(ci, u_expr)
-#     return w[vel_idx] * (
-#         dyn_pres_expr
-#         + ci_dot_u
-#         + ci_dot_u**2 / (2*c_s**2)
-#         - fe.dot(u_expr, u_expr) / 2
-#     )
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
@@ -249,17 +239,6 @@ def body_Force(f_list, phi, mu, vel_idx):
     return fe.dot( velocity_prefactor, term1 + term2 )
 
 
-# Define Allen-Cahn mobility
-
-def mobility(phi_n):
-    grad_phi_n = fe.grad(phi_n)
-    
-    abs_grad_phi_n = fe.sqrt(fe.dot(grad_phi_n, grad_phi_n) + 1e-6)
-    inv_abs_grad_phi_n = 1.0 / abs_grad_phi_n
-    
-    mob = M_tilde*( 1 - 4*phi_n*(1 - phi_n)/eps * inv_abs_grad_phi_n )
-    return mob
-    
 
 
 # # Initialize distribution functions. We will use
@@ -270,16 +249,17 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx), V))
     
 # Initialize \phi
-phi_init_expr = fe.Expression(
-    "0.5 - 0.5 * tanh( 2.0 * (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / eps )",
+c_init_expr = fe.Expression(
+    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
     degree=2,  # polynomial degree used for interpolation
     xc=xc,
     yc=yc,
     R=initDropDiam/2,
-    eps=eps
+    eps=Cn
 )
 
-phi_n = fe.interpolate(phi_init_expr, V)
+phi_n = fe.interpolate(c_init_expr, V)
+mass_diff = fe.Constant(0.0)
 
 
 
@@ -385,13 +365,12 @@ bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
-    - dt*fe.dot(fe.grad(v), mobility(phi_n)*fe.grad(phi_n))*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx\
-            - dt*np.cos(theta)*v*mobility(phi_n)*4*phi_n*(1 - phi_n)/eps*ds_bottom
+    - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
+        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
 
-lin_form_mu = 4*beta*(phi_n - 1)*(phi_n - 0)*(phi_n - 0.5)*v*fe.dx\
-    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-        #- (1/kappa)*np.cos(theta)*np.sqrt(2*kappa*beta)*v*(phi_n - phi_n**2)*ds_bottom
+lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
+    + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
+       - (Cn/(np.sqrt(2)) )*np.cos(theta)*(1 - phi_n**2)*v*ds_bottom  )
 
 for idx in range(Q):
 
@@ -463,10 +442,6 @@ mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
 
-rhs_mu = fe.assemble(lin_form_mu)
-
-fe.solve(mu_mat, mu_n.vector(), rhs_mu)
-
 outfile = fe.XDMFFile(comm, f"{outDirName}/solution.xdmf")
 outfile.parameters["flush_output"] = True
 outfile.parameters["functions_share_mesh"] = True
@@ -474,6 +449,7 @@ outfile.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
+mass_init = fe.assemble(phi_n*fe.dx)
 for n in range(num_steps):
     t += dt
     
@@ -481,6 +457,7 @@ for n in range(num_steps):
     
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
+
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     # rho_pre = np.sum(f_pre_stack, axis=0)
@@ -527,39 +504,48 @@ for n in range(num_steps):
     f4_upper_func.vector()[:] = f_star[2].vector()[:]
     f8_upper_func.vector()[:] = f_star[6].vector()[:]
 
-    # Apply BCs for distribution functions 5, 2, and 6
+    # # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
     bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
     bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
 
-    # Apply BCs for distribution functions 7, 4, 8
+    # # Apply BCs for distribution functions 7, 4, 8
     bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
     bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
-    # Solve linear system in each timestep, get f^{n+1}
+    # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         
-    
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_n.vector(), rhs_mu)
+    mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    
+    
+    
 
 
     # Update previous solutions
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
+    
     phi_n.assign(phi_nP1)
+    mu_n.assign(mu_nP1)
+    mass_n = fe.assemble(phi_n*fe.dx)
+    mass_diff.assign( (mass_n - mass_init) )
+    
     vel_expr = getVel(f_n, phi_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if rank == 0:
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    if 1 == 1:
         if n % 1 == 0:  # plot every 10 steps
 
             total_mass = fe.assemble(phi_n*fe.dx)
-            print("total mass = ", total_mass)
+            print("total mass = ", total_mass, flush=True)
             outfile.write(phi_n, t)
+            print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
@@ -581,122 +567,3 @@ for n in range(num_steps):
             plt.show()
             #plt.close()
                 
-
-
-# %%
-u_expr = getVel(f_n, phi_n)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-u = fe.project(u_expr, V_vec)
-
-
-# Plot velocity field with larger arrows
-# Plot velocity field with larger arrows
-coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
-u_values = u.vector().get_local().reshape(
-    (V_vec.dim() // 2, 2))  # Shape: (1056, 2)
-x = coords[:, 0]  # x-coordinates
-y = coords[:, 1]  # y-coordinates
-u_x = u_values[:, 0]  # x-components of velocity
-u_y = u_values[:, 1]  # y-components of velocity
-
-# Define arrow scale based on maximum velocity
-max_u = np.max(np.sqrt(u_x**2 + u_y**2))
-arrow_length = 0.05  # 5% of domain size
-scale = max_u / arrow_length if max_u > 0 else 1
-
-# Create quiver plot
-plt.figure()
-M = np.hypot(u_x, u_y)
-plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
-plt.title("Velocity field at final time")
-plt.xlabel("x")
-plt.ylabel("y")
-#plt.show()
-
-
-
-
-
-
-# %% Create grid of u_x and u_y values
-
-# figure out unique x- and y- levels
-x_unique = np.unique(x)
-y_unique = np.unique(y)
-num_x_unique = len(x_unique)
-num_y_unique = len(y_unique)
-assert num_x_unique*num_y_unique == u_x.size, "grid size mismatch"
-
-# now sort the flat arrays into lexicographic (y,x) order
-# we want the slow index to be y, fast index x, so lexsort on (x,y)
-order = np.lexsort((x, y))
-
-# apply that ordering
-u_x_sorted = u_x[order]
-u_y_sorted = u_y[order]
-
-# reshape into (ny, nx).  If your mesh is square, nx==ny.
-u_x_grid = u_x_sorted.reshape((num_y_unique, num_x_unique))
-u_y_grid = u_y_sorted.reshape((num_y_unique, num_x_unique))
-
-
-# %% Create 2D grids of each f_i at final time
-
-# 1) Extract the coordinates of each degree of freedom in V
-coords_f = V.tabulate_dof_coordinates().reshape(-1, 2)
-x_f = coords_f[:, 0]
-y_f = coords_f[:, 1]
-
-# 2) Find unique levels and check grid size
-x_unique = np.unique(x_f)
-y_unique = np.unique(y_f)
-nx_f = len(x_unique)
-ny_f = len(y_unique)
-assert nx_f * ny_f == x_f.size, "grid size mismatch for f_i"
-
-# 3) Compute lexicographic ordering so that slow index=y, fast=x
-order_f = np.lexsort((x_f, y_f))
-
-# 4) Loop over all distributions, sort & reshape
-f_grids = []
-for idx, fi in enumerate(f_n):
-    # flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
-    fi_vals = fi.vector().get_local()
-    fi_sorted = fi_vals[order_f]
-    fi_grid = fi_sorted.reshape((ny_f, nx_f))
-    f_grids.append(fi_grid)
-    # Optional: if you want to name them individually:
-    # globals()[f"f{idx}_grid"] = fi_grid
-
-# Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
-# e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
-
-#%% Create grid for \phi at final time
-
-# 1) Extract the coordinates of each degree of freedom in V
-coords = V.tabulate_dof_coordinates().reshape(-1, 2)
-x = coords[:, 0]
-y = coords[:, 1]
-
-# 2) Find unique levels and check grid size
-x_unique = np.unique(x)
-y_unique = np.unique(y)
-nx = len(x_unique)
-ny = len(y_unique)
-assert nx * ny == x.size, "grid size mismatch for f_i"
-
-# 3) Compute lexicographic ordering so that slow index=y, fast=x
-order_phi = np.lexsort((x, y))
-
-# 4) Loop over all distributions, sort & reshape
-phi_grid = []
-# flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
-phi_vals = phi_n.vector().get_local()
-phi_sorted = phi_vals[order_phi]
-phi_grid = phi_sorted.reshape((ny, nx))
-    # Optional: if you want to name them individually:
-    # globals()[f"f{idx}_grid"] = fi_grid
-
-end_time = time.time()
-
-print("time elapsed: ", end_time - start_time)
