@@ -377,10 +377,16 @@ for idx in range(Q):
 
 # Assemble matrices for first step
 sys_mat = []
+solver_list = []
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+
+for idx in range(Q):
+    A = sys_mat[idx]
+    solver = fe.LUSolver(A)
+    solver_list.append(solver)
 
 # Timestepping
 t = 0.0
@@ -421,9 +427,6 @@ for n in range(num_steps):
     # Solve linear system in each timestep
     solver_list = []
     for idx in range(Q):
-        A = sys_mat[idx]
-        solver = fe.LUSolver(A)
-        solver_list.append(solver)
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
 
 
@@ -434,7 +437,7 @@ for n in range(num_steps):
         
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
-        if n % 3000 == 0:
+        if n % 6000 == 0:
             # u_expr = vel(f_n)
             # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
             # u_n = fe.project(u_expr, V_vec)

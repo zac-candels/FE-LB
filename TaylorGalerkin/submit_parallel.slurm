@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=TG_lumped
-#SBATCH --output=output_TGlumped.log
-#SBATCH --error=error_TGlumped.log
+#SBATCH --job-name=TG
+#SBATCH --output=output_TG.log
+#SBATCH --error=error_TG.log
 #SBATCH --time=24:00:00
 
 #SBATCH --nodes=4
@@ -31,4 +31,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/TG-lumped.py
+     python3 /root/shared/TG-felb.py
