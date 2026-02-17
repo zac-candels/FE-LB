@@ -2,7 +2,7 @@ import fenics as fe
 import os
 import numpy as np
 import matplotlib 
-matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import time 
 
@@ -35,7 +35,7 @@ L_y = 1e-3 / l_c
 
 
 T = 100000
-dt = 0.0001
+dt = 0.02
 
 num_steps = int(np.ceil(T/dt))
 
@@ -343,6 +343,7 @@ linear_forms_collision = []
 n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
+mass_vecs = []
 for idx in range(Q):
 
     mass_form = v*f_trial * fe.dx
@@ -353,6 +354,7 @@ for idx in range(Q):
     M_lumped.set_diagonal(fe.assemble(mass_action_form))
     M_vect = fe.assemble(mass_action_form)
     lumpedMassMatrices.append(M_vect)
+    mass_vecs.append(M_vect.get_local())
     
     
 
@@ -407,8 +409,10 @@ for n in range(num_steps):
         f_star[idx].vector().apply("insert")
 
     # Assemble RHS vectors
+    rhs_array = []
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
+        rhs_array.append(rhs_vec_streaming[idx].get_local())
 
     f5_lower_func.vector()[:] = f_star[7].vector()[:]
     f2_lower_func.vector()[:] = f_star[4].vector()[:]
@@ -428,9 +432,9 @@ for n in range(num_steps):
     bc_f8.apply(rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
+    soln_vecs = []
     for idx in range(Q):
-        f_nP1[idx].vector().set_local(rhs_vec_streaming[idx].get_local()\
-                                      /lumpedMassMatrices[idx].get_local())
+        f_nP1[idx].vector().set_local(rhs_vec_streaming[idx].get_local()/lumpedMassMatrices[idx].get_local())
             
     bc_f5.apply(f_nP1[5].vector() )
     bc_f2.apply(f_nP1[2].vector() )
@@ -442,13 +446,15 @@ for n in range(num_steps):
 
 
     # Update previous solutions
-
+    print("n = ", n)
     for idx in range(Q):
+        soln_vecs.append(f_nP1[idx].vector().get_local())
         f_n[idx].assign(f_nP1[idx])
         
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    if 1 == 1:
 
-        if n % 3000 == 0:
+        if n % 100 == 0:
             # u_expr = vel(f_n)
             # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
             # u_n = fe.project(u_expr, V_vec)
@@ -505,10 +511,10 @@ for n in range(num_steps):
     
     
             print("Saving figure to:", os.path.abspath(output))
-            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+            #plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
     
-            #plt.show()
-            plt.close()
+            plt.show()
+            #plt.close()
             if n % 10 == 0:
                 error_vec.append(error)
 
