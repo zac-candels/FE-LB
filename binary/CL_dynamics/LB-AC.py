@@ -536,8 +536,9 @@ for n in range(num_steps):
     vel_expr = getVel(f_n, phi_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-        if n % 2000 == 0:  # plot every 10 steps
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    if 1 == 1:
+        if n % 5 == 0:  # plot every 10 steps
 
             total_mass = fe.assemble(phi_n*fe.dx)
             print("total mass = ", total_mass, flush=True)
@@ -558,7 +559,12 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
 
-            print("Max||u||:", max_vel, "\n\n", flush=True)
+            print("Max||u||:", max_vel, flush=True)
+            
+            f_stack = np.array([f.vector().get_local() for f in f_n])
+
+            print("Smallest f val: ", np.min((f_stack)), flush=True )
+            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
