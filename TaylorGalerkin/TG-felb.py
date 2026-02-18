@@ -2,7 +2,7 @@ import fenics as fe
 import os
 import numpy as np
 import matplotlib 
-#matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
 
@@ -35,15 +35,15 @@ L_y = 1e-3 / l_c
 
 
 T = 100000
-dt = 2
+dt = 0.1
 
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
 nx = ny = 5
-L_y = 32
-L_x = L_y
+L_y = 10/6
+L_x = 10*L_y
 h = L_x/nx
 
 # Where to save the plots
@@ -54,13 +54,12 @@ os.makedirs(outDirName, exist_ok=True)
 error_vec = []
 
 # Lattice speed of sound
-c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 )
-nu = 1.0/3.0
-tau = 1
+c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 
+tau = 0.05
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.60416666e-5, 0.0])
+Force_density = np.array([0.0048, 0.0])
 
 # Density on wall
 rho_wall = 1.0
@@ -68,7 +67,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = 0.01
+u_max = 0.1
 
 
 # D2Q9 lattice velocities
@@ -390,7 +389,6 @@ for idx in range(Q):
 
 # Timestepping
 t = 0.0
-
 for n in range(num_steps):
     t += dt
 
@@ -405,10 +403,8 @@ for n in range(num_steps):
         f_star[idx].vector().apply("insert")
 
     # Assemble RHS vectors
-    rhs_array = []
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
-        rhs_array.append(rhs_vec_streaming[idx].get_local())
 
     f5_lower_func.vector()[:] = f_star[7].vector()[:]
     f2_lower_func.vector()[:] = f_star[4].vector()[:]
@@ -428,22 +424,18 @@ for n in range(num_steps):
     bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Solve linear system in each timestep
-    soln_vecs = []
     for idx in range(Q):
         solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
-        soln_vecs.append(f_nP1[idx].vector().get_local())
 
 
     # Update previous solutions
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
-    
-    print("n = ", n)
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
+        
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
-        if n % 2 == 0:
+        if n % 100 == 0:
             # u_expr = vel(f_n)
             # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
             # u_n = fe.project(u_expr, V_vec)
@@ -500,10 +492,10 @@ for n in range(num_steps):
     
     
             print("Saving figure to:", os.path.abspath(output))
-            #plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
     
-            plt.show()
-            #plt.close()
+            #plt.show()
+            plt.close()
             if n % 10 == 0:
                 error_vec.append(error)
 

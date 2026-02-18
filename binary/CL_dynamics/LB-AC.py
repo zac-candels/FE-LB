@@ -2,7 +2,7 @@ import fenics as fe
 import os
 import numpy as np
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
@@ -22,11 +22,11 @@ CFL = 0.2
 R0 = 2
 initDropDiam = 2*R0
 L_x = 2.5*initDropDiam
-L_y = 1*initDropDiam
+L_y = 0.6*initDropDiam
 nx = 80
 ny = 60
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 10000
+dt = h*CFL / 1000
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
@@ -58,7 +58,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "nx100_M_tilde0.01_Cn0.05_sigma0.005_dt_hCFLDiv10") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "LBAC_CA30") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -453,7 +453,7 @@ mass_init = fe.assemble(phi_n*fe.dx)
 for n in range(num_steps):
     t += dt
     
-    print("n = ", n)
+    #print("n = ", n)
     
     rhs_AC = fe.assemble(lin_form_AC)
     rhs_mu = fe.assemble(lin_form_mu)
@@ -521,8 +521,6 @@ for n in range(num_steps):
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_nP1.vector(), rhs_mu)
     
-    
-    
 
 
     # Update previous solutions
@@ -538,14 +536,29 @@ for n in range(num_steps):
     vel_expr = getVel(f_n, phi_n)
     fe.project(vel_expr, V_vec, function=vel_n)
     
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
-        if n % 1 == 0:  # plot every 10 steps
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+        if n % 2000 == 0:  # plot every 10 steps
 
             total_mass = fe.assemble(phi_n*fe.dx)
             print("total mass = ", total_mass, flush=True)
             outfile.write(phi_n, t)
             print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+
+            vel_vec = vel_n.vector().get_local()
+
+            # Determine spatial dimension
+            dim = vel_n.geometric_dimension()
+
+            # Reshape to (num_nodes, dim)
+            vel_vec = vel_vec.reshape((-1, dim))
+
+            # Compute nodal norms
+            vel_norm = np.linalg.norm(vel_vec, axis=1)
+
+            # Maximum nodal value
+            max_vel = vel_norm.max()
+
+            print("Max||u||:", max_vel, "\n\n", flush=True)
 
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
@@ -563,7 +576,7 @@ for n in range(num_steps):
             
             # Save the figure to your output folder
             out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
-            #plt.savefig(out_file, dpi=200)
-            plt.show()
-            #plt.close()
+            plt.savefig(out_file, dpi=200)
+            #plt.show()
+            plt.close()
                 
