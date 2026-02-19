@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=LBAC
-#SBATCH --output=output_LBAC.log
-#SBATCH --error=error_LBAC.log
+#SBATCH --job-name=rm_proj
+#SBATCH --output=output_rm_proj.log
+#SBATCH --error=error_rm_proj.log
 #SBATCH --time=24:00:00
 
 #SBATCH --nodes=10

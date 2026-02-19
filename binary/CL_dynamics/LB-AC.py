@@ -26,7 +26,7 @@ L_y = 0.6*initDropDiam
 nx = 80
 ny = 60
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 1000
+dt = h*CFL / 100
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
@@ -34,8 +34,6 @@ Pe = 0.1275
 Re = 0.1
 Cn = 0.05
 We = 1
-
-sigma = 0.005 #0.1
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -45,11 +43,6 @@ c_s2 = 1/3
 rho_h = 1
 rho_l = 1
 
-beta = 24*sigma/0.25
-kappa = 3*sigma*0.25
-
-M_tilde = 0.01
-
 # Relaxation times for heavier and lighter phases
 tau_h = 1
 tau_l = 1
@@ -58,7 +51,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "LBAC_CA30") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "LBAC_CA30_remove_vel_projection") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -364,9 +357,9 @@ ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_i
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(vel_n, fe.grad(phi_n))*fe.dx\
+lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, phi_n), fe.grad(phi_n))*fe.dx\
     - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
-        - 0.5*dt**2 * fe.dot(vel_n, fe.grad(v)) * fe.dot(vel_n, fe.grad(phi_n)) *fe.dx
+        - 0.5*dt**2 * fe.dot(getVel(f_n, phi_n), fe.grad(v)) * fe.dot(getVel(f_n, phi_n), fe.grad(phi_n)) *fe.dx
 
 lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
     + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
@@ -533,17 +526,16 @@ for n in range(num_steps):
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
     
-    vel_expr = getVel(f_n, phi_n)
-    fe.project(vel_expr, V_vec, function=vel_n)
-    
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
-        if n % 5 == 0:  # plot every 10 steps
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+        if n % 100 == 0:  # plot every 10 steps
 
             total_mass = fe.assemble(phi_n*fe.dx)
             print("total mass = ", total_mass, flush=True)
             outfile.write(phi_n, t)
             print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+
+            vel_expr = getVel(f_n, phi_n)
+            fe.project(vel_expr, V_vec, function=vel_n)
 
             vel_vec = vel_n.vector().get_local()
 
