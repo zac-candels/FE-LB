@@ -166,38 +166,49 @@ def f_equil_init(vel_idx):
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
-def f_equil(f_list, phi, idx):
-    """
-    Compute equilibrium distribution for direction idx
-    Returns a NumPy array (values at all DoFs).
-    """
-    # Number of DoFs
-    N = f_list[0].vector().size()
-
-    # Stack all f_i values: shape (Q, N)
-    f_stack = np.array([f.vector().get_local() for f in f_list])
-
-    # Compute pressure at each DoF
-    pres = np.sum(f_stack, axis=0)  # shape (N,)
+def f_equil(f_list, phi_n, vel_idx):
+    pres = sum(fj for fj in f_list)
+    rho_expr = getDens(phi_n)
+    u_expr   = getVel(f_list, phi_n)    
+    ci       = xi[vel_idx]
+    ci_dot_u = fe.dot(ci, u_expr)
     
-    # Compute density at each DoF
-    density_ufl = getDens(phi)
-    density_fn = fe.project(density_ufl, V)
-    density_vec = density_fn.vector().get_local()
+    f_eq = w[idx]*(pres + rho_expr*c_s2\
+                   * ( ci_dot_u / c_s2 + (ci_dot_u**2 - c_s2*u_expr**2)/(2*c_s2**2) ) )
+    return f_eq
 
-    # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
+# def f_equil(f_list, phi, idx):
+#     """
+#     Compute equilibrium distribution for direction idx
+#     Returns a NumPy array (values at all DoFs).
+#     """
+#     # Number of DoFs
+#     N = f_list[0].vector().size()
 
-    u2 = ux_vec**2 + uy_vec**2
+#     # Stack all f_i values: shape (Q, N)
+#     f_stack = np.array([f.vector().get_local() for f in f_list])
 
-    # Compute ci . u for this direction
-    cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
+#     # Compute pressure at each DoF
+#     pres = np.sum(f_stack, axis=0)  # shape (N,)
     
-    f_eq = w[idx]*( 
-        pres + density_vec*c_s2 * ( cu / c_s2 + (cu**2 - c_s2*u2)/(2*c_s2**2) ) )
+#     # Compute density at each DoF
+#     density_ufl = getDens(phi)
+#     density_fn = fe.project(density_ufl, V)
+#     density_vec = density_fn.vector().get_local()
 
-    return f_eq  # NumPy array
+#     # Compute velocity at each DoF
+#     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
+#     uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
+
+#     u2 = ux_vec**2 + uy_vec**2
+
+#     # Compute ci . u for this direction
+#     cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
+    
+#     f_eq = w[idx]*( 
+#         pres + density_vec*c_s2 * ( cu / c_s2 + (cu**2 - c_s2*u2)/(2*c_s2**2) ) )
+
+#     return f_eq  # NumPy array
 
 
 # Define \Gamma
@@ -367,6 +378,7 @@ lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
 
 for idx in range(Q):
 
+    bilinear_forms_collision.append(f_trial * v * fe.dx)
     bilinear_forms_stream.append(f_trial * v * fe.dx)
 
     double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
@@ -397,8 +409,11 @@ for idx in range(Q):
         + dt*v*body_Force(f_star, phi_n, mu_n, idx)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
+        
+    lin_form_coll = (f_n[idx] - 1/(getTau(phi_n) + 0.5) * (f_n[idx] - f_equil(f_n, phi_n, idx)))*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
+    linear_forms_collision.append(lin_form_coll)
 
 # Assemble matrices for first step
 
@@ -406,16 +421,23 @@ rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 
 sys_mat = []
+sys_mat2 = []
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+    sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
     
 solver_list = []
+solver_list2 = []
 for idx in range(Q):
     A = sys_mat[idx]
+    A2 = sys_mat2[idx]
 
     # Create CG solver
     solver = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
     solver.set_operator(A)
+    
+    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver2.set_operator(A2)
 
     # Optional: set solver parameters
     prm = solver.parameters
@@ -425,6 +447,14 @@ for idx in range(Q):
     prm["nonzero_initial_guess"] = False
 
     solver_list.append(solver)
+    
+    prm2 = solver2.parameters
+    prm2["absolute_tolerance"] = 1e-12
+    prm2["relative_tolerance"] = 1e-8
+    prm2["maximum_iterations"] = 1000
+    prm2["nonzero_initial_guess"] = False
+
+    solver_list2.append(solver2)
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
@@ -460,19 +490,12 @@ for n in range(num_steps):
     # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     
-    tau_fn = getTau(phi_n)
-    tau_func = fe.project(tau_fn, V)
-    tau_vec = tau_func.vector().get_local()
     for idx in range(Q):
-        f_eq_vec = f_equil(f_n, phi_n, idx)
-        #f_eq_vec = f_eq.vector().get_local()
-        f_n_vec = f_n[idx].vector().get_local()
+        rhs_vec_collision[idx] = fe.assemble(linear_forms_collision[idx])
         
-        f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
-    
-        # f_post_stack[idx, :] = f_new
-        f_star[idx].vector().set_local(f_new)
-        f_star[idx].vector().apply("insert")
+    for idx in range(Q):
+        solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
+
         
     # rho_post = np.sum(f_post_stack, axis=0)
     # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
@@ -529,8 +552,9 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
         if n % 10 == 0:  # plot every 10 steps
-
+        
             print("n = ", n)
+
             total_mass = fe.assemble(phi_n*fe.dx)
             print("total mass = ", total_mass, flush=True)
             #outfile.write(phi_n, t)
