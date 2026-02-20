@@ -21,18 +21,19 @@ T = 1500
 CFL = 0.2
 R0 = 2
 initDropDiam = 2*R0
-L_x = 2.5*initDropDiam
-L_y = 0.6*initDropDiam
+L_x = 8*R0
+L_y = 2*R0
 nx = 80
 ny = 60
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 100
+dt = h*CFL / 200
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
 Pe = 0.1275
 Re = 0.1
-Cn = 0.05
+Cn_param = 0.05
+Cn = initDropDiam * Cn_param
 We = 1
 
 # Lattice speed of sound
@@ -51,12 +52,12 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "LBAC_CA30_remove_vel_projection") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "LBAC_CA30_test") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
 
-xc, yc = L_x/2, initDropDiam/2 - 2
+xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -410,7 +411,7 @@ for idx in range(Q):
         + double_dot_product_term\
         + dot_product_force_term + surface_term
         
-    lin_form_coll = (f_n[idx] - 1/(getTau(phi_n) + 0.5) * (f_n[idx] - f_equil(f_n, phi_n, idx)))*v*fe.dx
+    lin_form_coll = (f_n[idx] - 1/(getTau(phi_n) ) * (f_n[idx] - f_equil(f_n, phi_n, idx)))*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -549,9 +550,9 @@ for n in range(num_steps):
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
     
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
-        if n % 10 == 0:  # plot every 10 steps
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+
+        if n % 100 == 0:  # plot every 10 steps
         
             print("n = ", n)
 

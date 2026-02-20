@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=rm_proj
-#SBATCH --output=output_rm_proj.log
-#SBATCH --error=error_rm_proj.log
+#SBATCH --job-name=test
+#SBATCH --output=test_out.log
+#SBATCH --error=test_err.log
 #SBATCH --time=24:00:00
 
 #SBATCH --nodes=10
@@ -31,4 +31,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/LB-AC.py
+     python3 /root/shared/LB-AC-test.py
