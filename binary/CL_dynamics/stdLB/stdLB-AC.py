@@ -17,6 +17,71 @@ plt.close('all')
 # Where to save the plots
 
 
+def computeContactAngle(c_n, h, Cn, mesh):
+    
+    V = c_n.function_space()
+    Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
+    grad_c_fn = fe.project(fe.grad(c_n), Vvec)
+    angles = []
+    n_vec = np.array([0.0, -1.0])
+    
+    barycenters = []
+    barycenter_vals = []
+    for cell in fe.cells(mesh):
+        
+        midpt = cell.midpoint().array()
+        midpt = tuple( (midpt[0], midpt[1]) )
+        barycenters.append( midpt )
+        barycenter_vals.append( c_n(midpt) )
+    
+    # Build dictionary
+    nodal_dict = {
+    tuple(coord): val
+    for coord, val in zip(barycenters, barycenter_vals)
+    }
+
+    
+    # Filter by y-coordinate
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if coord[1] < 2*h}
+    
+    # Filter by order parameter value
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if -0.5 < value < 0.5}
+    
+    # Determine left-most interfacial point
+    min_x = min(coord[0] for coord in nodal_dict.keys())
+
+    # Filter points so we get rid of points near right CL
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if coord[0] > min_x + 5*Cn}
+    
+    iter = 0
+    for coord, value in nodal_dict.items():
+        iter += 1
+        #print("coord is", coord)
+        grad_c = np.array(grad_c_fn(coord))
+        cos_theta = np.dot(grad_c, n_vec) / np.linalg.norm(grad_c)
+        angles.append( np.arccos(cos_theta))
+
+    #print("Averaged over ", iter, " points")
+        
+    theta_avg = np.mean(angles)
+    theta_avg = theta_avg * 180 / np.pi
+    
+    return theta_avg
+        
+        
+        
+    
+
+
 T = 1500
 CFL = 0.2
 R0 = 2
@@ -24,9 +89,9 @@ initDropDiam = 2*R0
 L_x = 8*R0
 L_y = 2*R0
 nx = 80
-ny = 60
+ny = 45
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 200
+dt = (1/70)*h**2
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
@@ -47,7 +112,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "LBAC_CA30_test") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "increase_dt") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -425,6 +490,11 @@ phi_solver.set_operator(phi_mat)
 mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
+if rank == 0:
+    log_file = open("simulation_log.txt", "w")
+    log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15}\n")
+    log_file.flush()
+
 
 phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
 phi_file.parameters["flush_output"] = True
@@ -513,10 +583,11 @@ for n in range(num_steps):
     mu_n.assign(mu_nP1)
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
+
     
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
-        if n % 100 == 0:  # plot every 10 steps
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    #if 1 == 1:
+        if n % 1 == 0:  # plot every 10 steps
         
             #print("n = ", n)
             
@@ -525,9 +596,11 @@ for n in range(num_steps):
             print("max |d_momentum_y|=", np.max(np.abs(momy_diff)))
 
             total_mass = fe.assemble(phi_n*fe.dx)
-            print("total mass = ", total_mass, flush=True)
+            #print("total mass = ", total_mass, flush=True)
 
-            print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+            #print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+
+            percent_mass_change = 100*float(mass_diff)/mass_init
 
             vel_expr = getVel(f_n)
             fe.project(vel_expr, V_vec, function=vel_n)
@@ -546,14 +619,21 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
 
-            print("Max||u||:", max_vel, flush=True)
+            #print("Max||u||:", max_vel, flush=True)
             
             f_stack = np.array([f.vector().get_local() for f in f_n])
             
             #print("Time elapsed = ", time.time() - start_time, flush=True)
 
             print("Smallest f val: ", np.min((f_stack)), flush=True )
-            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
+            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), flush=True)
+
+            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
+                
+            #print("theta = ", theta_avg, "\n\n", flush=True)
+
+            log_file.write(f"{percent_mass_change:15.6e} {max_vel:15.6e} {theta_avg:15.2f}\n")
+            log_file.flush()
 
             coords = mesh.coordinates()
             phi_vals = phi_n.compute_vertex_values(mesh)
@@ -577,4 +657,7 @@ for n in range(num_steps):
             
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
+
+if rank == 0:
+    log_file.close()
                 
