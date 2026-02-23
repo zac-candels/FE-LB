@@ -35,31 +35,39 @@ L_y = 1e-3 / l_c
 
 
 T = 100000
-dt = 0.1
+dt = 0.01
 
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 5
-L_y = 10/6
-L_x = 10*L_y
+L_x = 16
+L_y = 4
+nx = 80
+ny = 45
 h = L_x/nx
+
+Force_density = np.array([1.0, 0.0])
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"tc{dt}_lc{l_c}_h{h}")
+outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_force{Force_density[0]}")
 os.makedirs(outDirName, exist_ok=True)
+
+if rank == 0:
+    log_file = open("simulation_log.txt", "w")
+    log_file.write(f"{'mass change':>15} {'momentum change x' :>15} {'momentum change y' :>15} \n")
+    log_file.flush()
 
 error_vec = []
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 
-tau = 0.05
+tau = 1
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([0.0048, 0.0])
+
 
 # Density on wall
 rho_wall = 1.0
@@ -67,7 +75,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = 0.1
+u_max = 0.01
 
 
 # D2Q9 lattice velocities
@@ -387,10 +395,23 @@ for idx in range(Q):
     solver = fe.LUSolver(A)
     solver_list.append(solver)
 
+
+vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
+vel_file.parameters["flush_output"] = True
+vel_file.parameters["functions_share_mesh"] = True
+vel_file.parameters["rewrite_function_mesh"] = False
+
 # Timestepping
 t = 0.0
 for n in range(num_steps):
     t += dt
+
+    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    rho_pre = np.sum(f_pre_stack, axis=0)
+    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+        
+    f_post_stack = np.zeros_like(f_pre_stack)
 
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, idx)
@@ -401,6 +422,16 @@ for n in range(num_steps):
     
         f_star[idx].vector().set_local(f_new)
         f_star[idx].vector().apply("insert")
+
+    f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
+    rho_post = np.sum(f_post_stack, axis=0)
+    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    
+    # # ---- Compare ----
+    rho_diff = rho_post - rho_pre
+    momx_diff = momx_post - momx_pre
+    momy_diff = momy_post - momy_pre
 
     # Assemble RHS vectors
     for idx in range(Q):
@@ -436,10 +467,17 @@ for n in range(num_steps):
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
         if n % 100 == 0:
-            # u_expr = vel(f_n)
-            # V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
-            # u_n = fe.project(u_expr, V_vec)
-            # u_n_x = fe.project(u_n.split()[0], V)
+            u_expr = vel(f_n)
+            V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+            u_n = fe.project(u_expr, V_vec)
+
+            vel_file.write(u_n, t)
+
+            print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
+            print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
+            print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
+
+            log_file.write(f"{np.abs(rho_diff):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f}")
             
             u_new, v_new = 0, 0
             

@@ -1,17 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name=TG
-#SBATCH --output=output_TG.log
-#SBATCH --error=error_TG.log
+#SBATCH --job-name=TG2
+#SBATCH --output=output_TG2.log
+#SBATCH --error=error_TG2.log
 #SBATCH --time=24:00:00
 
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=3     # MPI ranks per node (adjust)
+#SBATCH --ntasks=2     # MPI ranks per node (adjust)
 #SBATCH --cpus-per-task=1
 
 #SBATCH --partition=standard
 #SBATCH --account=ec288-wetting
 #SBATCH --qos=lowpriority
-#SBATCH --exclusive
 
 # Load Cray Python (required for srun/MPI environment)
 module load cray-python

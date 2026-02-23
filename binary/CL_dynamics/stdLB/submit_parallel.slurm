@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=test2
-#SBATCH --output=test2_out.log
-#SBATCH --error=test2_err.log
+#SBATCH --job-name=LBAC
+#SBATCH --output=out.log
+#SBATCH --error=err.log
 #SBATCH --time=10:00:00
 
 #SBATCH --ntasks=10
