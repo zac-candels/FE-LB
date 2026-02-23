@@ -30,4 +30,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/stdLB-AC.py
+     python3 /root/shared/stdLB-AC.py params.txt

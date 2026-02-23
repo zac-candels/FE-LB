@@ -3,7 +3,7 @@
 **figures*
 *.out*
 *.log*
-*.txt
+*simulation_log.txt
 **.png
 **.log
 **.pvd

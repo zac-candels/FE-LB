@@ -1,0 +1,4 @@
+Pe = 0.1275
+Cn_param = 0.05
+tau = 1
+theta_deg = 30

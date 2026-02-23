@@ -35,27 +35,27 @@ L_y = 1e-3 / l_c
 
 
 T = 100000
-dt = 0.01
+dt = 0.0001
 
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-L_x = 16
+L_x = 4
 L_y = 4
-nx = 80
+nx = 45
 ny = 45
 h = L_x/nx
 
-Force_density = np.array([1.0, 0.0])
+Force_density = np.array([1e-10, 0.0])
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
 os.makedirs(outDirName, exist_ok=True)
 
 if rank == 0:
-    log_file = open("simulation_log.txt", "w")
+    log_file = open(f"{outDirName}/simulation_log.txt", "w")
     log_file.write(f"{'mass change':>15} {'momentum change x' :>15} {'momentum change y' :>15} \n")
     log_file.flush()
 
@@ -63,7 +63,7 @@ error_vec = []
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 
-tau = 1
+tau = 0.5
 
 # Number of discrete velocities
 Q = 9
@@ -75,7 +75,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = 0.01
+u_max = Force_density[0]*L_y**2/(8 * rho_init * tau/3)
 
 
 # D2Q9 lattice velocities
@@ -477,7 +477,8 @@ for n in range(num_steps):
             print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
             print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
 
-            log_file.write(f"{np.abs(rho_diff):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f}")
+            log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
+            log_file.flush()
             
             u_new, v_new = 0, 0
             

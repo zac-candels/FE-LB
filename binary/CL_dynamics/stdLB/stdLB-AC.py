@@ -6,6 +6,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
+import sys 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -95,20 +96,33 @@ dt = (1/70)*h**2
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
-Pe = 0.1275
-Re = 0.1
-Cn_param = 0.05
+
+
+param_file = sys.argv[1]
+
+params = {}
+
+with open(param_file, "r") as f:
+    for line in f:
+        line = line.strip()
+        if line == "" or line.startswith("#"):
+            continue
+        key, value = line.split("=")
+        params[key.strip()] = float(value.strip())
+
+Pe = params["Pe"]
+Cn_param = params["Cn_param"]
+tau = params["tau"]
+theta_deg = params["theta_deg"]
+
 Cn = initDropDiam * Cn_param
-We = 1
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 c_s2 = 1/3
-tau = 1
 
 
 
-theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
@@ -190,6 +204,8 @@ mu_nP1 = fe.Function(V)
 f_star = []
 for idx in range(Q):
     f_star.append(fe.Function(V))
+
+force_fn = fe.Function(V_vec)
 
 force_density = -phi_n * fe.grad(mu_n)
 
@@ -506,6 +522,11 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
+force_file = fe.XDMFFile(comm, f"{outDirName}/force.xdmf")
+force_file.parameters["flush_output"] = True
+force_file.parameters["functions_share_mesh"] = True
+force_file.parameters["rewrite_function_mesh"] = False
+
 # Timestepping
 t = 0.0
 mass_init = fe.assemble(phi_n*fe.dx)
@@ -587,7 +608,7 @@ for n in range(num_steps):
     
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if 1 == 1:
-        if n % 100 == 0:  # plot every 10 steps
+        if n % 1000 == 0:  # plot every 10 steps
         
             #print("n = ", n)
             
@@ -606,6 +627,10 @@ for n in range(num_steps):
             fe.project(vel_expr, V_vec, function=vel_n)
 
             vel_vec = vel_n.vector().get_local()
+
+            fe.project(force_density, V_vec, function=force_fn)
+
+            force_file.write(force_fn, t)
 
             # Determine spatial dimension
             dim = vel_n.geometric_dimension()
@@ -626,7 +651,7 @@ for n in range(num_steps):
             #print("Time elapsed = ", time.time() - start_time, flush=True)
 
             print("Smallest f val: ", np.min((f_stack)), flush=True )
-            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), flush=True)
+            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
             theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
                 
