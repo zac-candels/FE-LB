@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=LBAC
-#SBATCH --output=out.log
-#SBATCH --error=err.log
+#SBATCH --job-name=fixcoll
+#SBATCH --output=fixcollrout.log
+#SBATCH --error=fixcollerr.log
 #SBATCH --time=10:00:00
 
 #SBATCH --ntasks=10

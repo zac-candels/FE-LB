@@ -126,7 +126,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "increase_dt") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "fix_collision") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -452,7 +452,7 @@ for idx in range(Q):
         + double_dot_product_term\
         + dot_product_force_term + surface_term
         
-    lin_form_coll = (f_n[idx] - 1/(tau ) * (f_n[idx] - f_equil(f_n, idx)))*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt/(tau ) * (f_n[idx] - f_equil(f_n, idx)))*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -516,6 +516,11 @@ phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
 phi_file.parameters["flush_output"] = True
 phi_file.parameters["functions_share_mesh"] = True
 phi_file.parameters["rewrite_function_mesh"] = False
+
+mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
+mu_file.parameters["flush_output"] = True
+mu_file.parameters["functions_share_mesh"] = True
+mu_file.parameters["rewrite_function_mesh"] = False
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
@@ -608,7 +613,7 @@ for n in range(num_steps):
     
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if 1 == 1:
-        if n % 1000 == 0:  # plot every 10 steps
+        if n % 100 == 0:  # plot every 10 steps
         
             #print("n = ", n)
             
@@ -682,6 +687,7 @@ for n in range(num_steps):
             
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
+            mu_file.write(mu_n, t)
 
 if rank == 0:
     log_file.close()
