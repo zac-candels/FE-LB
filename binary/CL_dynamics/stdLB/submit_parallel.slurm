@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=fixcoll
-#SBATCH --output=fixcollrout.log
-#SBATCH --error=fixcollerr.log
+#SBATCH --job-name=suspend
+#SBATCH --output=suspendOut.log
+#SBATCH --error=suspendErr.log
 #SBATCH --time=10:00:00
 
 #SBATCH --ntasks=10

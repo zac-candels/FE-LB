@@ -83,16 +83,16 @@ def computeContactAngle(c_n, h, Cn, mesh):
     
 
 
-T = 1500
+T = 0.001
 CFL = 0.2
 R0 = 2
 initDropDiam = 2*R0
-L_x = 8*R0
-L_y = 2*R0
-nx = 80
-ny = 45
+L_x = 4*R0
+L_y = 4*R0
+nx = 60
+ny = 60
 h = min(L_x/nx, L_y/ny)
-dt = (1/70)*h**2
+dt = (1/140)*h**2
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
@@ -127,12 +127,12 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "fix_collision") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "suspend") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
+xc, yc = L_x/2, L_y/2 #R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -189,7 +189,8 @@ for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-vel_n = fe.Function(V_vec)
+Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+vel_n = fe.Function(Vvec)
 mu_n = fe.Function(V)
 
 v = fe.TestFunction(V)
@@ -453,7 +454,7 @@ for idx in range(Q):
         + double_dot_product_term\
         + dot_product_force_term + surface_term
         
-    lin_form_coll = (f_n[idx] - dt*Re*c_s2 * (f_n[idx] - f_equil(f_n, idx)))*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt*Re*c_s2 * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -508,7 +509,7 @@ mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
 if rank == 0:
-    log_file = open("simulation_log.txt", "w")
+    log_file = open(outDirName + "/simulation_log.txt", "w")
     log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15}\n")
     log_file.flush()
 
@@ -532,6 +533,51 @@ force_file = fe.XDMFFile(comm, f"{outDirName}/force.xdmf")
 force_file.parameters["flush_output"] = True
 force_file.parameters["functions_share_mesh"] = True
 force_file.parameters["rewrite_function_mesh"] = False
+
+f0 = fe.XDMFFile(comm, f"{outDirName}/f0.xdmf")
+f0.parameters["flush_output"] = True
+f0.parameters["functions_share_mesh"] = True
+f0.parameters["rewrite_function_mesh"] = False
+
+f1 = fe.XDMFFile(comm, f"{outDirName}/f1.xdmf")
+f1.parameters["flush_output"] = True
+f1.parameters["functions_share_mesh"] = True
+f1.parameters["rewrite_function_mesh"] = False
+
+f2 = fe.XDMFFile(comm, f"{outDirName}/f2.xdmf")
+f2.parameters["flush_output"] = True
+f2.parameters["functions_share_mesh"] = True
+f2.parameters["rewrite_function_mesh"] = False
+
+f3 = fe.XDMFFile(comm, f"{outDirName}/f3.xdmf")
+f3.parameters["flush_output"] = True
+f3.parameters["functions_share_mesh"] = True
+f3.parameters["rewrite_function_mesh"] = False
+
+f4 = fe.XDMFFile(comm, f"{outDirName}/f4.xdmf")
+f4.parameters["flush_output"] = True
+f4.parameters["functions_share_mesh"] = True
+f4.parameters["rewrite_function_mesh"] = False
+
+f5 = fe.XDMFFile(comm, f"{outDirName}/f5.xdmf")
+f5.parameters["flush_output"] = True
+f5.parameters["functions_share_mesh"] = True
+f5.parameters["rewrite_function_mesh"] = False
+
+f6 = fe.XDMFFile(comm, f"{outDirName}/f6.xdmf")
+f6.parameters["flush_output"] = True
+f6.parameters["functions_share_mesh"] = True
+f6.parameters["rewrite_function_mesh"] = False
+
+f7 = fe.XDMFFile(comm, f"{outDirName}/f7.xdmf")
+f7.parameters["flush_output"] = True
+f7.parameters["functions_share_mesh"] = True
+f7.parameters["rewrite_function_mesh"] = False
+
+f8 = fe.XDMFFile(comm, f"{outDirName}/f8.xdmf")
+f8.parameters["flush_output"] = True
+f8.parameters["functions_share_mesh"] = True
+f8.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
@@ -614,7 +660,7 @@ for n in range(num_steps):
     
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if 1 == 1:
-        if n % 100 == 0:  # plot every 10 steps
+        if n % 5== 0:  # plot every 10 steps
         
             #print("n = ", n)
             
@@ -630,7 +676,7 @@ for n in range(num_steps):
             percent_mass_change = 100*float(mass_diff)/mass_init
 
             vel_expr = getVel(f_n)
-            fe.project(vel_expr, V_vec, function=vel_n)
+            fe.project(vel_expr, Vvec, function=vel_n)
 
             vel_vec = vel_n.vector().get_local()
 
@@ -659,7 +705,7 @@ for n in range(num_steps):
             print("Smallest f val: ", np.min((f_stack)), flush=True )
             print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
-            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
+            theta_avg = 1 # computeContactAngle(phi_n, h, Cn, mesh)
                 
             #print("theta = ", theta_avg, "\n\n", flush=True)
 
@@ -667,23 +713,53 @@ for n in range(num_steps):
             log_file.flush()
 
             coords = mesh.coordinates()
+            x = coords[:, 0]   # x-coordinates
+            y  = coords[:, 1]   # y-coordinates
             phi_vals = phi_n.compute_vertex_values(mesh)
             triangles = mesh.cells()  # get mesh connectivity
             triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
         
             plt.figure(figsize=(6,5))
+
+            # --- Plot phase field ---
             plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
             plt.colorbar(label=r"$\phi$")
-            plt.title(f"phi at t = {t:.2f}")
+
+            # --- Get velocity at vertices ---
+            vel_vertex = vel_n.compute_vertex_values(mesh)
+            dim = mesh.geometry().dim()
+            vel_vertex = vel_vertex.reshape((dim, -1))
+
+            u_vals = vel_vertex[0, :]
+            v_vals = vel_vertex[1, :]
+
+            speed = np.sqrt(u_vals**2 + v_vals**2)
+            print("Max velocity =", np.max(speed))
+            print("Min velocity =", np.min(speed))
+
+            # u_vals = u_vals/np.max(speed)
+            # v_vals = u_vals/np.max(speed)
+
+            # --- Downsample for clearer quiver plot ---
+            skip = 1   # increase if too many arrows
+            plt.quiver(coords[::skip, 0],
+                        coords[::skip, 1],
+                        u_vals[::skip],
+                        v_vals[::skip],
+                        angles='xy',
+                        width=0.003,          # thicker shafts
+                        headwidth=6,
+                        headlength=7,
+                        color='k')
+
+            plt.title(f"phi and velocity at t = {t:.2f}")
             plt.xlabel("x")
             plt.ylabel("y")
             plt.gca().set_aspect('equal', adjustable='box')
             plt.tight_layout()
-            
-            # Save the figure to your output folder
-            out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+
+            out_file = os.path.join(outDirName, f"phi_vel_t{n:05d}.png")
             plt.savefig(out_file, dpi=200)
-            #plt.show()
             plt.close()
 
 
@@ -710,6 +786,15 @@ for n in range(num_steps):
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             mu_file.write(mu_n, t)
+            f0.write(f_n[0], t)
+            f1.write(f_n[1], t)
+            f2.write(f_n[2], t)
+            f3.write(f_n[3], t)
+            f4.write(f_n[4], t)
+            f5.write(f_n[5], t)
+            f6.write(f_n[6], t)
+            f7.write(f_n[7], t)
+            f8.write(f_n[8], t)
 
 if rank == 0:
     log_file.close()
