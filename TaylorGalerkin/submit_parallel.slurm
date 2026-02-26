@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=TG2
-#SBATCH --output=output_TG2.log
-#SBATCH --error=error_TG2.log
+#SBATCH --job-name=test
+#SBATCH --output=output_test.log
+#SBATCH --error=error_test.log
 #SBATCH --time=24:00:00
 
 #SBATCH --ntasks=2     # MPI ranks per node (adjust)
@@ -29,4 +29,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/TG-felb.py
+     python3 /root/shared/testCollisionProjection.py

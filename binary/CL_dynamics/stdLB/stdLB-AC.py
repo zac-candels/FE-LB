@@ -110,9 +110,10 @@ with open(param_file, "r") as f:
         key, value = line.split("=")
         params[key.strip()] = float(value.strip())
 
+Re = params["Re"]
 Pe = params["Pe"]
+We = params["We"]
 Cn_param = params["Cn_param"]
-tau = params["tau"]
 theta_deg = params["theta_deg"]
 
 Cn = initDropDiam * Cn_param
@@ -207,7 +208,7 @@ for idx in range(Q):
 
 force_fn = fe.Function(V_vec)
 
-force_density = -phi_n * fe.grad(mu_n)
+force_density = -(1/We)*phi_n * fe.grad(mu_n)
 
 
 
@@ -452,7 +453,7 @@ for idx in range(Q):
         + double_dot_product_term\
         + dot_product_force_term + surface_term
         
-    lin_form_coll = (f_n[idx] - dt/(tau ) * (f_n[idx] - f_equil(f_n, idx)))*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt*Re*c_s2 * (f_n[idx] - f_equil(f_n, idx)))*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -681,6 +682,27 @@ for n in range(num_steps):
             
             # Save the figure to your output folder
             out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
+            plt.savefig(out_file, dpi=200)
+            #plt.show()
+            plt.close()
+
+
+                        
+            mu_vals = mu_n.compute_vertex_values(mesh)
+            triangles = mesh.cells()  # get mesh connectivity
+            triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+        
+            plt.figure(figsize=(6,5))
+            plt.tricontourf(triang, mu_vals, levels=50, cmap="RdBu_r")
+            plt.colorbar(label=r"$\mu$")
+            plt.title(f"mu at t = {t:.2f}")
+            plt.xlabel("x")
+            plt.ylabel("y")
+            plt.gca().set_aspect('equal', adjustable='box')
+            plt.tight_layout()
+            
+            # Save the figure to your output folder
+            out_file = os.path.join(outDirName, f"mu_t{n:05d}.png")
             plt.savefig(out_file, dpi=200)
             #plt.show()
             plt.close()
