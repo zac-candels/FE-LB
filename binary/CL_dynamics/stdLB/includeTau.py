@@ -83,38 +83,43 @@ def computeContactAngle(c_n, h, Cn, mesh):
     
 
 
-T = 0.001
+T = 100
 CFL = 0.2
 R0 = 2
 initDropDiam = 2*R0
-L_x = 4*R0
+L_x = 8*R0
 L_y = 4*R0
-nx = 60
-ny = 60
+nx = 80
+ny = 40
 h = min(L_x/nx, L_y/ny)
-dt = (1/140)*h**2
+dt = (1/150)*h**2
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
 
 
-param_file = sys.argv[1]
+# param_file = sys.argv[1]
 
-params = {}
+# params = {}
 
-with open(param_file, "r") as f:
-    for line in f:
-        line = line.strip()
-        if line == "" or line.startswith("#"):
-            continue
-        key, value = line.split("=")
-        params[key.strip()] = float(value.strip())
+# with open(param_file, "r") as f:
+#     for line in f:
+#         line = line.strip()
+#         if line == "" or line.startswith("#"):
+#             continue
+#         key, value = line.split("=")
+#         params[key.strip()] = float(value.strip())
 
-Re = params["Re"]
-Pe = params["Pe"]
-We = params["We"]
-Cn_param = params["Cn_param"]
-theta_deg = params["theta_deg"]
+# Re = params["Re"]
+# Pe = params["Pe"]
+# We = params["We"]
+# Cn_param = params["Cn_param"]
+# theta_deg = params["theta_deg"]
+
+Pe = 0.1275 
+We = 1
+Cn_param=  0.05
+theta_deg = 30
 
 Cn = initDropDiam * Cn_param
 
@@ -127,12 +132,12 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "suspend") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "dataNew") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
 tau = 1
-xc, yc = L_x/2, L_y/2 #R0 - 0.6*R0
+xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -209,7 +214,7 @@ for idx in range(Q):
 
 force_fn = fe.Function(V_vec)
 
-force_density = -(1/We)*phi_n * fe.grad(mu_n)
+
 
 
 
@@ -221,7 +226,7 @@ def getDens(f_list):
 
 # Define velocity
 
-def getVel(f_list):
+def getVel(f_list, force_density):
     distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
         + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
@@ -236,7 +241,7 @@ def getVel(f_list):
 
 
 # Define initial equilibrium distributions
-def f_equil_init(vel_idx):
+def f_equil_init(vel_idx, force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
@@ -254,10 +259,10 @@ def f_equil_init(vel_idx):
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
-def f_equil(f_list, vel_idx):
+def f_equil(f_list, vel_idx, force_density):
 
     rho = getDens(f_list)
-    u   = getVel(f_list)    
+    u   = getVel(f_list, force_density)    
     ci       = xi[vel_idx]
     cu = fe.dot(ci, u)
     u2 = fe.dot(u, u)
@@ -270,7 +275,7 @@ def f_equil(f_list, vel_idx):
 
     
 
-def body_Force(vel, vel_idx):
+def body_Force(vel, vel_idx, force_density):
     prefactor = w[vel_idx]
     inverse_cs2 = 1 / c_s**2
     inverse_cs4 = 1 / c_s**4
@@ -287,6 +292,7 @@ def body_Force(vel, vel_idx):
     return Force
 
 
+force_density = -(1/We)*phi_n * fe.grad(mu_n)
 
 
 # # Initialize distribution functions. We will use
@@ -294,7 +300,7 @@ def body_Force(vel, vel_idx):
 # Here we will take u_0 = 0.
 
 for idx in range(Q):
-    f_n[idx] = (fe.project(f_equil_init(idx), V))
+    f_n[idx] = (fe.project(f_equil_init(idx, force_density), V))
     
 # Initialize \phi
 c_init_expr = fe.Expression(
@@ -308,6 +314,8 @@ c_init_expr = fe.Expression(
 
 phi_n = fe.interpolate(c_init_expr, V)
 mass_diff = fe.Constant(0.0)
+
+force_density = -(1/We)*phi_n * fe.grad(mu_n)
 
 
 
@@ -412,9 +420,9 @@ ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_i
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n), fe.grad(phi_n))*fe.dx\
+lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
     - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
-        - 0.5*dt**2 * fe.dot(getVel(f_n), fe.grad(v)) * fe.dot(getVel(f_n), fe.grad(phi_n)) *fe.dx
+        - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
 lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
     + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
@@ -429,7 +437,7 @@ for idx in range(Q):
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(getVel(f_n), idx) * fe.dx
+        * body_Force(getVel(f_n, force_density), idx, force_density) * fe.dx
         
 
     if idx in opp_idx:
@@ -450,11 +458,11 @@ for idx in range(Q):
 
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(getVel(f_star), idx)*fe.dx\
+        + dt*v*body_Force(getVel(f_star, force_density), idx, force_density)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
         
-    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx, force_density)) )*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -508,10 +516,10 @@ phi_solver.set_operator(phi_mat)
 mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
-if rank == 0:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15}\n")
-    log_file.flush()
+
+log_file = open(outDirName + "/simulation_log.txt", "w")
+log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15}\n")
+log_file.flush()
 
 
 phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
@@ -528,56 +536,6 @@ vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
-
-force_file = fe.XDMFFile(comm, f"{outDirName}/force.xdmf")
-force_file.parameters["flush_output"] = True
-force_file.parameters["functions_share_mesh"] = True
-force_file.parameters["rewrite_function_mesh"] = False
-
-f0 = fe.XDMFFile(comm, f"{outDirName}/f0.xdmf")
-f0.parameters["flush_output"] = True
-f0.parameters["functions_share_mesh"] = True
-f0.parameters["rewrite_function_mesh"] = False
-
-f1 = fe.XDMFFile(comm, f"{outDirName}/f1.xdmf")
-f1.parameters["flush_output"] = True
-f1.parameters["functions_share_mesh"] = True
-f1.parameters["rewrite_function_mesh"] = False
-
-f2 = fe.XDMFFile(comm, f"{outDirName}/f2.xdmf")
-f2.parameters["flush_output"] = True
-f2.parameters["functions_share_mesh"] = True
-f2.parameters["rewrite_function_mesh"] = False
-
-f3 = fe.XDMFFile(comm, f"{outDirName}/f3.xdmf")
-f3.parameters["flush_output"] = True
-f3.parameters["functions_share_mesh"] = True
-f3.parameters["rewrite_function_mesh"] = False
-
-f4 = fe.XDMFFile(comm, f"{outDirName}/f4.xdmf")
-f4.parameters["flush_output"] = True
-f4.parameters["functions_share_mesh"] = True
-f4.parameters["rewrite_function_mesh"] = False
-
-f5 = fe.XDMFFile(comm, f"{outDirName}/f5.xdmf")
-f5.parameters["flush_output"] = True
-f5.parameters["functions_share_mesh"] = True
-f5.parameters["rewrite_function_mesh"] = False
-
-f6 = fe.XDMFFile(comm, f"{outDirName}/f6.xdmf")
-f6.parameters["flush_output"] = True
-f6.parameters["functions_share_mesh"] = True
-f6.parameters["rewrite_function_mesh"] = False
-
-f7 = fe.XDMFFile(comm, f"{outDirName}/f7.xdmf")
-f7.parameters["flush_output"] = True
-f7.parameters["functions_share_mesh"] = True
-f7.parameters["rewrite_function_mesh"] = False
-
-f8 = fe.XDMFFile(comm, f"{outDirName}/f8.xdmf")
-f8.parameters["flush_output"] = True
-f8.parameters["functions_share_mesh"] = True
-f8.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
@@ -658,9 +616,9 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
 
     
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    if rank == 0:
     #if 1 == 1:
-        if n % 5== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
         
             #print("n = ", n)
             
@@ -675,14 +633,14 @@ for n in range(num_steps):
 
             percent_mass_change = 100*float(mass_diff)/mass_init
 
-            vel_expr = getVel(f_n)
+            vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
 
             vel_vec = vel_n.vector().get_local()
 
             fe.project(force_density, V_vec, function=force_fn)
 
-            force_file.write(force_fn, t)
+            #force_file.write(force_fn, t)
 
             # Determine spatial dimension
             dim = vel_n.geometric_dimension()
@@ -709,8 +667,8 @@ for n in range(num_steps):
                 
             #print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f} {max_vel:15.6e} {theta_avg:15.2f}\n")
-            log_file.flush()
+            # log_file.write(f"{percent_mass_change:15.3f} {max_vel:15.6e} {theta_avg:15.2f}\n")
+            # log_file.flush()
 
             coords = mesh.coordinates()
             x = coords[:, 0]   # x-coordinates
@@ -786,15 +744,6 @@ for n in range(num_steps):
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             mu_file.write(mu_n, t)
-            f0.write(f_n[0], t)
-            f1.write(f_n[1], t)
-            f2.write(f_n[2], t)
-            f3.write(f_n[3], t)
-            f4.write(f_n[4], t)
-            f5.write(f_n[5], t)
-            f6.write(f_n[6], t)
-            f7.write(f_n[7], t)
-            f8.write(f_n[8], t)
 
 if rank == 0:
     log_file.close()
