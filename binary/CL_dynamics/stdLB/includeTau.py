@@ -88,9 +88,9 @@ CFL = 0.2
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 4*R0
+L_y = 2*R0
 nx = 80
-ny = 40
+ny = 30
 h = min(L_x/nx, L_y/ny)
 dt = (1/150)*h**2
 num_steps = int(np.ceil(T/dt))
@@ -119,7 +119,7 @@ beta_mass_diff = 0.00000001
 Pe = 0.1275 
 We = 1
 Cn_param=  0.05
-theta_deg = 30
+theta_deg = 150
 
 Cn = initDropDiam * Cn_param
 
@@ -132,7 +132,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "dataNew") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "CA150") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -267,7 +267,7 @@ def f_equil(f_list, vel_idx, force_density):
     cu = fe.dot(ci, u)
     u2 = fe.dot(u, u)
 
-    feq = w[idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
 
     
 
@@ -516,10 +516,10 @@ phi_solver.set_operator(phi_mat)
 mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
-
-log_file = open(outDirName + "/simulation_log.txt", "w")
-log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15}\n")
-log_file.flush()
+if rank == 0:
+    log_file = open(outDirName + "/simulation_log.txt", "w")
+    log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15} {'smallest f':>15} \n")
+    log_file.flush()
 
 
 phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
@@ -616,7 +616,7 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
 
     
-    if rank == 0:
+    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if 1 == 1:
         if n % 100== 0:  # plot every 10 steps
         
@@ -663,12 +663,12 @@ for n in range(num_steps):
             print("Smallest f val: ", np.min((f_stack)), flush=True )
             print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
-            theta_avg = 1 # computeContactAngle(phi_n, h, Cn, mesh)
+            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
                 
-            #print("theta = ", theta_avg, "\n\n", flush=True)
+            print("theta = ", theta_avg, "\n\n", flush=True)
 
-            # log_file.write(f"{percent_mass_change:15.3f} {max_vel:15.6e} {theta_avg:15.2f}\n")
-            # log_file.flush()
+            log_file.write(f"{percent_mass_change:15.3f} {max_vel:15.6e} {theta_avg:15.2f} {np.min(f_stack):15.4f} \n")
+            log_file.flush()
 
             coords = mesh.coordinates()
             x = coords[:, 0]   # x-coordinates

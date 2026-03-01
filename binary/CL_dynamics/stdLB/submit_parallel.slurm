@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=suspend
-#SBATCH --output=suspendOut.log
-#SBATCH --error=suspendErr.log
+#SBATCH --job-name=CA150
+#SBATCH --output=CA150Out.log
+#SBATCH --error=CA150Err.log
 #SBATCH --time=10:00:00
 
 #SBATCH --ntasks=10
@@ -30,4 +30,4 @@ srun --distribution=block:block --hint=nomultithread \
      singularity exec \
      --bind $WORKDIR:/root/shared \
      $SIF \
-     python3 /root/shared/stdLB-AC.py params.txt
+     python3 /root/shared/includeTau.py
