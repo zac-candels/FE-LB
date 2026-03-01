@@ -83,8 +83,7 @@ def computeContactAngle(c_n, h, Cn, mesh):
     
 
 
-T = 100
-CFL = 0.2
+T = 20
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
@@ -92,8 +91,6 @@ L_y = 2*R0
 nx = 80
 ny = 30
 h = min(L_x/nx, L_y/ny)
-dt = (1/150)*h**2
-num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.00000001
 
@@ -120,6 +117,8 @@ Pe = 0.1275
 We = 1
 Cn_param=  0.05
 theta_deg = 150
+dt = (float(np.sqrt(3))*Cn_param*Pe)*h**2
+num_steps = int(np.ceil(T/dt))
 
 Cn = initDropDiam * Cn_param
 
@@ -527,10 +526,10 @@ phi_file.parameters["flush_output"] = True
 phi_file.parameters["functions_share_mesh"] = True
 phi_file.parameters["rewrite_function_mesh"] = False
 
-mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
-mu_file.parameters["flush_output"] = True
-mu_file.parameters["functions_share_mesh"] = True
-mu_file.parameters["rewrite_function_mesh"] = False
+# mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
+# mu_file.parameters["flush_output"] = True
+# mu_file.parameters["functions_share_mesh"] = True
+# mu_file.parameters["rewrite_function_mesh"] = False
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
@@ -722,28 +721,28 @@ for n in range(num_steps):
 
 
                         
-            mu_vals = mu_n.compute_vertex_values(mesh)
-            triangles = mesh.cells()  # get mesh connectivity
-            triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
+            # mu_vals = mu_n.compute_vertex_values(mesh)
+            # triangles = mesh.cells()  # get mesh connectivity
+            # triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
         
-            plt.figure(figsize=(6,5))
-            plt.tricontourf(triang, mu_vals, levels=50, cmap="RdBu_r")
-            plt.colorbar(label=r"$\mu$")
-            plt.title(f"mu at t = {t:.2f}")
-            plt.xlabel("x")
-            plt.ylabel("y")
-            plt.gca().set_aspect('equal', adjustable='box')
-            plt.tight_layout()
+            # plt.figure(figsize=(6,5))
+            # plt.tricontourf(triang, mu_vals, levels=50, cmap="RdBu_r")
+            # plt.colorbar(label=r"$\mu$")
+            # plt.title(f"mu at t = {t:.2f}")
+            # plt.xlabel("x")
+            # plt.ylabel("y")
+            # plt.gca().set_aspect('equal', adjustable='box')
+            # plt.tight_layout()
             
-            # Save the figure to your output folder
-            out_file = os.path.join(outDirName, f"mu_t{n:05d}.png")
-            plt.savefig(out_file, dpi=200)
-            #plt.show()
-            plt.close()
+            # # Save the figure to your output folder
+            # out_file = os.path.join(outDirName, f"mu_t{n:05d}.png")
+            # plt.savefig(out_file, dpi=200)
+            # #plt.show()
+            # plt.close()
             
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
-            mu_file.write(mu_n, t)
+            # mu_file.write(mu_n, t)
 
 if rank == 0:
     log_file.close()
