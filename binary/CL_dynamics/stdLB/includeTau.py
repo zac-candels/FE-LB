@@ -92,7 +92,7 @@ nx = 80
 ny = 30
 h = min(L_x/nx, L_y/ny)
 
-beta_mass_diff = 0.00000001
+beta_mass_diff = 0.000001
 
 
 # param_file = sys.argv[1]
@@ -114,10 +114,10 @@ beta_mass_diff = 0.00000001
 # theta_deg = params["theta_deg"]
 
 Pe = 0.1275 
-We = 1
+We = 2
 Cn_param=  0.05
 theta_deg = 150
-dt = (float(np.sqrt(3))*Cn_param*Pe)*h**2
+dt = (1/10)*Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 
 Cn = initDropDiam * Cn_param
@@ -131,7 +131,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "CA150") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "test1") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -196,6 +196,7 @@ V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 vel_n = fe.Function(Vvec)
 mu_n = fe.Function(V)
+rho_fn = fe.Function(V)
 
 v = fe.TestFunction(V)
 
@@ -517,7 +518,13 @@ mu_solver.set_operator(mu_mat)
 
 if rank == 0:
     log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'% mass change':>15} {'max ||u||':>15} {'theta':>15} {'smallest f':>15} \n")
+    log_file.write(f"{'% mass change':>15}"
+                   f"{'max ||u||':>15}"
+                   f"{'theta':>15}"
+                   f"{'smallest f':>15}"
+                   f"{'smallest f x':>15}"
+                   f"{'smallest f y':>15}"
+                   f"{'LB mass':>15}\n")
     log_file.flush()
 
 
@@ -614,12 +621,17 @@ for n in range(num_steps):
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
 
-    
+    distr_dict = {}
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if 1 == 1:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
         
             #print("n = ", n)
+
+            rho_expr = sum(fk for fk in f_n)
+            fe.project(rho_expr, V, function=rho_fn)
+
+            LB_mass = fe.assemble(rho_fn*fe.dx)
             
             print("max |drho|   =", np.max(np.abs(rho_diff)))
             print("max |d_momentum_x|=", np.max(np.abs(momx_diff)))
@@ -655,18 +667,30 @@ for n in range(num_steps):
 
             #print("Max||u||:", max_vel, flush=True)
             
-            f_stack = np.array([f.vector().get_local() for f in f_n])
-            
-            #print("Time elapsed = ", time.time() - start_time, flush=True)
-
-            print("Smallest f val: ", np.min((f_stack)), flush=True )
-            print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
+            for idx in range(Q):
+                f_vec = f_n[idx].vector().get_local()
+                min_index = np.argmin(f_vec)
+                min_value = f_vec[min_index]
+                
+                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+                min_coord = tuple(dof_coords[min_index])
+                
+                distr_dict[min_coord] = min_value
+                
+            min_coord = min(distr_dict, key=distr_dict.get)
+            min_distr = distr_dict[min_coord]
 
             theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f} {max_vel:15.6e} {theta_avg:15.2f} {np.min(f_stack):15.4f} \n")
+            log_file.write(f"{percent_mass_change:15.3f}"
+                           f"{max_vel:15.6e}"
+                           f"{theta_avg:15.2f}"
+                           f"{min_distr:15.3f}"
+                           f"{min_coord[0]:15.2f}"
+                           f"{min_coord[1]:15.2f}"
+                           f"{LB_mass:15.3f} \n")
             log_file.flush()
 
             coords = mesh.coordinates()
@@ -683,33 +707,33 @@ for n in range(num_steps):
             plt.colorbar(label=r"$\phi$")
 
             # --- Get velocity at vertices ---
-            vel_vertex = vel_n.compute_vertex_values(mesh)
-            dim = mesh.geometry().dim()
-            vel_vertex = vel_vertex.reshape((dim, -1))
+            # vel_vertex = vel_n.compute_vertex_values(mesh)
+            # dim = mesh.geometry().dim()
+            # vel_vertex = vel_vertex.reshape((dim, -1))
 
-            u_vals = vel_vertex[0, :]
-            v_vals = vel_vertex[1, :]
+            # u_vals = vel_vertex[0, :]
+            # v_vals = vel_vertex[1, :]
 
-            speed = np.sqrt(u_vals**2 + v_vals**2)
-            print("Max velocity =", np.max(speed))
-            print("Min velocity =", np.min(speed))
+            # speed = np.sqrt(u_vals**2 + v_vals**2)
+            # print("Max velocity =", np.max(speed))
+            # print("Min velocity =", np.min(speed))
 
             # u_vals = u_vals/np.max(speed)
             # v_vals = u_vals/np.max(speed)
 
             # --- Downsample for clearer quiver plot ---
-            skip = 1   # increase if too many arrows
-            plt.quiver(coords[::skip, 0],
-                        coords[::skip, 1],
-                        u_vals[::skip],
-                        v_vals[::skip],
-                        angles='xy',
-                        width=0.003,          # thicker shafts
-                        headwidth=6,
-                        headlength=7,
-                        color='k')
+            # skip = 1   # increase if too many arrows
+            # plt.quiver(coords[::skip, 0],
+            #             coords[::skip, 1],
+            #             u_vals[::skip],
+            #             v_vals[::skip],
+            #             angles='xy',
+            #             width=0.003,          # thicker shafts
+            #             headwidth=6,
+            #             headlength=7,
+            #             color='k')
 
-            plt.title(f"phi and velocity at t = {t:.2f}")
+            plt.title(f"phi at t = {t:.2f}")
             plt.xlabel("x")
             plt.ylabel("y")
             plt.gca().set_aspect('equal', adjustable='box')

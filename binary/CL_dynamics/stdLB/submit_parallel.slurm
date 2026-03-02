@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=CA150
-#SBATCH --output=CA150Out.log
-#SBATCH --error=CA150Err.log
+#SBATCH --job-name=test1
+#SBATCH --output=test1Out.log
+#SBATCH --error=test1Err.log
 #SBATCH --time=10:00:00
 
 #SBATCH --ntasks=10
