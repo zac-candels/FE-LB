@@ -448,17 +448,7 @@ n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 
-# Create MeshFunction for boundary markers
-boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
-
-# Subdomain for bottom wall
-class Bottom(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0)
-
-bottom = Bottom()
-bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
-ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
+ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=mesh_function, subdomain_id=1)
 
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
