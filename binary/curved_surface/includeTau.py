@@ -19,6 +19,8 @@ plt.close('all')
 # Where to save the plots
 
 
+
+
 def computeContactAngle(c_n, h, Cn, mesh):
     
     V = c_n.function_space()
@@ -47,7 +49,7 @@ def computeContactAngle(c_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[1] < 2*h}
+        if coord[1] - surfaceExpr(coord[0]) < 2*h}
     
     # Filter by order parameter value
     nodal_dict = {
@@ -122,7 +124,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 150
+theta_deg = 30
 dt = (1/10)*Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 
@@ -169,11 +171,15 @@ w = np.array([
 
 #mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
+def surfaceExpr(x):
+    
+    return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
+
 domain_n_points = 80
 domain_points = []
 for n in range(domain_n_points + 1):
     x = n*L_x/domain_n_points
-    domain_points.append(fe.Point(x, surface_amplitude*np.cos(surface_freq*(x - L_x/2))))
+    domain_points.append(fe.Point(x, surfaceExpr(x) ))
 domain_points.append(fe.Point(L_x,  surface_amplitude))
 domain_points.append(fe.Point(L_x, L_y))
 domain_points.append(fe.Point(0., L_y))
@@ -659,8 +665,9 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
 
     distr_dict = {}
+    if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
+    #if 1 == 1:
         if n % 100== 0:  # plot every 10 steps
         
             #print("n = ", n)
