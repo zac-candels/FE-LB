@@ -81,7 +81,9 @@ def computeContactAngle(c_n, h, Cn, mesh):
         
         
         
-    
+epsT = 0.05
+lamd = 1/6   
+
 
 
 T = 20
@@ -92,6 +94,9 @@ L_y = 2*R0
 nx = 80
 ny = 30
 h = min(L_x/nx, L_y/ny)
+
+surface_amplitude = 0.5 
+surface_freq = L_x/(8*np.pi)
 
 beta_mass_diff = 0.000001
 
@@ -167,12 +172,12 @@ w = np.array([
 domain_n_points = 80
 domain_points = []
 for n in range(domain_n_points + 1):
-    x = n*1./domain_n_points
-    domain_points.append(fe.Point(x, 0.1*np.cos(2*np.pi*(x - L_x/2))))
-domain_points.append(fe.Point(L_x, 0.1))
+    x = n*L_x/domain_n_points
+    domain_points.append(fe.Point(x, surface_amplitude*np.cos(surface_freq*(x - L_x/2))))
+domain_points.append(fe.Point(L_x,  surface_amplitude))
 domain_points.append(fe.Point(L_x, L_y))
 domain_points.append(fe.Point(0., L_y))
-domain_points.append(fe.Point(0., 0.1))
+domain_points.append(fe.Point(0., surface_amplitude))
 domain1 = mshr.Polygon(domain_points)
 mesh = mshr.generate_mesh(domain1, 80)
 
@@ -228,6 +233,35 @@ for idx in range(Q):
 force_fn = fe.Function(V_vec)
 
 
+class LowerBoundary(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and x[1] >= -surface_amplitude and x[1] <= surface_amplitude
+
+class TopBoundary(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[1], L_y)
+
+class LeftBoundary(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[0], 0.0)
+
+class RightBoundary(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[0], L_x)
+
+mesh_function = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1)
+
+Gamma_1 = LowerBoundary()
+Gamma_1.mark(mesh_function, 1)
+Gamma_2 = TopBoundary()
+Gamma_2.mark(mesh_function, 2)
+Gamma_3 = LeftBoundary()
+Gamma_3.mark(mesh_function, 3)
+Gamma_4 = RightBoundary()
+Gamma_4.mark(mesh_function, 4)
+
+ds = fe.Measure('ds', domain=mesh, subdomain_data=mesh_function)
+n = fe.FacetNormal(mesh)
 
 
 
@@ -342,16 +376,6 @@ force_density = -(1/We)*phi_n * fe.grad(mu_n)
 tol = 1e-8
 
 
-def Bdy_Lower(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 0, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
 rho_expr = sum(fk for fk in f_n)
 
 f5_lower = f_n[7]  # rho_expr
@@ -366,9 +390,9 @@ fe.project(f5_lower, V, function=f5_lower_func)
 fe.project(f2_lower, V, function=f2_lower_func)
 fe.project(f6_lower, V, function=f6_lower_func)
 
-bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
+bc_f5 = fe.DirichletBC(V, f5_lower_func, mesh_function, 1)
+bc_f2 = fe.DirichletBC(V, f2_lower_func, mesh_function, 1)
+bc_f6 = fe.DirichletBC(V, f6_lower_func, mesh_function, 1)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -402,9 +426,9 @@ fe.project(f7_upper, V, function=f7_upper_func)
 fe.project(f4_upper, V, function=f4_upper_func)
 fe.project(f8_upper, V, function=f8_upper_func)
 
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_f7 = fe.DirichletBC(V, f7_upper_func, mesh_function, 2)
+bc_f4 = fe.DirichletBC(V, f4_upper_func, mesh_function, 2)
+bc_f8 = fe.DirichletBC(V, f8_upper_func, mesh_function, 2)
 
 # Define variational problems
 
@@ -635,9 +659,9 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
 
     distr_dict = {}
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    #if 1 == 1:
-        if n % 1000== 0:  # plot every 10 steps
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    if 1 == 1:
+        if n % 100== 0:  # plot every 10 steps
         
             #print("n = ", n)
 
