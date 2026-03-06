@@ -18,7 +18,8 @@ plt.close('all')
 
 # Where to save the plots
 
-
+fe.parameters["form_compiler"]["optimize"] = True
+fe.parameters["form_compiler"]["cpp_optimize"] = True
 
 
 def computeContactAngle(c_n, h, Cn, mesh):
@@ -91,9 +92,9 @@ lamd = 1/6
 T = 20
 R0 = 2
 initDropDiam = 2*R0
-L_x = 8*R0
+L_x = 6*R0
 L_y = 2*R0
-nx = 80
+nx = 60
 ny = 30
 h = min(L_x/nx, L_y/ny)
 
@@ -139,7 +140,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "test1") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "CA30") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -190,17 +191,15 @@ mesh = mshr.generate_mesh(domain1, 80)
 # Set periodic boundary conditions at left and right endpoints
 
 
-class PeriodicBoundaryX(fe.SubDomain):
-    def inside(self, point, on_boundary):
-        return fe.near(point[0], 0.0) and on_boundary
-
-    def map(self, right_bdy, left_bdy):
-        # Map left boundary to the right
-        left_bdy[0] = right_bdy[0] - L_x
-        left_bdy[1] = right_bdy[1]
+class PeriodicBoundary(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return bool(x[0] < fe.DOLFIN_EPS and x[0] > -fe.DOLFIN_EPS and on_boundary)
+    def map(self, x, y):
+        y[0] = x[0] - L_x
+        y[1] = x[1]
 
 
-pbc = PeriodicBoundaryX()
+pbc = PeriodicBoundary()
 
 
 V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
@@ -447,18 +446,7 @@ linear_forms_collision = []
 n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
-
-# Create MeshFunction for boundary markers
-boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
-
-# Subdomain for bottom wall
-class Bottom(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0)
-
-bottom = Bottom()
-bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
-ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
+ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=mesh_function, subdomain_id=1)
 
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
@@ -512,8 +500,11 @@ for idx in range(Q):
 
 # Assemble matrices for first step
 
-rhs_vec_streaming = [0]*Q
-rhs_vec_collision = [0]*Q
+rhs_vec_streaming = [fe.assemble(linear_forms_stream[i])
+    for i in range(Q)]
+
+rhs_vec_collision = [ fe.assemble(linear_forms_collision[i])
+    for i in range(Q)]
 
 sys_mat = []
 sys_mat2 = []
@@ -553,11 +544,14 @@ for idx in range(Q):
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
-phi_solver = fe.LUSolver("mumps")
+phi_solver = fe.KrylovSolver("cg", "hypre_amg")
 phi_solver.set_operator(phi_mat)
 
-mu_solver = fe.LUSolver("mumps")
+mu_solver = fe.KrylovSolver("cg", "hypre_amg")
 mu_solver.set_operator(mu_mat)
+
+rhs_AC = fe.assemble(lin_form_AC)
+rhs_mu = fe.assemble(lin_form_mu)
 
 if rank == 0:
     log_file = open(outDirName + "/simulation_log.txt", "w")
@@ -594,25 +588,26 @@ for n in range(num_steps):
     
     #print("n = ", n)
     
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
+    fe.assemble(lin_form_AC, tensor=rhs_AC)
+    fe.assemble(lin_form_mu, tensor=rhs_mu)
 
-    
+
     f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
     rho_pre = np.sum(f_pre_stack, axis=0)
     momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
     momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
         
     f_post_stack = np.zeros_like(f_pre_stack)
+
     # Perform collision, get post-collision distributions f_i^*
     
     for idx in range(Q):
-        rhs_vec_collision[idx] = fe.assemble(linear_forms_collision[idx])
+        fe.assemble(linear_forms_collision[idx], tensor=rhs_vec_collision[idx])
         
     for idx in range(Q):
         solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
 
-        
+
     f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
     rho_post = np.sum(f_post_stack, axis=0)
     momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
@@ -621,12 +616,11 @@ for n in range(num_steps):
     # # ---- Compare ----
     rho_diff = rho_post - rho_pre
     momx_diff = momx_post - momx_pre
-    momy_diff = momy_post - momy_pre
-    
+    momy_diff = momy_post - momy_pre    
 
     # Assemble RHS vectors
     for idx in range(Q):
-        rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
+        fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
 
     f5_lower_func.vector()[:] = f_star[7].vector()[:]
     f2_lower_func.vector()[:] = f_star[4].vector()[:]
@@ -661,45 +655,31 @@ for n in range(num_steps):
     
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
+    
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
+    
 
     distr_dict = {}
-    if rank == 0:
+    #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    #if 1 == 1:
-        if n % 100== 0:  # plot every 10 steps
-        
-            #print("n = ", n)
-
-            rho_expr = sum(fk for fk in f_n)
-            fe.project(rho_expr, V, function=rho_fn)
-
-            LB_mass = fe.assemble(rho_fn*fe.dx)
+    if 1 == 1:
+        if n % 5== 0:  # plot every 10 steps
             
-            print("max |drho|   =", np.max(np.abs(rho_diff)))
-            print("max |d_momentum_x|=", np.max(np.abs(momx_diff)))
-            print("max |d_momentum_y|=", np.max(np.abs(momy_diff)))
-
-            total_mass = fe.assemble(phi_n*fe.dx)
-            #print("total mass = ", total_mass, flush=True)
-
-            #print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
-
-            percent_mass_change = 100*float(mass_diff)/mass_init
-
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
-
-            vel_vec = vel_n.vector().get_local()
-
-            fe.project(force_density, V_vec, function=force_fn)
-
-            #force_file.write(force_fn, t)
-
+            iteration_time = time.time()
+            print("time elapsed ", iteration_time - start_time)
+            phi_file.write(phi_n, t)
+            vel_file.write(vel_n, t)
+            # mu_file.write(mu_n, t)
+            
+            total_mass = fe.assemble(phi_n*fe.dx)
+            percent_mass_change = 100*float(mass_diff)/mass_init
+            
             # Determine spatial dimension
             dim = vel_n.geometric_dimension()
-
+            vel_vec = vel_n.vector().get_local()
             # Reshape to (num_nodes, dim)
             vel_vec = vel_vec.reshape((-1, dim))
 
@@ -708,8 +688,6 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-
-            #print("Max||u||:", max_vel, flush=True)
             
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
@@ -723,8 +701,13 @@ for n in range(num_steps):
                 
             min_coord = min(distr_dict, key=distr_dict.get)
             min_distr = distr_dict[min_coord]
+            
+            rho_expr = sum(fk for fk in f_n)
+            fe.project(rho_expr, V, function=rho_fn)
 
-            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
+            LB_mass = fe.assemble(rho_fn*fe.dx)
+            
+            theta_avg = 1#computeContactAngle(phi_n, h, Cn, mesh)
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
@@ -736,81 +719,6 @@ for n in range(num_steps):
                            f"{min_coord[1]:15.2f}"
                            f"{LB_mass:15.3f} \n")
             log_file.flush()
-
-            coords = mesh.coordinates()
-            x = coords[:, 0]   # x-coordinates
-            y  = coords[:, 1]   # y-coordinates
-            phi_vals = phi_n.compute_vertex_values(mesh)
-            triangles = mesh.cells()  # get mesh connectivity
-            triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
-        
-            plt.figure(figsize=(6,5))
-
-            # --- Plot phase field ---
-            plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-            plt.colorbar(label=r"$\phi$")
-
-            # --- Get velocity at vertices ---
-            # vel_vertex = vel_n.compute_vertex_values(mesh)
-            # dim = mesh.geometry().dim()
-            # vel_vertex = vel_vertex.reshape((dim, -1))
-
-            # u_vals = vel_vertex[0, :]
-            # v_vals = vel_vertex[1, :]
-
-            # speed = np.sqrt(u_vals**2 + v_vals**2)
-            # print("Max velocity =", np.max(speed))
-            # print("Min velocity =", np.min(speed))
-
-            # u_vals = u_vals/np.max(speed)
-            # v_vals = u_vals/np.max(speed)
-
-            # --- Downsample for clearer quiver plot ---
-            # skip = 1   # increase if too many arrows
-            # plt.quiver(coords[::skip, 0],
-            #             coords[::skip, 1],
-            #             u_vals[::skip],
-            #             v_vals[::skip],
-            #             angles='xy',
-            #             width=0.003,          # thicker shafts
-            #             headwidth=6,
-            #             headlength=7,
-            #             color='k')
-
-            plt.title(f"phi at t = {t:.2f}")
-            plt.xlabel("x")
-            plt.ylabel("y")
-            plt.gca().set_aspect('equal', adjustable='box')
-            plt.tight_layout()
-
-            out_file = os.path.join(outDirName, f"phi_vel_t{n:05d}.png")
-            plt.savefig(out_file, dpi=200)
-            plt.close()
-
-
-                        
-            # mu_vals = mu_n.compute_vertex_values(mesh)
-            # triangles = mesh.cells()  # get mesh connectivity
-            # triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
-        
-            # plt.figure(figsize=(6,5))
-            # plt.tricontourf(triang, mu_vals, levels=50, cmap="RdBu_r")
-            # plt.colorbar(label=r"$\mu$")
-            # plt.title(f"mu at t = {t:.2f}")
-            # plt.xlabel("x")
-            # plt.ylabel("y")
-            # plt.gca().set_aspect('equal', adjustable='box')
-            # plt.tight_layout()
-            
-            # # Save the figure to your output folder
-            # out_file = os.path.join(outDirName, f"mu_t{n:05d}.png")
-            # plt.savefig(out_file, dpi=200)
-            # #plt.show()
-            # plt.close()
-            
-            phi_file.write(phi_n, t)
-            vel_file.write(vel_n, t)
-            # mu_file.write(mu_n, t)
 
 if rank == 0:
     log_file.close()
