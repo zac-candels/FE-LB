@@ -622,9 +622,10 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
 
     distr_dict = {}
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    #if 1 == 1:
-        if n % 1000== 0:  # plot every 10 steps
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    #if rank == 0:
+    if 1 == 1:
+        if n % 10== 0:  # plot every 10 steps
         
             #print("n = ", n)
 
@@ -680,7 +681,7 @@ for n in range(num_steps):
             min_coord = min(distr_dict, key=distr_dict.get)
             min_distr = distr_dict[min_coord]
 
-            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
+            theta_avg = 1#computeContactAngle(phi_n, h, Cn, mesh)
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 

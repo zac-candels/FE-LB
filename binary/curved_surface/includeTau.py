@@ -126,7 +126,7 @@ Pe = 0.1275
 We = 2
 Cn_param=  0.05
 theta_deg = 150
-dt = (1/10)*Cn_param*Pe*h**2
+dt = (1/2)*Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 
 Cn = initDropDiam * Cn_param
@@ -176,7 +176,7 @@ def surfaceExpr(x):
     
     return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
 
-domain_n_points = 80
+domain_n_points = 60
 domain_points = []
 for n in range(domain_n_points + 1):
     x = n*L_x/domain_n_points
@@ -186,7 +186,10 @@ domain_points.append(fe.Point(L_x, L_y))
 domain_points.append(fe.Point(0., L_y))
 domain_points.append(fe.Point(0., surface_amplitude))
 domain1 = mshr.Polygon(domain_points)
-mesh = mshr.generate_mesh(domain1, 80)
+if rank == 0:
+    mesh = mshr.generate_mesh(domain1, domain_n_points)
+    fe.File("mesh.xml") << mesh  # save to disk
+mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -240,7 +243,7 @@ force_fn = fe.Function(V_vec)
 
 class LowerBoundary(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and x[1] >= -surface_amplitude and x[1] <= surface_amplitude
+        return on_boundary and abs(x[1] - surfaceExpr(x[0])) < 1e-2
 
 class TopBoundary(fe.SubDomain):
     def inside(self, x, on_boundary):
@@ -582,12 +585,12 @@ for n in range(num_steps):
     fe.assemble(lin_form_mu, tensor=rhs_mu)
 
 
-    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    rho_pre = np.sum(f_pre_stack, axis=0)
-    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    # rho_pre = np.sum(f_pre_stack, axis=0)
+    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
         
-    f_post_stack = np.zeros_like(f_pre_stack)
+    # f_post_stack = np.zeros_like(f_pre_stack)
 
     # Perform collision, get post-collision distributions f_i^*
     
@@ -598,15 +601,15 @@ for n in range(num_steps):
         solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
 
 
-    f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
-    rho_post = np.sum(f_post_stack, axis=0)
-    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    # f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
+    # rho_post = np.sum(f_post_stack, axis=0)
+    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
     # # ---- Compare ----
-    rho_diff = rho_post - rho_pre
-    momx_diff = momx_post - momx_pre
-    momy_diff = momy_post - momy_pre    
+    # rho_diff = rho_post - rho_pre
+    # momx_diff = momx_post - momx_pre
+    # momy_diff = momy_post - momy_pre    
 
     # Assemble RHS vectors
     for idx in range(Q):
@@ -679,23 +682,23 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
             
-            for idx in range(Q):
-                f_vec = f_n[idx].vector().get_local()
-                min_index = np.argmin(f_vec)
-                min_value = f_vec[min_index]
+            # for idx in range(Q):
+            #     f_vec = f_n[idx].vector().get_local()
+            #     min_index = np.argmin(f_vec)
+            #     min_value = f_vec[min_index]
                 
-                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
-                min_coord = tuple(dof_coords[min_index])
+            #     dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+            #     min_coord = tuple(dof_coords[min_index])
                 
-                distr_dict[min_coord] = min_value
+            #     distr_dict[min_coord] = min_value
                 
-            min_coord = min(distr_dict, key=distr_dict.get)
-            min_distr = distr_dict[min_coord]
+            min_coord = (1,1)#min(distr_dict, key=distr_dict.get)
+            min_distr = 1#distr_dict[min_coord]
             
-            rho_expr = sum(fk for fk in f_n)
-            fe.project(rho_expr, V, function=rho_fn)
+            # rho_expr = sum(fk for fk in f_n)
+            # fe.project(rho_expr, V, function=rho_fn)
 
-            LB_mass = fe.assemble(rho_fn*fe.dx)
+            LB_mass = 1#fe.assemble(rho_fn*fe.dx)
             
             theta_avg = 1#computeContactAngle(phi_n, h, Cn, mesh)
                 
