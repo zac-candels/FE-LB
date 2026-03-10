@@ -189,17 +189,28 @@ pbc = PeriodicBoundary()
 
 
 V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
+P1 = fe.FiniteElement("P", fe.triangle, 1)
+element = fe.MixedElement([P1, P1, P1, P1, P1, P1, P1, P1, P1])
+V_mix = fe.FunctionSpace(mesh, element, constrained_domain=pbc)
 
 
 # Define trial and test functions, as well as
 # finite element functions at previous timesteps
 
-f_trial = fe.TrialFunction(V)
+f_trial0, f_trial1, f_trial2,\
+    f_trial3, f_trial4, f_trial5,\
+       f_trial6, f_trial7, f_trial8 = fe.TrialFunction(V_mix)
+       
+f_n = fe.Function(V_mix)
+
+f0_n, f1_n, f2_n, f3_n, f4_n,\
+    f5_n, f6_n, f7_n, f8_n = fe.split(f_n)
+       
+v0, v1, v2, v3, v4, v5, v6, v7, v8 = fe.TestFunctions(V_mix)
+
 phi_trial = fe.TrialFunction(V)
 mu_trial = fe.TrialFunction(V)
-f_n = []
-for idx in range(Q):
-    f_n.append(fe.Function(V))
+
 phi_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
@@ -210,9 +221,12 @@ rho_fn = fe.Function(V)
 v = fe.TestFunction(V)
 
 # Define FE functions to hold post-streaming solution at nP1 timesteps
-f_nP1 = []
-for idx in range(Q):
-    f_nP1.append(fe.Function(V))
+f_nP1 = fe.Function(V_mix)
+
+f0_nP1, f1_nP1, f2_nP1, f3_nP1, f4_nP1,\
+    f5_nP1, f6_nP1, f7_nP1, f8_nP1 = fe.split(f_nP1)
+    
+    
 phi_nP1 = fe.Function(V)
 mu_nP1 = fe.Function(V)
 
