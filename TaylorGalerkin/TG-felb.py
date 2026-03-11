@@ -15,7 +15,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.01
+dt = 0.001
 
 num_steps = int(np.ceil(T/dt))
 
@@ -342,15 +342,15 @@ for idx in range(Q):
 
 for idx in range(Q):
     A = sys_mat[idx]
-    #solver = fe.LUSolver(A)
-    solver = fe.KrylovSolver("cg", "hypre_amg")
-    solver.set_operator(A)
+    solver = fe.LUSolver(A)
+    # solver = fe.KrylovSolver("cg", "hypre_amg")
+    # solver.set_operator(A)
     solver_list.append(solver)
     
     A2 = sys_mat2[idx]
-    #solver2 = fe.LUSolver(A2)
-    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
-    solver2.set_operator(A2)
+    solver2 = fe.LUSolver(A2)
+    # solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    # solver2.set_operator(A2)
 
     solver_list2.append(solver2)
 
@@ -423,7 +423,7 @@ for n in range(num_steps):
         
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
-        if n % 100 == 0:
+        if n % 500 == 0:
             u_expr = getVel(f_n)
             V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
             u_n = fe.project(u_expr, V_vec)
