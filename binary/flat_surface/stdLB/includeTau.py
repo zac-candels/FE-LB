@@ -165,6 +165,8 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 
 # Set periodic boundary conditions at left and right endpoints
 
+print("num cells = ", mesh.num_cells())
+
 
 class PeriodicBoundaryX(fe.SubDomain):
     def inside(self, point, on_boundary):

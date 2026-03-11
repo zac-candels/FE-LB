@@ -14,40 +14,20 @@ rank = fe.MPI.rank(comm)
 plt.close('all')
 
 
-
-# Here we will simulate Poiseuille flow in a 
-# channel of width 1e-3, fluid density \rho = 1e3,
-# viscosity 1e-6, and g = 10.
-
-# Let us first define the characteristic length and density scales.
-l_c = 1e-5
-rho_c = 1e3
-
-# Since our channel has width 1e-3, in lattice units this is 
-L_y = 1e-3 / l_c
-
-# Now we determine a value of \bar{\tau}. We will start
-# by trying \bar{\tau} = 0.55.
-
-
-
-# Then, the corresponding body force is 2.78e-6.
-
-
 T = 100000
-dt = 0.0001
+dt = 0.01
 
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-L_x = 4
-L_y = 4
-nx = 45
-ny = 45
+L_x = 32
+L_y = 32
+nx = 5
+ny = 5
 h = L_x/nx
 
-Force_density = np.array([1e-10, 0.0])
+Force_density = np.array([2.6014e-5, 0.0])
 
 # Where to save the plots
 WORKDIR = os.getcwd()
@@ -62,8 +42,8 @@ if rank == 0:
 error_vec = []
 
 # Lattice speed of sound
-c_s = np.sqrt(1/3)  # np.sqrt( 1./3. * h**2/dt**2 
-tau = 0.5
+c_s = np.sqrt(1/3)
+tau = 1
 
 # Number of discrete velocities
 Q = 9
@@ -98,13 +78,10 @@ w = np.array([
     1/36, 1/36, 1/36, 1/36
 ])
 
-# Set up domain. For simplicity, do unit square mesh.
-
+# Set up domain. For simplicity, do rectangular mesh.
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 
 # Set periodic boundary conditions at left and right endpoints
-
-
 class PeriodicBoundaryX(fe.SubDomain):
     def inside(self, point, on_boundary):
         return fe.near(point[0], 0.0) and on_boundary
@@ -143,19 +120,19 @@ for idx in range(Q):
 
 
 # Define density
-def rho(f_list):
+def getDens(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
         + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
 # Define velocity
 
 
-def vel(f_list):
+def getVel(f_list):
     distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
         + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
         + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
 
-    density = rho(f_list)
+    density = getDens(f_list)
 
     vel_term1 = distr_fn_sum/density
 
@@ -187,53 +164,19 @@ def f_equil_init(vel_idx, Force_density):
 # Define equilibrium distribution
 
 
-# def f_equil(f_list, vel_idx):
-#     rho_expr = sum(fj for fj in f_list)
-#     u_expr = vel(f_list)
-#     ci = xi[vel_idx]
-#     ci_dot_u = fe.dot(ci, u_expr)
-#     return w[vel_idx] * rho_expr * (
-#         1
-#         + ci_dot_u / c_s**2
-#         + ci_dot_u**2 / (2*c_s**4)
-#         - fe.dot(u_expr, u_expr) / (2*c_s**2)
-#     )
+def f_equil(f_list, vel_idx):
 
-xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
+    rho = getDens(f_list)
+    u   = getVel(f_list)    
+    ci       = xi[vel_idx]
+    cu = fe.dot(ci, u)
+    u2 = fe.dot(u, u)
 
-def f_equil(f_list, idx):
-    """
-    Compute equilibrium distribution for direction idx
-    Returns a NumPy array (values at all DoFs).
-    """
-    # Number of DoFs
-    N = f_list[0].vector().size()
+    feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
 
-    # Stack all f_i values: shape (Q, N)
-    f_stack = np.array([f.vector().get_local() for f in f_list])
+    
 
-    # Compute density at each DoF
-    rho_vec = np.sum(f_stack, axis=0)  # shape (N,)
-
-    # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0)
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0)
-
-    u2 = ux_vec**2 + uy_vec**2
-
-    # Compute ci . u for this direction
-    cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
-
-    feq = w[idx] * rho_vec * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-    return feq  # NumPy array
-
-
-# Define collision operator
-
-
-def coll_op(f_list, vel_idx):
-    return -(f_list[vel_idx] - f_equil(f_list, vel_idx)) / (tau + 0.5)
+    return feq
 
 
 def body_Force(vel, vel_idx, Force_density):
@@ -351,12 +294,13 @@ opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 for idx in range(Q):
 
     bilinear_forms_stream.append(f_trial * v * fe.dx)
+    bilinear_forms_collision.append(f_trial*v*fe.dx)
 
     double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(vel(f_star), idx, Force_density) * fe.dx
+        * body_Force(getVel(f_star), idx, Force_density) * fe.dx
 
     if idx in opp_idx:
         # UFL scalar: dot product with facet normal
@@ -374,26 +318,41 @@ for idx in range(Q):
         # no surface contribution for this idx
         surface_term = fe.Constant(0.0) * v * fe.ds
 
-    lin_form_idx = f_star[idx]*v*fe.dx\
+    lin_form_stream = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(vel(f_star), idx, Force_density)*fe.dx\
+        + dt*v*body_Force(getVel(f_star), idx, Force_density)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
 
-    linear_forms_stream.append(lin_form_idx)
+    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
+
+    linear_forms_stream.append(lin_form_stream)
+    linear_forms_collision.append(lin_form_coll)
 
 # Assemble matrices for first step
 sys_mat = []
+sys_mat2 = []
 solver_list = []
+solver_list2 = []
 rhs_vec_streaming = [0]*Q
 rhs_vec_collision = [0]*Q
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
+    sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
 
 for idx in range(Q):
     A = sys_mat[idx]
-    solver = fe.LUSolver(A)
+    #solver = fe.LUSolver(A)
+    solver = fe.KrylovSolver("cg", "hypre_amg")
+    solver.set_operator(A)
     solver_list.append(solver)
+    
+    A2 = sys_mat2[idx]
+    #solver2 = fe.LUSolver(A2)
+    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver2.set_operator(A2)
+
+    solver_list2.append(solver2)
 
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
@@ -403,35 +362,33 @@ vel_file.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
+
+xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 for n in range(num_steps):
     t += dt
 
-    f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    rho_pre = np.sum(f_pre_stack, axis=0)
-    momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
+    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
+    # rho_pre = np.sum(f_pre_stack, axis=0)
+    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
         
-    f_post_stack = np.zeros_like(f_pre_stack)
+    # f_post_stack = np.zeros_like(f_pre_stack)
 
     for idx in range(Q):
-        f_eq_vec = f_equil(f_n, idx)
-        #f_eq_vec = f_eq.vector().get_local()
-        f_n_vec = f_n[idx].vector().get_local()
+        rhs_vec_collision[idx] = (fe.assemble(linear_forms_collision[idx]))
         
-        f_new = f_n_vec - dt/(tau  ) * (f_n_vec - f_eq_vec)
-    
-        f_star[idx].vector().set_local(f_new)
-        f_star[idx].vector().apply("insert")
+    for idx in range(Q):
+        solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
 
-    f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
-    rho_post = np.sum(f_post_stack, axis=0)
-    momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
+    # f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
+    # rho_post = np.sum(f_post_stack, axis=0)
+    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
+    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-    # # ---- Compare ----
-    rho_diff = rho_post - rho_pre
-    momx_diff = momx_post - momx_pre
-    momy_diff = momy_post - momy_pre
+    # # # ---- Compare ----
+    # rho_diff = rho_post - rho_pre
+    # momx_diff = momx_post - momx_pre
+    # momy_diff = momy_post - momy_pre
 
     # Assemble RHS vectors
     for idx in range(Q):
@@ -467,18 +424,18 @@ for n in range(num_steps):
     if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
         if n % 100 == 0:
-            u_expr = vel(f_n)
+            u_expr = getVel(f_n)
             V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
             u_n = fe.project(u_expr, V_vec)
 
             vel_file.write(u_n, t)
 
-            print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
-            print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
-            print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
+            # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
+            # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
+            # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
 
-            log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
-            log_file.flush()
+            # log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
+            # log_file.flush()
             
             u_new, v_new = 0, 0
             
@@ -510,7 +467,7 @@ for n in range(num_steps):
                 u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
     
             for point in points:
-                u_expr = vel(f_n)
+                u_expr = getVel(f_n)
                 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
                 u = fe.project(u_expr, V_vec)
                 u_at_point = u(point)
@@ -543,7 +500,7 @@ for n in range(num_steps):
 
 error_vec = np.asarray(error_vec)
 # %%
-u_expr = vel(f_n)
+u_expr = getVel(f_n)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 u = fe.project(u_expr, V_vec)
 
