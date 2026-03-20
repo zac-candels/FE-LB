@@ -156,6 +156,9 @@ def surfaceExpr(x):
     
     return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
 
+def surfExprDeriv(x):
+    return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
+
 domain_n_points = 60
 domain_points = []
 for n in range(domain_n_points + 1):
@@ -224,35 +227,33 @@ for idx in range(Q):
 force_fn = fe.Function(V_vec)
 
 
-class LowerBoundary(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and abs(x[1] - surfaceExpr(x[0])) < 1e-3
+boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
-class TopBoundary(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], L_y)
+tol = 2*mesh.hmin()
 
-class LeftBoundary(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[0], 0.0)
+for facet in fe.facets(mesh):
+    if facet.exterior():
+        n = facet.normal()
+        
+        # Bottom boundary → normal has negative y component
+        if n.y() < -0.1:   # threshold, adjust if needed
+            mp = facet.midpoint()
+            x = mp.x()
+            y = mp.y()
+    
+            if abs(y - surfaceExpr(x)) < tol:
+                slope = surfExprDeriv(x)
+    
+                if slope > 1e-3:
+                    print("boundary marker found 1")
+                    boundary_markers[facet] = 1
+                elif slope < -1e-3:
+                    print("boundary marker found 2")
+                    boundary_markers[facet] = 2
+                else:
+                    print("boundary marker found 3")
+                    boundary_markers[facet] = 3
 
-class RightBoundary(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[0], L_x)
-
-mesh_function = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1)
-
-Gamma_1 = LowerBoundary()
-Gamma_1.mark(mesh_function, 1)
-Gamma_2 = TopBoundary()
-Gamma_2.mark(mesh_function, 2)
-Gamma_3 = LeftBoundary()
-Gamma_3.mark(mesh_function, 3)
-Gamma_4 = RightBoundary()
-Gamma_4.mark(mesh_function, 4)
-
-ds = fe.Measure('ds', domain=mesh, subdomain_data=mesh_function)
-n = fe.FacetNormal(mesh)
 
 
 
@@ -359,57 +360,84 @@ force_density = -(1/We)*phi_n * fe.grad(mu_n)
 
 # Define boundary conditions.
 
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
-# Since we are applying equilibrium boundary conditions
-# and assuming no slip on solid walls, f_i^{eq} reduces to
-# \rho * w_i
-
-tol = 1e-8
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f5_lower = f_n[7]  # rho_expr
-f2_lower = f_n[4]  # rho_expr
-f6_lower = f_n[8]  # rho_expr
-
-f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
-
-fe.project(f5_lower, V, function=f5_lower_func)
-fe.project(f2_lower, V, function=f2_lower_func)
-fe.project(f6_lower, V, function=f6_lower_func)
-
-bc_f5 = fe.DirichletBC(V, f5_lower_func, mesh_function, 1)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, mesh_function, 1)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, mesh_function, 1)
-
-# Similarly, we will define boundary conditions for f_7, f_4, and f_8
-# at the upper wall. Once again, boundary conditions simply reduce
-# to \rho * w_i
-
-
-tol = 1e-8
-
+# Boundary condition for up-slope portion of wall.
+# Here,
+# f_5^{n+1} \gets f_7^n
+# f_2^{n+1} \gets f_4^n
+# f_6^{n+1} \gets f_8^n
+# f_3^{n+1} \gets f_1^n 
+#
 
 rho_expr = sum(fk for fk in f_n)
 
-f7_upper = f_n[5]  # rho_expr
-f4_upper = f_n[2]  # rho_expr
-f8_upper = f_n[6]  # rho_expr
+f5_upSlope = f_n[7] 
+f2_upSlope = f_n[4] 
+f6_upSlope = f_n[8] 
+f3_upSlope = f_n[1]
 
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
+f5_upSlope_func = fe.Function(V)
+f2_upSlope_func = fe.Function(V)
+f6_upSlope_func = fe.Function(V)
+f3_upSlope_func = fe.Function(V)
 
-fe.project(f7_upper, V, function=f7_upper_func)
-fe.project(f4_upper, V, function=f4_upper_func)
-fe.project(f8_upper, V, function=f8_upper_func)
+fe.project(f5_upSlope, V, function=f5_upSlope_func)
+fe.project(f2_upSlope, V, function=f2_upSlope_func)
+fe.project(f6_upSlope, V, function=f6_upSlope_func)
 
-bc_f7 = fe.DirichletBC(V, f7_upper_func, mesh_function, 2)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, mesh_function, 2)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, mesh_function, 2)
+bc_f5_upSlope = fe.DirichletBC(V, f5_upSlope_func, boundary_markers, 1)
+bc_f2_upSlope = fe.DirichletBC(V, f2_upSlope_func, boundary_markers, 1)
+bc_f6_upSlope = fe.DirichletBC(V, f6_upSlope_func, boundary_markers, 1)
+bc_f3_upSlope = fe.DirichletBC(V, f3_upSlope_func, boundary_markers, 1)
+
+
+# We do a similar procedure for the downslope part of the boundary
+
+# Boundary condition for up-slope portion of wall.
+# Here,
+# f_1^{n+1} \gets f_3^n
+# f_5^{n+1} \gets f_7^n
+# f_2^{n+1} \gets f_4^n
+# f_6^{n+1} \gets f_8^n 
+
+f1_downSlope = f_n[3]
+f5_downSlope = f_n[7] 
+f2_downSlope = f_n[4] 
+f6_downSlope = f_n[8] 
+
+f1_downSlope_func = fe.Function(V)
+f5_downSlope_func = fe.Function(V)
+f2_downSlope_func = fe.Function(V)
+f6_downSlope_func = fe.Function(V)
+
+fe.project(f1_downSlope, V, function=f1_downSlope_func)
+fe.project(f5_downSlope, V, function=f5_downSlope_func)
+fe.project(f2_downSlope, V, function=f2_downSlope_func)
+fe.project(f6_downSlope, V, function=f6_downSlope_func)
+
+bc_f1_downSlope = fe.DirichletBC(V, f1_downSlope_func, boundary_markers, 2)
+bc_f5_downSlope = fe.DirichletBC(V, f5_downSlope_func, boundary_markers, 2)
+bc_f2_downSlope = fe.DirichletBC(V, f2_downSlope_func, boundary_markers, 2)
+bc_f6_downSlope = fe.DirichletBC(V, f6_downSlope_func, boundary_markers, 2)
+
+
+# Finally if the slope is sufficiently small
+
+f5_noSlope = f_n[7]  # rho_expr
+f2_noSlope = f_n[4]  # rho_expr
+f6_noSlope = f_n[8]  # rho_expr
+
+f5_noSlope_func = fe.Function(V)
+f2_noSlope_func = fe.Function(V)
+f6_noSlope_func = fe.Function(V)
+
+fe.project(f5_noSlope, V, function=f5_noSlope_func)
+fe.project(f2_noSlope, V, function=f2_noSlope_func)
+fe.project(f6_noSlope, V, function=f6_noSlope_func)
+
+bc_f5_noSlope = fe.DirichletBC(V, f5_noSlope_func, boundary_markers, 3)
+bc_f2_noSlope = fe.DirichletBC(V, f2_noSlope_func, boundary_markers, 3)
+bc_f6_noSlope = fe.DirichletBC(V, f6_noSlope_func, boundary_markers, 3)
+
 
 # Define variational problems
 
@@ -422,7 +450,8 @@ linear_forms_collision = []
 n = fe.FacetNormal(mesh)
 opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
-ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=mesh_function, subdomain_id=1)
+ds = fe.Measure("ds", domain=mesh, subdomain_data=boundary_markers)
+ds_bottom = ds(1) + ds(2)
 
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
@@ -598,22 +627,37 @@ for n in range(num_steps):
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
 
-    f5_lower_func.vector()[:] = f_star[7].vector()[:]
-    f2_lower_func.vector()[:] = f_star[4].vector()[:]
-    f6_lower_func.vector()[:] = f_star[8].vector()[:]
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    f5_upSlope_func.vector()[:] = f_star[7].vector()[:]
+    f2_upSlope_func.vector()[:] = f_star[4].vector()[:]
+    f6_upSlope_func.vector()[:] = f_star[8].vector()[:]
+    f3_upSlope_func.vector()[:] = f_star[1].vector()[:]
+    
+    f1_downSlope_func.vector()[:] = f_star[3].vector()[:]
+    f5_downSlope_func.vector()[:] = f_star[7].vector()[:]
+    f2_downSlope_func.vector()[:] = f_star[4].vector()[:]
+    f6_downSlope_func.vector()[:] = f_star[8].vector()[:]
+    
+    # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
+    # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
+    # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
-    # # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
 
-    # # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
+    # Apply BCs for upSlope boundary
+    bc_f5_upSlope.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f2_upSlope.apply(sys_mat[2], rhs_vec_streaming[2])
+    bc_f6_upSlope.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f3_upSlope.apply(sys_mat[3], rhs_vec_streaming[3])
+    
+    # Apply BCs for downSlope boundary
+    bc_f1_downSlope.apply(sys_mat[1], rhs_vec_streaming[1])
+    bc_f5_downSlope.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f2_downSlope.apply(sys_mat[2], rhs_vec_streaming[2])
+    bc_f6_downSlope.apply(sys_mat[6], rhs_vec_streaming[6])
+
+    # Apply BCs for noSlope boundary
+    # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
+    # bc_f2_noSlope.apply(sys_mat[2], rhs_vec_streaming[2])
+    # bc_f6_noSlope.apply(sys_mat[6], rhs_vec_streaming[6])
 
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
@@ -640,7 +684,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)

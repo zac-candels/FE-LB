@@ -8,6 +8,7 @@
 **.log
 **.pvd
 **.vtu
+**.xml
 **.xdmf
 **/M_*
 **/nx*
