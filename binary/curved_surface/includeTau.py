@@ -106,7 +106,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 90
+theta_deg = 30
 
 
 Cn = initDropDiam * Cn_param
@@ -120,7 +120,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "CA90") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "newBC") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -438,6 +438,34 @@ bc_f5_noSlope = fe.DirichletBC(V, f5_noSlope_func, boundary_markers, 3)
 bc_f2_noSlope = fe.DirichletBC(V, f2_noSlope_func, boundary_markers, 3)
 bc_f6_noSlope = fe.DirichletBC(V, f6_noSlope_func, boundary_markers, 3)
 
+def Bdy_Upper(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[1], L_y, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+rho_expr = sum(fk for fk in f_n)
+
+f7_upper = f_n[5]  # rho_expr
+f4_upper = f_n[2]  # rho_expr
+f8_upper = f_n[6]  # rho_expr
+
+f7_upper_func = fe.Function(V)
+f4_upper_func = fe.Function(V)
+f8_upper_func = fe.Function(V)
+
+fe.project(f7_upper, V, function=f7_upper_func)
+fe.project(f4_upper, V, function=f4_upper_func)
+fe.project(f8_upper, V, function=f8_upper_func)
+
+bc_f7_upper = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
+bc_f4_upper = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
+bc_f8_upper = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+
 
 # Define variational problems
 
@@ -637,6 +665,10 @@ for n in range(num_steps):
     f2_downSlope_func.vector()[:] = f_star[4].vector()[:]
     f6_downSlope_func.vector()[:] = f_star[8].vector()[:]
     
+    f7_upper_func.vector()[:] = f_star[5].vector()[:]
+    f4_upper_func.vector()[:] = f_star[2].vector()[:]
+    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
@@ -653,6 +685,11 @@ for n in range(num_steps):
     bc_f5_downSlope.apply(sys_mat[5], rhs_vec_streaming[5])
     bc_f2_downSlope.apply(sys_mat[2], rhs_vec_streaming[2])
     bc_f6_downSlope.apply(sys_mat[6], rhs_vec_streaming[6])
+    
+    # Apply BCs for top boundary
+    bc_f7_upper.apply(sys_mat[7], rhs_vec_streaming[7])
+    bc_f4_upper.apply(sys_mat[4], rhs_vec_streaming[4])
+    bc_f8_upper.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # Apply BCs for noSlope boundary
     # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
