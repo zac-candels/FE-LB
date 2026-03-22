@@ -322,7 +322,7 @@ for idx in range(Q):
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
         + dt*v*body_Force(getVel(f_star), idx, Force_density)*fe.dx\
         + double_dot_product_term\
-        + dot_product_force_term + surface_term
+        + dot_product_force_term - surface_term
 
     lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
 

@@ -106,7 +106,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 30
+theta_deg = 150
 
 
 Cn = initDropDiam * Cn_param
@@ -120,7 +120,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "newBC") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"newBC_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
