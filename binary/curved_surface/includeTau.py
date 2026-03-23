@@ -28,6 +28,8 @@ def computeContactAngle(c_n, h, Cn, mesh):
     Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
     grad_c_fn = fe.project(fe.grad(c_n), Vvec)
     angles = []
+    surfaceSlopeAngles = []
+    surfaceSlopes=[]
     n_vec = np.array([0.0, -1.0])
     
     barycenters = []
@@ -50,7 +52,7 @@ def computeContactAngle(c_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[1] - surfaceExpr(coord[0]) < 2*h}
+        if coord[1] - surfaceExpr(coord[0]) < 1.3*h}
     
     # Filter by order parameter value
     nodal_dict = {
@@ -65,9 +67,18 @@ def computeContactAngle(c_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[0] > min_x + 5*Cn}
+        if coord[0] < min_x + 5*Cn}
     
     iter = 0
+    for coord, value in nodal_dict.items():
+        iter += 1
+        surfaceSlopes.append(surfExprDeriv(coord[0]))
+        
+    surfaceSlope_avg = np.mean(surfaceSlopes)
+    
+    n_vec_raw = np.array([1, -1/surfaceSlope_avg])
+    n_vec = n_vec_raw / np.linalg.norm(n_vec_raw)
+    
     for coord, value in nodal_dict.items():
         iter += 1
         #print("coord is", coord)
@@ -106,7 +117,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 150
+theta_deg = 120
 
 
 Cn = initDropDiam * Cn_param
@@ -613,6 +624,23 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
+# Apply BCs for upSlope boundary
+bc_f5_upSlope.apply(sys_mat[5])
+bc_f2_upSlope.apply(sys_mat[2])
+bc_f6_upSlope.apply(sys_mat[6])
+bc_f3_upSlope.apply(sys_mat[3])
+
+# Apply BCs for downSlope boundary
+bc_f1_downSlope.apply(sys_mat[1])
+bc_f5_downSlope.apply(sys_mat[5])
+bc_f2_downSlope.apply(sys_mat[2])
+bc_f6_downSlope.apply(sys_mat[6])
+
+# Apply BCs for top boundary
+bc_f7_upper.apply(sys_mat[7])
+bc_f4_upper.apply(sys_mat[4])
+bc_f8_upper.apply(sys_mat[8])
+
 # Timestepping
 t = 0.0
 mass_init = fe.assemble(phi_n*fe.dx)
@@ -655,19 +683,19 @@ for n in range(num_steps):
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
 
-    f5_upSlope_func.vector()[:] = f_star[7].vector()[:]
-    f2_upSlope_func.vector()[:] = f_star[4].vector()[:]
-    f6_upSlope_func.vector()[:] = f_star[8].vector()[:]
-    f3_upSlope_func.vector()[:] = f_star[1].vector()[:]
+    f5_upSlope_func.assign(f_star[7])
+    f2_upSlope_func.assign(f_star[4])
+    f6_upSlope_func.assign(f_star[8])
+    f3_upSlope_func.assign(f_star[1] )
     
-    f1_downSlope_func.vector()[:] = f_star[3].vector()[:]
-    f5_downSlope_func.vector()[:] = f_star[7].vector()[:]
-    f2_downSlope_func.vector()[:] = f_star[4].vector()[:]
-    f6_downSlope_func.vector()[:] = f_star[8].vector()[:]
+    f1_downSlope_func.assign(f_star[3] )
+    f5_downSlope_func.assign(f_star[7] )
+    f2_downSlope_func.assign(f_star[4] )
+    f6_downSlope_func.assign(f_star[8] )
     
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    f7_upper_func.assign(f_star[5] )
+    f4_upper_func.assign(f_star[2] )
+    f8_upper_func.assign(f_star[6] )
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
@@ -675,21 +703,21 @@ for n in range(num_steps):
 
 
     # Apply BCs for upSlope boundary
-    bc_f5_upSlope.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2_upSlope.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6_upSlope.apply(sys_mat[6], rhs_vec_streaming[6])
-    bc_f3_upSlope.apply(sys_mat[3], rhs_vec_streaming[3])
+    bc_f5_upSlope.apply( rhs_vec_streaming[5])
+    bc_f2_upSlope.apply( rhs_vec_streaming[2])
+    bc_f6_upSlope.apply( rhs_vec_streaming[6])
+    bc_f3_upSlope.apply( rhs_vec_streaming[3])
     
     # Apply BCs for downSlope boundary
-    bc_f1_downSlope.apply(sys_mat[1], rhs_vec_streaming[1])
-    bc_f5_downSlope.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2_downSlope.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6_downSlope.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f1_downSlope.apply( rhs_vec_streaming[1])
+    bc_f5_downSlope.apply( rhs_vec_streaming[5])
+    bc_f2_downSlope.apply( rhs_vec_streaming[2])
+    bc_f6_downSlope.apply( rhs_vec_streaming[6])
     
     # Apply BCs for top boundary
-    bc_f7_upper.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4_upper.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8_upper.apply(sys_mat[8], rhs_vec_streaming[8])
+    bc_f7_upper.apply( rhs_vec_streaming[7])
+    bc_f4_upper.apply( rhs_vec_streaming[4])
+    bc_f8_upper.apply( rhs_vec_streaming[8])
 
     # Apply BCs for noSlope boundary
     # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -721,7 +749,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 2000== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
@@ -764,7 +792,7 @@ for n in range(num_steps):
 
             LB_mass = 1#fe.assemble(rho_fn*fe.dx)
             
-            theta_avg = 1#computeContactAngle(phi_n, h, Cn, mesh)
+            theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 

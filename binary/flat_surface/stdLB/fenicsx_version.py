@@ -30,9 +30,9 @@ T = 20
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 2*R0
+L_y = 3*R0
 nx = 80
-ny = 30
+ny = 45
 h = min(L_x/nx, L_y/ny)
 
 beta_mass_diff = 0.000001
