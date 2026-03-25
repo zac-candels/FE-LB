@@ -34,13 +34,6 @@ WORKDIR = os.getcwd()
 outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
 os.makedirs(outDirName, exist_ok=True)
 
-if rank == 0:
-    log_file = open(f"{outDirName}/simulation_log.txt", "w")
-    log_file.write(f"{'mass change':>15} {'momentum change x' :>15} {'momentum change y' :>15} \n")
-    log_file.flush()
-
-error_vec = []
-
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 tau = 1
@@ -87,7 +80,6 @@ class PeriodicBoundaryX(fe.SubDomain):
         return fe.near(point[0], 0.0) and on_boundary
 
     def map(self, right_bdy, left_bdy):
-        # Map left boundary to the right
         left_bdy[0] = right_bdy[0] - L_x
         left_bdy[1] = right_bdy[1]
 
@@ -96,11 +88,12 @@ pbc = PeriodicBoundaryX()
 
 
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+vel_n = fe.Function(Vvec)
 
 
 # Define trial and test functions, as well as
 # finite element functions at previous timesteps
-
 f_trial = fe.TrialFunction(V)
 f_n = []
 for idx in range(Q):
@@ -161,9 +154,8 @@ def f_equil_init(vel_idx, Force_density):
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
 
+
 # Define equilibrium distribution
-
-
 def f_equil(f_list, vel_idx):
 
     rho = getDens(f_list)
@@ -173,8 +165,6 @@ def f_equil(f_list, vel_idx):
     u2 = fe.dot(u, u)
 
     feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-    
 
     return feq
 
@@ -196,26 +186,20 @@ def body_Force(vel, vel_idx, Force_density):
 
     return Force
 
+
 # # Initialize distribution functions. We will use
 # f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
 # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
 # Here we will take u_0 = 0.
-
-
 for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx, Force_density), V))
 
 
-# Define boundary conditions.
+# Define boundary conditions. Here we will use bounceback BCs
 
-# For f_5, f_2, and f_6, equilibrium boundary conditions at lower wall
-# Since we are applying equilibrium boundary conditions
-# and assuming no slip on solid walls, f_i^{eq} reduces to
-# \rho * w_i
-
+# For distributions 5, 2, and 6, the conjugate distributions 
+# are 7, 4, and 8, respectively.
 tol = 1e-8
-
-
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 0, tol):
@@ -225,12 +209,9 @@ def Bdy_Lower(x, on_boundary):
     else:
         return False
 
-
-rho_expr = sum(fk for fk in f_n)
-
-f5_lower = f_n[7]  # rho_expr
-f2_lower = f_n[4]  # rho_expr
-f6_lower = f_n[8]  # rho_expr
+f5_lower = f_n[7]  
+f2_lower = f_n[4] 
+f6_lower = f_n[8] 
 
 f5_lower_func = fe.Function(V)
 f2_lower_func = fe.Function(V)
@@ -244,14 +225,12 @@ bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
 bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
 bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 
+
+
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
-# at the upper wall. Once again, boundary conditions simply reduce
-# to \rho * w_i
-
-
+# at the upper wall. Here, the conjugate distributions are 
+# 5, 2, and 6. 
 tol = 1e-8
-
-
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], L_y, tol):
@@ -261,12 +240,9 @@ def Bdy_Upper(x, on_boundary):
     else:
         return False
 
-
-rho_expr = sum(fk for fk in f_n)
-
-f7_upper = f_n[5]  # rho_expr
-f4_upper = f_n[2]  # rho_expr
-f8_upper = f_n[6]  # rho_expr
+f7_upper = f_n[5]  
+f4_upper = f_n[2]  
+f8_upper = f_n[6]  
 
 f7_upper_func = fe.Function(V)
 f4_upper_func = fe.Function(V)
@@ -281,15 +257,11 @@ bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
 bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 # Define variational problems
-
 bilinear_forms_stream = []
 linear_forms_stream = []
 
 bilinear_forms_collision = []
 linear_forms_collision = []
-
-n = fe.FacetNormal(mesh)
-opp_idx = {0: 0, 1: 3, 2: 4, 3: 1, 4: 2, 5: 7, 6: 8, 7: 5, 8: 6}
 
 for idx in range(Q):
 
@@ -302,27 +274,11 @@ for idx in range(Q):
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
         * body_Force(getVel(f_star), idx, Force_density) * fe.dx
 
-    if idx in opp_idx:
-        # UFL scalar: dot product with facet normal
-        dot_xi_n = fe.dot(xi[idx], n)
-
-        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
-        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
-                                   fe.Constant(1.0),
-                                   fe.Constant(0.0))
-
-        # build surface term only for incoming distributions
-        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
-            * dot_xi_n * indicator * fe.ds
-    else:
-        # no surface contribution for this idx
-        surface_term = fe.Constant(0.0) * v * fe.ds
-
     lin_form_stream = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
         + dt*v*body_Force(getVel(f_star), idx, Force_density)*fe.dx\
         + double_dot_product_term\
-        + dot_product_force_term - surface_term
+        + dot_product_force_term
 
     lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
 
@@ -330,29 +286,30 @@ for idx in range(Q):
     linear_forms_collision.append(lin_form_coll)
 
 # Assemble matrices for first step
-sys_mat = []
-sys_mat2 = []
-solver_list = []
-solver_list2 = []
-rhs_vec_streaming = [0]*Q
-rhs_vec_collision = [0]*Q
+sysMatStream = []
+sysMatColl = []
+solverListStream = []
+solverListColl = []
+rhsVecStreaming = []
+rhsVecCollision = []
 for idx in range(Q):
-    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
-    sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
+    sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
+    sysMatColl.append(fe.assemble(bilinear_forms_collision[idx]))
+    rhsVecStreaming.append( fe.assemble(linear_forms_stream[idx]) )
+    rhsVecCollision.append( fe.assemble(linear_forms_collision[idx]) )
 
 for idx in range(Q):
-    A = sys_mat[idx]
-    solver = fe.LUSolver(A)
-    # solver = fe.KrylovSolver("cg", "hypre_amg")
-    # solver.set_operator(A)
-    solver_list.append(solver)
+    A = sysMatStream[idx]
+    #solver = fe.LUSolver(A)
+    solver = fe.KrylovSolver("cg", "hypre_amg")
+    solver.set_operator(A)
+    solverListStream.append(solver)
     
-    A2 = sys_mat2[idx]
-    solver2 = fe.LUSolver(A2)
-    # solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
-    # solver2.set_operator(A2)
-
-    solver_list2.append(solver2)
+    A2 = sysMatColl[idx]
+    #solver2 = fe.LUSolver(A2)
+    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver2.set_operator(A2)
+    solverListColl.append(solver2)
 
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
@@ -360,60 +317,72 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
+
+# Apply BCs to matrices for distribution functions 5, 2, and 6
+bc_f5.apply(sysMatStream[5])
+bc_f2.apply(sysMatStream[2])
+bc_f6.apply(sysMatStream[6])
+
+# Apply BCs to matrices for distribution functions 7, 4, 8
+bc_f7.apply(sysMatStream[7])
+bc_f4.apply(sysMatStream[4])
+bc_f8.apply(sysMatStream[8])
+
 # Timestepping
 t = 0.0
-
-xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 for n in range(num_steps):
     t += dt
 
-    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    # rho_pre = np.sum(f_pre_stack, axis=0)
-    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
-        
-    # f_post_stack = np.zeros_like(f_pre_stack)
-
+    pre_collision_time = time.time()
     for idx in range(Q):
-        rhs_vec_collision[idx] = (fe.assemble(linear_forms_collision[idx]))
+        fe.assemble(linear_forms_collision[idx], tensor=rhsVecCollision[idx])
+    post_collision_time = time.time()
+    #print("assembling collision rhs takes", post_collision_time - pre_collision_time)
         
+    pre_solve_coll_time = time.time()
     for idx in range(Q):
-        solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
-
-    # f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
-    # rho_post = np.sum(f_post_stack, axis=0)
-    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
-    
-    # # # ---- Compare ----
-    # rho_diff = rho_post - rho_pre
-    # momx_diff = momx_post - momx_pre
-    # momy_diff = momy_post - momy_pre
+        solverListColl[idx].solve(f_star[idx].vector(), rhsVecCollision[idx])
+    post_solve_coll_time = time.time() 
+    solve_coll_time = post_solve_coll_time - pre_solve_coll_time 
+    #print("solving collision systems takes ", solve_coll_time)
 
     # Assemble RHS vectors
+    pre_stream_time = time.time()
     for idx in range(Q):
-        rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
+        fe.assemble(linear_forms_stream[idx], tensor=rhsVecStreaming[idx])
+    post_assemble_stream_time = time.time() 
+    assemble_stream_time = post_assemble_stream_time - pre_stream_time 
+    #print("Assemble stream takes ", assemble_stream_time)
 
-    f5_lower_func.vector()[:] = f_star[7].vector()[:]
-    f2_lower_func.vector()[:] = f_star[4].vector()[:]
-    f6_lower_func.vector()[:] = f_star[8].vector()[:]
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    pre_assign_time = time.time()
+    f5_lower_func.assign(f_star[7] )
+    f2_lower_func.assign(f_star[4] )
+    f6_lower_func.assign(f_star[8] )
+    f7_upper_func.assign(f_star[5] )
+    f4_upper_func.assign(f_star[2] )
+    f8_upper_func.assign(f_star[6] )
+    post_assign_time = time.time()
+    #print("assign time = ", post_assign_time - pre_assign_time)
 
+    pre_apply_time = time.time()
     # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f5.apply(rhsVecStreaming[5])
+    bc_f2.apply(rhsVecStreaming[2])
+    bc_f6.apply(rhsVecStreaming[6])
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
+    bc_f7.apply(rhsVecStreaming[7])
+    bc_f4.apply(rhsVecStreaming[4])
+    bc_f8.apply(rhsVecStreaming[8])
+    post_apply_time = time.time()
+    #print("time to apply BCs ", post_apply_time - pre_apply_time)
 
+    pre_stream_time = time.time()
     # Solve linear system in each timestep
     for idx in range(Q):
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
+    post_stream_time = time.time()
+    #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
 
     # Update previous solutions
@@ -421,169 +390,71 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
         
-    if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
 
-        if n % 500 == 0:
+    if n % 10000 == 0:
+        vel_expr = getVel(f_n)
+        fe.project(vel_expr, Vvec, function=vel_n)
+        iteration_time = time.time()
+        print("time elapsed ", iteration_time - start_time)
+        vel_file.write(vel_n, t)
+
+        # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
+        # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
+        # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
+
+        # log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
+        # log_file.flush()
+        
+        u_new, v_new = 0, 0
+        
+        for i in range(Q):
+            xi_new = xi[i].values()
+            u_new += f_n[i].vector().get_local()*xi_new[0]
+            v_new += f_n[i].vector().get_local()*xi_new[1]
+
+        u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
+                            degree=2, u_max=u_max, L_y=L_y)
+        u_e = fe.interpolate(u_e, V)
+        error = np.linalg.norm(u_e.vector().get_local() - u_new)
+        time_elapsed = time.time() - start_time
+        print('t = %.4f: error = %.3g' % (t, error), flush=True)
+        print('max u:', u_new.max(), flush=True)
+        print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
+
+        num_points_analytical = 200
+        num_points_numerical = 10
+        y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+        y_values_numerical = np.linspace(0, L_y, num_points_numerical)
+        x_fixed = L_x/2
+        points = [(x_fixed, y) for y in y_values_numerical]
+        u_x_values = []
+        u_ex = np.linspace(0, L_y, num_points_analytical)
+        nu = tau/3
+        u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+        for i in range(num_points_analytical):
+            u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
+
+        for point in points:
             u_expr = getVel(f_n)
             V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-            u_n = fe.project(u_expr, V_vec)
-
-            vel_file.write(u_n, t)
-
-            # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
-            # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
-            # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
-
-            # log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
-            # log_file.flush()
-            
-            u_new, v_new = 0, 0
-            
-            for i in range(Q):
-                xi_new = xi[i].values()
-                u_new += f_n[i].vector().get_local()*xi_new[0]
-                v_new += f_n[i].vector().get_local()*xi_new[1]
-    
-            u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                                degree=2, u_max=u_max, L_y=L_y)
-            u_e = fe.interpolate(u_e, V)
-            error = np.linalg.norm(u_e.vector().get_local() - u_new)
-            time_elapsed = time.time() - start_time
-            print('t = %.4f: error = %.3g' % (t, error), flush=True)
-            print('max u:', u_new.max(), flush=True)
-            print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
-    
-            num_points_analytical = 200
-            num_points_numerical = 10
-            y_values_analytical = np.linspace(0, L_y, num_points_analytical)
-            y_values_numerical = np.linspace(0, L_y, num_points_numerical)
-            x_fixed = L_x/2
-            points = [(x_fixed, y) for y in y_values_numerical]
-            u_x_values = []
-            u_ex = np.linspace(0, L_y, num_points_analytical)
-            nu = tau/3
-            u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-            for i in range(num_points_analytical):
-                u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
-    
-            for point in points:
-                u_expr = getVel(f_n)
-                V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-                u = fe.project(u_expr, V_vec)
-                u_at_point = u(point)
-                u_x_values.append(u_at_point[0] / u_max)
-    
-    
-    
-            fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
-            output = os.path.join(outDirName, fig_name)
-    
-            plt.figure()
-            plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-            plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-            plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-            plt.xlabel(r"$y/L_y$", fontsize=20)
-            plt.legend()
-            plt.tick_params(direction="in")
-    
-    
-            print("Saving figure to:", os.path.abspath(output))
-            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
-    
-            #plt.show()
-            plt.close()
-            if n % 10 == 0:
-                error_vec.append(error)
+            u = fe.project(u_expr, V_vec)
+            u_at_point = u(point)
+            u_x_values.append(u_at_point[0] / u_max)
 
 
 
+        fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+        output = os.path.join(outDirName, fig_name)
 
-error_vec = np.asarray(error_vec)
-# %%
-u_expr = getVel(f_n)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-u = fe.project(u_expr, V_vec)
-
-
-# Plot velocity field with larger arrows
-# Plot velocity field with larger arrows
-coords = V_vec.tabulate_dof_coordinates()[::2]  # Shape: (1056, 2)
-u_values = u.vector().get_local().reshape(
-    (V_vec.dim() // 2, 2))  # Shape: (1056, 2)
-x = coords[:, 0]  # x-coordinates
-y = coords[:, 1]  # y-coordinates
-u_x = u_values[:, 0]  # x-components of velocity
-u_y = u_values[:, 1]  # y-components of velocity
-
-# Define arrow scale based on maximum velocity
-max_u = np.max(np.sqrt(u_x**2 + u_y**2))
-arrow_length = 0.05  # 5% of domain size
-scale = max_u / arrow_length if max_u > 0 else 1
-
-# Create quiver plot
-plt.figure()
-M = np.hypot(u_x, u_y)
-plt.quiver(x, y, u_x, u_y, M, scale=scale, scale_units='height')
-plt.title("Velocity field at final time")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.savefig("/home/zcandels/Desktop/felb.pdf")
-#plt.show()
-
-# %%
-#plt.rcParams['text.usetex'] = True
-# Plot velocity profile at x=L_x/2
+        plt.figure()
+        plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+        plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+        plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+        plt.xlabel(r"$y/L_y$", fontsize=20)
+        plt.legend()
+        plt.tick_params(direction="in")
 
 
-# %% Create grid of u_x and u_y values
-
-# figure out unique x- and y- levels
-x_unique = np.unique(x)
-y_unique = np.unique(y)
-num_x_unique = len(x_unique)
-num_y_unique = len(y_unique)
-assert num_x_unique*num_y_unique == u_x.size, "grid size mismatch"
-
-# now sort the flat arrays into lexicographic (y,x) order
-# we want the slow index to be y, fast index x, so lexsort on (x,y)
-order = np.lexsort((x, y))
-
-# apply that ordering
-u_x_sorted = u_x[order]
-u_y_sorted = u_y[order]
-
-# reshape into (ny, nx).  If your mesh is square, nx==ny.
-u_x_grid = u_x_sorted.reshape((num_y_unique, num_x_unique))
-u_y_grid = u_y_sorted.reshape((num_y_unique, num_x_unique))
-
-
-# %% Create 2D grids of each f_i at final time
-
-# 1) Extract the coordinates of each degree of freedom in V
-coords_f = V.tabulate_dof_coordinates().reshape(-1, 2)
-x_f = coords_f[:, 0]
-y_f = coords_f[:, 1]
-
-# 2) Find unique levels and check grid size
-x_unique = np.unique(x_f)
-y_unique = np.unique(y_f)
-nx_f = len(x_unique)
-ny_f = len(y_unique)
-assert nx_f * ny_f == x_f.size, "grid size mismatch for f_i"
-
-# 3) Compute lexicographic ordering so that slow index=y, fast=x
-order_f = np.lexsort((x_f, y_f))
-
-# 4) Loop over all distributions, sort & reshape
-f_grids = []
-for idx, fi in enumerate(f_n):
-    # flatten values, sort into (y,x) lex order, then reshape into (ny, nx)
-    fi_vals = fi.vector().get_local()
-    fi_sorted = fi_vals[order_f]
-    fi_grid = fi_sorted.reshape((ny_f, nx_f))
-    f_grids.append(fi_grid)
-    # Optional: if you want to name them individually:
-    # globals()[f"f{idx}_grid"] = fi_grid
-
-# Now f_grids[i] is the (ny_f × nx_f) array of f_i values at the mesh grid.
-# e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
+        print("Saving figure to:", os.path.abspath(output))
+        plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
