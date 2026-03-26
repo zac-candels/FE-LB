@@ -325,33 +325,42 @@ bc_f7.apply(sysMatStream[7])
 bc_f4.apply(sysMatStream[4])
 bc_f8.apply(sysMatStream[8])
 
+xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
+                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+    
 # Timestepping
 t = 0.0
 for n in range(num_steps):
     t += dt
+    
+    pre_coll_time = time.time()
+    # We will try to do collision locally, since it is a pure
+    # time-dependnet ODE
+    f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+    xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
+                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
-    # Assemble RHS vector for collision step
-    pre_collision_time = time.time()
-    for idx in range(Q):
-        fe.assemble(linear_forms_collision[idx], tensor=rhsVecCollision[idx])
-    post_collision_time = time.time()
-    #print("collision assemble =", post_collision_time - pre_collision_time)
-        
-    # Solve linear system for collision step, gives us f*
-    pre_solve_coll_time = time.time()
-    for idx in range(Q):
-        solverListColl[idx].solve(f_star[idx].vector(), rhsVecCollision[idx])
-    post_solve_coll_time = time.time() 
-    solve_coll_time = post_solve_coll_time - pre_solve_coll_time 
-    #print("solving collision systems takes ", solve_coll_time)
+    # Compute rho and u as numpy arrays over all DOFs
+    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + Force_density[0]*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + Force_density[1]*dt/(2*rho)
+    vel = np.stack([ux, uy])
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
+    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
 
-    fe.project(getVel(f_star), Vvec, function=vel_star)
+    f_star_np = f_vals - (dt/tau)*(f_vals - feq)
+    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    post_coll_time = time.time()
+    #print("collision_time =", post_coll_time - pre_coll_time)
+
     # Assemble RHS vectors for streaming step
     pre_stream_time = time.time()
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhsVecStreaming[idx])
     post_assemble_stream_time = time.time() 
-    #print("stream assemble =", post_assemble_stream_time - pre_stream_time, "\n\n\n\n")
+    #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
 
     pre_assign_time = time.time()
@@ -390,10 +399,10 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
         
-    fe.project(getVel(f_n), Vvec, function=vel_n)
-    fe.project(getDens(f_n), V, function=rho_n)
+    #fe.project(getVel(f_n), Vvec, function=vel_n)
+    #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 1000 == 0:
+    if n % 5000 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
         vel_file.write(vel_n, t)
