@@ -15,7 +15,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.001
+dt = 0.01
 
 num_steps = int(np.ceil(T/dt))
 
@@ -31,7 +31,7 @@ Force_density = np.array([2.6014e-5, 0.0])
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, "update")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -88,8 +88,9 @@ pbc = PeriodicBoundaryX()
 
 
 V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+Vvec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 vel_n = fe.Function(Vvec)
+vel_star = fe.Function(Vvec)
 
 
 # Define trial and test functions, as well as
@@ -98,7 +99,7 @@ f_trial = fe.TrialFunction(V)
 f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
-
+rho_n = fe.Function(V)
 v = fe.TestFunction(V)
 
 # Define FE functions to hold post-streaming solution at nP1 timesteps
@@ -156,10 +157,9 @@ def f_equil_init(vel_idx, Force_density):
 
 
 # Define equilibrium distribution
-def f_equil(f_list, vel_idx):
+def f_equil(rho, vel, vel_idx):
 
-    rho = getDens(f_list)
-    u   = getVel(f_list)    
+    u   = vel   
     ci       = xi[vel_idx]
     cu = fe.dot(ci, u)
     u2 = fe.dot(u, u)
@@ -263,6 +263,7 @@ linear_forms_stream = []
 bilinear_forms_collision = []
 linear_forms_collision = []
 
+# Define linear and bilinear forms for the collision and streaming steps
 for idx in range(Q):
 
     bilinear_forms_stream.append(f_trial * v * fe.dx)
@@ -272,15 +273,15 @@ for idx in range(Q):
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(getVel(f_star), idx, Force_density) * fe.dx
+        * body_Force(vel_star, idx, Force_density) * fe.dx
 
     lin_form_stream = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(getVel(f_star), idx, Force_density)*fe.dx\
+        + dt*v*body_Force(vel_star, idx, Force_density)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term
 
-    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx)) )*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(rho_n, vel_n, idx)) )*v*fe.dx
 
     linear_forms_stream.append(lin_form_stream)
     linear_forms_collision.append(lin_form_coll)
@@ -300,15 +301,11 @@ for idx in range(Q):
 
 for idx in range(Q):
     A = sysMatStream[idx]
-    #solver = fe.LUSolver(A)
-    solver = fe.KrylovSolver("cg", "hypre_amg")
-    solver.set_operator(A)
+    solver = fe.LUSolver(A)
     solverListStream.append(solver)
     
     A2 = sysMatColl[idx]
-    #solver2 = fe.LUSolver(A2)
-    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
-    solver2.set_operator(A2)
+    solver2 = fe.LUSolver(A2)
     solverListColl.append(solver2)
 
 
@@ -333,12 +330,14 @@ t = 0.0
 for n in range(num_steps):
     t += dt
 
+    # Assemble RHS vector for collision step
     pre_collision_time = time.time()
     for idx in range(Q):
         fe.assemble(linear_forms_collision[idx], tensor=rhsVecCollision[idx])
     post_collision_time = time.time()
-    #print("assembling collision rhs takes", post_collision_time - pre_collision_time)
+    #print("collision assemble =", post_collision_time - pre_collision_time)
         
+    # Solve linear system for collision step, gives us f*
     pre_solve_coll_time = time.time()
     for idx in range(Q):
         solverListColl[idx].solve(f_star[idx].vector(), rhsVecCollision[idx])
@@ -346,13 +345,14 @@ for n in range(num_steps):
     solve_coll_time = post_solve_coll_time - pre_solve_coll_time 
     #print("solving collision systems takes ", solve_coll_time)
 
-    # Assemble RHS vectors
+    fe.project(getVel(f_star), Vvec, function=vel_star)
+    # Assemble RHS vectors for streaming step
     pre_stream_time = time.time()
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhsVecStreaming[idx])
     post_assemble_stream_time = time.time() 
-    assemble_stream_time = post_assemble_stream_time - pre_stream_time 
-    #print("Assemble stream takes ", assemble_stream_time)
+    #print("stream assemble =", post_assemble_stream_time - pre_stream_time, "\n\n\n\n")
+
 
     pre_assign_time = time.time()
     f5_lower_func.assign(f_star[7] )
@@ -378,7 +378,7 @@ for n in range(num_steps):
     #print("time to apply BCs ", post_apply_time - pre_apply_time)
 
     pre_stream_time = time.time()
-    # Solve linear system in each timestep
+    # Solve linear system for streaming step
     for idx in range(Q):
         solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
     post_stream_time = time.time()
@@ -390,15 +390,14 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
         
-    #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
+    fe.project(getVel(f_n), Vvec, function=vel_n)
+    fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 10000 == 0:
+    if n % 1000 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
-        iteration_time = time.time()
-        print("time elapsed ", iteration_time - start_time)
         vel_file.write(vel_n, t)
-
+        
         # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
         # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
         # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
@@ -458,3 +457,4 @@ for n in range(num_steps):
 
         print("Saving figure to:", os.path.abspath(output))
         plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+
