@@ -263,22 +263,26 @@ linear_forms_stream = []
 bilinear_forms_collision = []
 linear_forms_collision = []
 
+advection_forms = []
+double_advection_forms = []
+
 # Define linear and bilinear forms for the collision and streaming steps
 for idx in range(Q):
 
     bilinear_forms_stream.append(f_trial * v * fe.dx)
     bilinear_forms_collision.append(f_trial*v*fe.dx)
+    
+    advection_forms.append( v*fe.dot(xi[idx], fe.grad(f_trial))*fe.dx )
+    double_advection_forms.append( fe.dot(xi[idx],fe.grad(v))\
+                                  *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
 
-    double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
-        * fe.dot(xi[idx], fe.grad(v)) * fe.dx
+    #double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
+    #    * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
         * body_Force(vel_star, idx, Force_density) * fe.dx
 
-    lin_form_stream = f_star[idx]*v*fe.dx\
-        - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(vel_star, idx, Force_density)*fe.dx\
-        + double_dot_product_term\
+    lin_form_stream = dt*v*body_Force(vel_star, idx, Force_density)*fe.dx\
         + dot_product_force_term
 
     lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(rho_n, vel_n, idx)) )*v*fe.dx
@@ -293,11 +297,16 @@ solverListStream = []
 solverListColl = []
 rhsVecStreaming = []
 rhsVecCollision = []
+advectionMats = []
+doubleAdvectionMats = []
 for idx in range(Q):
     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
     sysMatColl.append(fe.assemble(bilinear_forms_collision[idx]))
     rhsVecStreaming.append( fe.assemble(linear_forms_stream[idx]) )
     rhsVecCollision.append( fe.assemble(linear_forms_collision[idx]) )
+    
+    advectionMats.append(fe.assemble(advection_forms[idx]))
+    doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
 
 for idx in range(Q):
     A = sysMatStream[idx]
@@ -317,13 +326,35 @@ vel_file.parameters["rewrite_function_mesh"] = False
 
 # Apply BCs to matrices for distribution functions 5, 2, and 6
 bc_f5.apply(sysMatStream[5])
+bc_f5.apply(advectionMats[5])
+bc_f5.apply(doubleAdvectionMats[5])
+
 bc_f2.apply(sysMatStream[2])
+bc_f2.apply(advectionMats[2])
+bc_f2.apply(doubleAdvectionMats[2])
+
 bc_f6.apply(sysMatStream[6])
+bc_f6.apply(advectionMats[6])
+bc_f6.apply(doubleAdvectionMats[6])
 
 # Apply BCs to matrices for distribution functions 7, 4, 8
 bc_f7.apply(sysMatStream[7])
+bc_f7.apply(advectionMats[7])
+bc_f7.apply(doubleAdvectionMats[7])
+
 bc_f4.apply(sysMatStream[4])
+bc_f4.apply(advectionMats[4])
+bc_f4.apply(doubleAdvectionMats[4])
+
 bc_f8.apply(sysMatStream[8])
+bc_f8.apply(advectionMats[4])
+bc_f8.apply(doubleAdvectionMats[8])
+
+prevTimeMat = fe.assemble(f_trial*v*fe.dx)
+streamingPrevTimeVecs=  []
+advectionVecs = []
+doubleAdvectionVecs =[]
+    
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
@@ -358,9 +389,15 @@ for n in range(num_steps):
     # Assemble RHS vectors for streaming step
     pre_stream_time = time.time()
     for idx in range(Q):
+        streamingPrevTimeVecs.append(prevTimeMat*f_star[idx].vector())
+        advectionVecs.append(-dt*advectionMats[idx]*f_star[idx].vector())
+        doubleAdvectionVecs.append(-0.5*dt**2*doubleAdvectionMats[idx]*f_star[idx].vector())
+        
         fe.assemble(linear_forms_stream[idx], tensor=rhsVecStreaming[idx])
+        rhsVecStreaming[idx]= streamingPrevTimeVecs[idx]\
+            + advectionVecs[idx] + doubleAdvectionVecs[idx]
     post_assemble_stream_time = time.time() 
-    #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
+    print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
 
     pre_assign_time = time.time()
@@ -398,6 +435,8 @@ for n in range(num_steps):
 
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
+        
+    a=1
         
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
