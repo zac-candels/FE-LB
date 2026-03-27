@@ -15,7 +15,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.01
+dt = 0.1
 
 num_steps = int(np.ceil(T/dt))
 
@@ -347,13 +347,13 @@ bc_f4.apply(advectionMats[4])
 bc_f4.apply(doubleAdvectionMats[4])
 
 bc_f8.apply(sysMatStream[8])
-bc_f8.apply(advectionMats[4])
+bc_f8.apply(advectionMats[8])
 bc_f8.apply(doubleAdvectionMats[8])
 
 prevTimeMat = fe.assemble(f_trial*v*fe.dx)
-streamingPrevTimeVecs=  []
-advectionVecs = []
-doubleAdvectionVecs =[]
+streamingPrevTimeVecs=  [0]*Q
+advectionVecs = [0]*Q
+doubleAdvectionVecs =[0]*Q
     
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
@@ -389,15 +389,15 @@ for n in range(num_steps):
     # Assemble RHS vectors for streaming step
     pre_stream_time = time.time()
     for idx in range(Q):
-        streamingPrevTimeVecs.append(prevTimeMat*f_star[idx].vector())
-        advectionVecs.append(-dt*advectionMats[idx]*f_star[idx].vector())
-        doubleAdvectionVecs.append(-0.5*dt**2*doubleAdvectionMats[idx]*f_star[idx].vector())
+        streamingPrevTimeVecs[idx]=(prevTimeMat*f_star[idx].vector())
+        advectionVecs[idx]=(advectionMats[idx]*f_star[idx].vector())
+        doubleAdvectionVecs[idx]=(doubleAdvectionMats[idx]*f_star[idx].vector())
         
         fe.assemble(linear_forms_stream[idx], tensor=rhsVecStreaming[idx])
-        rhsVecStreaming[idx]= streamingPrevTimeVecs[idx]\
-            + advectionVecs[idx] + doubleAdvectionVecs[idx]
+        rhsVecStreaming[idx]+= streamingPrevTimeVecs[idx]\
+            -dt*advectionVecs[idx] -0.5*dt**2*doubleAdvectionVecs[idx]
     post_assemble_stream_time = time.time() 
-    print("stream assemble =", post_assemble_stream_time - pre_stream_time)
+    #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
 
     pre_assign_time = time.time()
