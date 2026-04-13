@@ -438,6 +438,7 @@ for n in range(num_steps):
     forceTerm4 = 1/c_s**4 * doubleForceVelVec1 
     forceTerm5 = 1/c_s**2 * forceVelVec
     for idx in range(Q):
+        rhsVecStreaming[idx].zero()
         forceTermVec.zero()
         f_vec = f_star[idx].vector()
         massMat.mult(f_vec, streamingPrevTimeVecs[idx])
@@ -445,32 +446,32 @@ for n in range(num_steps):
         doubleAdvectionMats[idx].mult(f_vec, doubleAdvectionVecs[idx])
         if idx == 0:
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #forceTermVec = forceTerm5
+            #print(fe.norm(forceTermVec))
         elif idx == 1:
             #forceTermVec = forceTerm1 + forceTerm3 + forceTerm5 
             forceTermVec.axpy(1.0, forceTerm1)
             forceTermVec.axpy(1.0, forceTerm3)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 2:
             #forceTermVec = forceTerm2 + forceTerm4 + forceTerm5 
             forceTermVec.axpy(1.0, forceTerm2)
             forceTermVec.axpy(1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 3:
             #forceTermVec = -forceTerm1 - forceTerm3 + forceTerm5
             forceTermVec.axpy(-1.0, forceTerm1)
             forceTermVec.axpy(-1.0, forceTerm3)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 4:
             #forceTermVec = -forceTerm2 - forceTerm4 + forceTerm5
-            #forceTermVec.zero()
             forceTermVec.axpy(-1.0, forceTerm2)
             forceTermVec.axpy(-1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 5:
             #forceTermVec = forceTerm1 + forceTerm2 + forceTerm3\
             #    + forceTerm4 + forceTerm5
@@ -479,7 +480,7 @@ for n in range(num_steps):
             forceTermVec.axpy(1.0, forceTerm3)
             forceTermVec.axpy(1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 6:
             #forceTermVec = -forceTerm1 + forceTerm2  - forceTerm3\
             #    + forceTerm4 + forceTerm5 
@@ -488,7 +489,7 @@ for n in range(num_steps):
             forceTermVec.axpy(-1.0, forceTerm3)
             forceTermVec.axpy(1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 7:
             #forceTermVec = -forceTerm1 - forceTerm2 - forceTerm3\
             #    -forceTerm4 + forceTerm5 
@@ -497,7 +498,7 @@ for n in range(num_steps):
             forceTermVec.axpy(-1.0, forceTerm3)
             forceTermVec.axpy(-1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
         elif idx == 8:
             #forceTermVec = forceTerm1 - forceTerm2 + forceTerm3\
             #    -forceTerm4 + forceTerm5
@@ -506,7 +507,7 @@ for n in range(num_steps):
             forceTermVec.axpy(1.0, forceTerm3)
             forceTermVec.axpy(-1.0, forceTerm4)
             forceTermVec.axpy(1.0, forceTerm5)
-        #    print(fe.norm(forceTermVec))
+            #print(fe.norm(forceTermVec))
 
         massMat.mult(w[idx]*forceTermVec, E_vecs[idx])
         advectionTransposeMats[idx].mult(w[idx]*forceTermVec, G_vecs[idx])
@@ -517,7 +518,7 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(-0.5*dt**2, G_vecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     post_assemble_stream_time = time.time() 
-    print("stream assemble =", post_assemble_stream_time - pre_stream_time)
+    #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
 
     pre_assign_time = time.time()
@@ -548,7 +549,7 @@ for n in range(num_steps):
     for idx in range(Q):
         solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
     post_stream_time = time.time()
-    print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
+    #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
 
     # Update previous solutions
@@ -561,7 +562,7 @@ for n in range(num_steps):
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 1000 == 0:
+    if n % 100 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
         vel_file.write(vel_n, t)

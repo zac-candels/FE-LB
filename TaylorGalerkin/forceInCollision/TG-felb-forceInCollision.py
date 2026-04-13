@@ -27,7 +27,7 @@ nx = 5
 ny = 5
 h = L_x/nx
 
-Force_density = np.array([2.6014e-5, 0.0])
+Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
@@ -48,7 +48,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = Force_density[0]*L_y**2/(8 * rho_init * tau/3)
+u_max = Force_density.values()[0]*L_y**2/(8 * rho_init * tau/3)
 
 
 # D2Q9 lattice velocities
@@ -91,6 +91,8 @@ V = fe.FunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 Vvec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 vel_n = fe.Function(Vvec)
 vel_star = fe.Function(Vvec)
+
+forceDensityFn = fe.interpolate(Force_density, Vvec)
 
 
 # Define trial and test functions, as well as
@@ -136,8 +138,7 @@ def getVel(f_list):
 
     vel_term1 = distr_fn_sum/density
 
-    F = fe.Constant((Force_density[0], Force_density[1]))
-    vel_term2 = F * dt / (2 * density)
+    vel_term2 = Force_density * dt / (2 * density)
 
     return vel_term1 + vel_term2
 
@@ -147,8 +148,8 @@ def f_equil_init(vel_idx, Force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
-    vel_0 = -fe.Constant((Force_density[0]*dt/(2*rho_init),
-                          Force_density[1]*dt/(2*rho_init)))
+    vel_0 = -fe.Constant((Force_density.values()[0]*dt/(2*rho_init),
+                          Force_density.values()[1]*dt/(2*rho_init)))
 
     # u_expr = fe.project(V_vec, vel_0)
 
@@ -192,13 +193,13 @@ def body_Force(vel, vel_idx, Force_density):
     return Force
 
 def uflVelForce(Force_density, vel_n):
-    return fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
+    return fe.dot(vel_n, Force_density)
 
 def uflDoubleForceVel0(Force_density, vel_n):
-    return Force_density[0]*fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
+    return Force_density.values()[0]*fe.dot(vel_n, Force_density)
 
 def uflDoubleForceVel1(Force_density, vel_n):
-    return Force_density[1]*fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
+    return Force_density.values()[1]*fe.dot(vel_n, Force_density)
 
 # # Initialize distribution functions. We will use
 # f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
@@ -398,20 +399,36 @@ for n in range(num_steps):
     pre_coll_time = time.time()
     # We will try to do collision locally, since it is a pure
     # time-dependnet ODE
+    
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
     xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + Force_density[0]*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + Force_density[1]*dt/(2*rho)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + Force_density.values()[0]*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + Force_density.values()[1]*dt/(2*rho)
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    
+    # Now for the foce term
+    forceVals = forceDensityFn.vector().get_local()
+    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
+    u_dot_F = ux * forceVals[:, 0] + uy * forceVals[:, 1]   # (n_dofs,)
+    ck_dot_F = xi_arr @ forceVals.T   # shape (Q, n_dofs)
+    
+    force_term = (
+    (1/c_s**2) * ck_dot_F
+    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
+    + (1/c_s**2) * u_dot_F[None, :]
+    )
 
-    f_star_np = f_vals - (dt/tau)*(f_vals - feq)
+    force_term *= w[:, None]
+    
+
+    f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
@@ -421,8 +438,12 @@ for n in range(num_steps):
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
     for idx in range(Q):
+        f_vec = f_star[idx].vector()
+        massMat.mult(f_vec, streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_vec, advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_vec, doubleAdvectionVecs[idx])
 
-        
+        rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
@@ -508,7 +529,7 @@ for n in range(num_steps):
         u_x_values = []
         u_ex = np.linspace(0, L_y, num_points_analytical)
         nu = tau/3
-        u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+        u_max = Force_density.values()[0]*L_y**2/(8*rho_init*nu)
         for i in range(num_points_analytical):
             u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
 
