@@ -15,7 +15,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.01
+dt = 0.001
 
 num_steps = int(np.ceil(T/dt))
 
@@ -31,7 +31,7 @@ Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "update")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -92,7 +92,7 @@ Vvec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 vel_n = fe.Function(Vvec)
 vel_star = fe.Function(Vvec)
 
-forceDensityFn = fe.interpolate(Force_density, Vvec)
+forceDensity_n = fe.interpolate(Force_density, Vvec)
 
 
 # Define trial and test functions, as well as
@@ -317,20 +317,21 @@ for n in range(num_steps):
     # time-dependnet ODE
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+    forceVals = forceDensity_n.vector().get_local()
+    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
 
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + Force_density.values()[0]*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + Force_density.values()[1]*dt/(2*rho)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals[:,0]*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals[:,1]*dt/(2*rho)
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
     # Now for the foce term
-    forceVals = forceDensityFn.vector().get_local()
-    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
+    
     u_dot_F = ux * forceVals[:, 0] + uy * forceVals[:, 1]   # (n_dofs,)
     ck_dot_F = xi_arr @ forceVals.T   # shape (Q, n_dofs)
     
@@ -406,7 +407,7 @@ for n in range(num_steps):
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 5000 == 0:
+    if n % 20000 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
         vel_file.write(vel_n, t)

@@ -217,6 +217,9 @@ for idx in range(Q):
 phi_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+
+forceDensity_n = fe.Function(V_vec)
+vel_star = fe.Function(Vvec)
 vel_n = fe.Function(Vvec)
 mu_n = fe.Function(V)
 rho_fn = fe.Function(V)
@@ -367,7 +370,7 @@ mass_diff = fe.Constant(0.0)
 
 force_density = -(1/We)*phi_n * fe.grad(mu_n)
 
-
+forceDensity_n = fe.project(force_density, V_vec)
 
 # Define boundary conditions.
 
@@ -641,6 +644,9 @@ bc_f7_upper.apply(sys_mat[7])
 bc_f4_upper.apply(sys_mat[4])
 bc_f8_upper.apply(sys_mat[8])
 
+xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
+                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+
 # Timestepping
 t = 0.0
 mass_init = fe.assemble(phi_n*fe.dx)
@@ -651,37 +657,60 @@ for n in range(num_steps):
     
     fe.assemble(lin_form_AC, tensor=rhs_AC)
     fe.assemble(lin_form_mu, tensor=rhs_mu)
-
-
-    # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
-    # rho_pre = np.sum(f_pre_stack, axis=0)
-    # momx_pre = np.sum(f_pre_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_pre = np.sum(f_pre_stack * xi_array[:, 1][:, None], axis=0)
-        
-    # f_post_stack = np.zeros_like(f_pre_stack)
-
-    # Perform collision, get post-collision distributions f_i^*
     
+    pre_coll_time_lb = time.time()
+    # We will try to do collision locally, since it is a pure
+    # time-dependnet ODE
+    
+    f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+    forceVals = forceDensity_n.vector().get_local()
+    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
+
+    # Compute rho and u as numpy arrays over all DOFs
+    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals[:,0]*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals[:,1]*dt/(2*rho)
+    vel = np.stack([ux, uy])
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
+    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    
+    # Now for the foce term
+    u_dot_F = ux * forceVals[:, 0] + uy * forceVals[:, 1]   # (n_dofs,)
+    ck_dot_F = xi_arr @ forceVals.T   # shape (Q, n_dofs)
+    
+    force_term = (
+    (1/c_s**2) * ck_dot_F
+    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
+    + (1/c_s**2) * u_dot_F[None, :]
+    )
+
+    force_term *= w[:, None]
+    
+
+    f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
+    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    post_coll_time_lb = time.time()
+    print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
+
+
+    collision_FE_start_time = time.time()
     for idx in range(Q):
         fe.assemble(linear_forms_collision[idx], tensor=rhs_vec_collision[idx])
         
     for idx in range(Q):
         solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
+    collision_FE_fin_time = time.time()
+    print("collision FE time = ", collision_FE_fin_time - collision_FE_start_time)
 
 
-    # f_post_stack = np.array([fi.vector().get_local() for fi in f_star])
-    # rho_post = np.sum(f_post_stack, axis=0)
-    # momx_post = np.sum(f_post_stack * xi_array[:, 0][:, None], axis=0)
-    # momy_post = np.sum(f_post_stack * xi_array[:, 1][:, None], axis=0)
     
-    # # ---- Compare ----
-    # rho_diff = rho_post - rho_pre
-    # momx_diff = momx_post - momx_pre
-    # momy_diff = momy_post - momy_pre    
-
-    # Assemble RHS vectors
+    stream_FE_start_time = time.time()
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
+    stream_FE_end_time = time.time()
+    print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
 
     f5_upSlope_func.assign(f_star[7])
     f2_upSlope_func.assign(f_star[4])
