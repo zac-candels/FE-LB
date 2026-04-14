@@ -23,8 +23,8 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 5
-ny = 5
+nx = 10
+ny = 10
 h = L_x/nx
 
 Force_density = fe.Constant((2.6014e-5, 0.0))
@@ -114,13 +114,6 @@ f_star = []
 for idx in range(Q):
     f_star.append(fe.Function(V))
 
-# Define FE functions for force-dependent quantities
-forceFn0 = fe.Function(V)
-forceFn1 = fe.Function(V)
-forceVelFn = fe.Function(V)
-doubleForceVelFn0 = fe.Function(V)
-doubleForceVelFn1 = fe.Function(V)
-
 # Define density
 def getDens(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
@@ -163,43 +156,6 @@ def f_equil_init(vel_idx, Force_density):
     )
 
 
-# Define equilibrium distribution
-def f_equil(rho, vel, vel_idx):
-
-    u   = vel   
-    ci       = xi[vel_idx]
-    cu = fe.dot(ci, u)
-    u2 = fe.dot(u, u)
-
-    feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-    return feq
-
-def body_Force(vel, vel_idx, Force_density):
-    prefactor = w[vel_idx]
-    inverse_cs2 = 1 / c_s**2
-    inverse_cs4 = 1 / c_s**4
-
-    xi_dot_prod_F = xi[vel_idx][0]*Force_density[0]\
-        + xi[vel_idx][1]*Force_density[1]
-
-    u_dot_prod_F = vel[0]*Force_density[0] + vel[1]*Force_density[1]
-
-    xi_dot_u = xi[vel_idx][0]*vel[0] + xi[vel_idx][1]*vel[1]
-
-    Force = prefactor*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
-                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
-
-    return Force
-
-def uflVelForce(Force_density, vel_n):
-    return fe.dot(vel_n, Force_density)
-
-def uflDoubleForceVel0(Force_density, vel_n):
-    return Force_density.values()[0]*fe.dot(vel_n, Force_density)
-
-def uflDoubleForceVel1(Force_density, vel_n):
-    return Force_density.values()[1]*fe.dot(vel_n, Force_density)
 
 # # Initialize distribution functions. We will use
 # f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
@@ -274,9 +230,6 @@ bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 bilinear_forms_stream = []
 linear_forms_stream = []
 
-bilinear_forms_collision = []
-linear_forms_collision = []
-
 advection_forms = []
 double_advection_forms = []
 
@@ -284,41 +237,21 @@ double_advection_forms = []
 for idx in range(Q):
 
     bilinear_forms_stream.append(f_trial * v * fe.dx)
-    bilinear_forms_collision.append(f_trial*v*fe.dx)
     
     advection_forms.append( v*fe.dot(xi[idx], fe.grad(f_trial))*fe.dx )
     double_advection_forms.append( fe.dot(xi[idx],fe.grad(v))\
                                   *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
 
-    #double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
-    #    * fe.dot(xi[idx], fe.grad(v)) * fe.dx
-
-    dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(vel_star, idx, Force_density) * fe.dx
-
-    lin_form_stream = dt*v*body_Force(vel_star, idx, Force_density)*fe.dx\
-        + dot_product_force_term
-
-    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(rho_n, vel_n, idx)) )*v*fe.dx
-
-    linear_forms_stream.append(lin_form_stream)
-    linear_forms_collision.append(lin_form_coll)
 
 # Assemble matrices for first step
 sysMatStream = []
-sysMatColl = []
 solverListStream = []
-solverListColl = []
 rhsVecStreaming = []
-rhsVecCollision = []
 advectionMats = []
 advectionTransposeMats = []
 doubleAdvectionMats = []
 for idx in range(Q):
     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
-    sysMatColl.append(fe.assemble(bilinear_forms_collision[idx]))
-    rhsVecStreaming.append( fe.assemble(linear_forms_stream[idx]) )
-    rhsVecCollision.append( fe.assemble(linear_forms_collision[idx]) )
     
     advectionMats.append(fe.assemble(advection_forms[idx]))
     A_T = advectionMats[idx].copy()
@@ -329,10 +262,6 @@ for idx in range(Q):
     A = sysMatStream[idx]
     solver = fe.LUSolver(A)
     solverListStream.append(solver)
-    
-    A2 = sysMatColl[idx]
-    solver2 = fe.LUSolver(A2)
-    solverListColl.append(solver2)
 
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
@@ -371,20 +300,7 @@ massMat = fe.assemble(f_trial*v*fe.dx)
 streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
 advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
-forceTermVecs = [f_star[0].vector().copy() for _ in range(Q)]
-E_vecs = [f_star[0].vector().copy() for _ in range(Q)]
-G_vecs = [f_star[0].vector().copy() for _ in range(Q)]
-
-forceTerm1 = f_star[0].vector().copy()
-forceTerm2 = f_star[0].vector().copy()
-forceTerm3 = f_star[0].vector().copy()
-forceTerm4 = f_star[0].vector().copy()
-forceTerm5 = f_star[0].vector().copy()
-forceTermVec = f_star[0].vector().copy()
-
-forceVecs = [0,0]
-forceVelVec = 0
-doubleForceVelVecs = [0,0]
+rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 
     
 
@@ -401,8 +317,7 @@ for n in range(num_steps):
     # time-dependnet ODE
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
-    xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
-                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
@@ -438,17 +353,16 @@ for n in range(num_steps):
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
     for idx in range(Q):
-        f_vec = f_star[idx].vector()
-        massMat.mult(f_vec, streamingPrevTimeVecs[idx])
-        advectionMats[idx].mult(f_vec, advectionVecs[idx])
-        doubleAdvectionMats[idx].mult(f_vec, doubleAdvectionVecs[idx])
+        massMat.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
         rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     post_assemble_stream_time = time.time() 
-    print("stream assemble =", post_assemble_stream_time - pre_stream_time)
+    #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
 
     pre_assign_time = time.time()
@@ -479,7 +393,7 @@ for n in range(num_steps):
     for idx in range(Q):
         solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
     post_stream_time = time.time()
-    print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
+    #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
 
     # Update previous solutions
@@ -492,7 +406,7 @@ for n in range(num_steps):
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 1000 == 0:
+    if n % 5000 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
         vel_file.write(vel_n, t)
