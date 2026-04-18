@@ -203,6 +203,8 @@ pbc = PeriodicBoundary()
 
 
 V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
+dofCoords = V.tabulate_dof_coordinates()
+dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
 
 
 # Define trial and test functions, as well as
@@ -218,13 +220,16 @@ phi_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-forceDensity_n = fe.Function(V_vec)
 vel_star = fe.Function(Vvec)
 vel_n = fe.Function(Vvec)
 mu_n = fe.Function(V)
 rho_fn = fe.Function(V)
+forceDensity_x = fe.Function(V)
+forceDensity_y = fe.Function(V)
 
 v = fe.TestFunction(V)
+v_vec = fe.TestFunction(V_vec)
+trial_vec = fe.TrialFunction(V_vec)
 
 # Define FE functions to hold post-streaming solution at nP1 timesteps
 f_nP1 = []
@@ -558,7 +563,8 @@ sys_mat2 = []
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
     sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
-    
+mass_mat = fe.assemble(f_trial*v*fe.dx)
+
 solver_list = []
 solver_list2 = []
 for idx in range(Q):
@@ -599,6 +605,9 @@ mu_solver.set_operator(mu_mat)
 
 rhs_AC = fe.assemble(lin_form_AC)
 rhs_mu = fe.assemble(lin_form_mu)
+
+forceVec_x = rhs_mu.copy()
+forceVec_y = rhs_mu.copy()
 
 if rank == 0:
     log_file = open(outDirName + "/simulation_log.txt", "w")
@@ -649,6 +658,8 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
 
 # Timestepping
 t = 0.0
+forceVals_x = []
+forceVals_y = []
 mass_init = fe.assemble(phi_n*fe.dx)
 for n in range(num_steps):
     t += dt
@@ -659,25 +670,37 @@ for n in range(num_steps):
     fe.assemble(lin_form_mu, tensor=rhs_mu)
     
     pre_coll_time_lb = time.time()
+    
+    fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    
+    fe.solve(mass_mat, forceDensity_x.vector(), forceVec_x)
+    fe.solve(mass_mat, forceDensity_y.vector(), forceVec_y)
+    
+
     # We will try to do collision locally, since it is a pure
     # time-dependnet ODE
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
-    forceVals = forceDensity_n.vector().get_local()
-    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
+    
+    forceVals_x = forceDensity_x.vector().get_local()
+    #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
+    
+    forceVals_y = forceDensity_y.vector().get_local()
+    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals[:,0]*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals[:,1]*dt/(2*rho)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
     # Now for the foce term
-    u_dot_F = ux * forceVals[:, 0] + uy * forceVals[:, 1]   # (n_dofs,)
-    ck_dot_F = xi_arr @ forceVals.T   # shape (Q, n_dofs)
+    u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
+    ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
     
     force_term = (
     (1/c_s**2) * ck_dot_F
