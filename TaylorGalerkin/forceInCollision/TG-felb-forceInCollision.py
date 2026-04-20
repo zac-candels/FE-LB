@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
+from petsc4py import PETSc
 
 start_time = time.time()
 
@@ -31,7 +32,7 @@ Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}")
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -302,7 +303,33 @@ advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
 rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 
+
+A_blocks = []
+
+for i in range(Q):
+
+    M = fe.as_backend_type(massMat).mat()
+
+    K = fe.as_backend_type(advectionMats[i]).mat()
+    D = fe.as_backend_type(doubleAdvectionMats[i]).mat()
+
+    # IMPORTANT: do NOT use copy() unless necessary
+    A_i = M.copy()
+    A_i.axpy(-dt, K)
+    A_i.axpy(0.5*dt**2, D)
+
+    A_blocks.append([
+        A_i if j == i else None for j in range(Q)
+    ])
+
+blockStreamingAssemblyMatrix = PETSc.Mat().createNest(A_blocks)
+blockStreamingAssemblyMatrix.assemble()
     
+rhsVecsStreaming = [fe.as_backend_type(rhsVecStreaming[i]).vec() for i in range(Q)]
+blockRhsVecsStreaming = PETSc.Vec().createNest(rhsVecsStreaming)
+f_starVec = f_star[0].vector().copy()
+FstarVecs = [fe.as_backend_type(f_starVec).vec() for i in range(Q)]
+blockFstarVecs = PETSc.Vec().createNest(FstarVecs)
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
@@ -348,22 +375,19 @@ for n in range(num_steps):
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
+    f_star_block = PETSc.Vec().createNest(
+    [fe.as_backend_type(f_star[i].vector()).vec().copy() for i in range(Q)]
+    )
     #print("collision_time =", post_coll_time - pre_coll_time)
     
 
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
-    for idx in range(Q):
-        massMat.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
-        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
-        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
-
-        rhsVecStreaming[idx].zero()
-        rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
-        rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+    blockStreamingAssemblyMatrix.mult(f_star_block, blockRhsVecsStreaming)
     post_assemble_stream_time = time.time() 
     #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
+    
+    
 
 
     pre_assign_time = time.time()
@@ -389,10 +413,12 @@ for n in range(num_steps):
     post_apply_time = time.time()
     #print("time to apply BCs ", post_apply_time - pre_apply_time)
 
+    subvecs = blockRhsVecsStreaming.getNestSubVecs()
     pre_stream_time = time.time()
     # Solve linear system for streaming step
     for idx in range(Q):
-        solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
+        vi = fe.PETScVector(subvecs[idx])
+        solverListStream[idx].solve(f_nP1[idx].vector(), vi)
     post_stream_time = time.time()
     #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
