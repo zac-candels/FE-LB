@@ -16,7 +16,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.001
+dt = 0.002
 
 num_steps = int(np.ceil(T/dt))
 
@@ -24,15 +24,15 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 10
-ny = 10
+nx = 15
+ny = 15
 h = L_x/nx
 
 Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}")
+outDirName = os.path.join(WORKDIR, f"block_lumped")
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -244,8 +244,18 @@ for idx in range(Q):
                                   *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
 
 
+massForm = f_trial*v*fe.dx
+massMat = fe.assemble(massForm)
+mass_action_form = fe.action(massForm, fe.Constant(1))
+M_lumped = fe.assemble(massForm)
+M_lumped.zero()
+M_lumped.set_diagonal(fe.assemble(mass_action_form))
+M_vect = fe.assemble(mass_action_form)
+M_petsc = fe.as_backend_type(M_vect).vec()
+
 # Assemble matrices for first step
 sysMatStream = []
+sysMatLumped = []
 solverListStream = []
 rhsVecStreaming = []
 advectionMats = []
@@ -253,7 +263,7 @@ advectionTransposeMats = []
 doubleAdvectionMats = []
 for idx in range(Q):
     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
-    
+    sysMatLumped.append(M_petsc.copy())
     advectionMats.append(fe.assemble(advection_forms[idx]))
     A_T = advectionMats[idx].copy()
     advectionTransposeMats.append(A_T)
@@ -273,31 +283,37 @@ vel_file.parameters["rewrite_function_mesh"] = False
 
 # Apply BCs to matrices for distribution functions 5, 2, and 6
 bc_f5.apply(sysMatStream[5])
+#bc_f5.apply(fe.PETScVector(sysMatLumped[5]))
 bc_f5.apply(advectionMats[5])
 bc_f5.apply(doubleAdvectionMats[5])
 
 bc_f2.apply(sysMatStream[2])
+#bc_f2.apply(fe.PETScVector(sysMatLumped[2]))
 bc_f2.apply(advectionMats[2])
 bc_f2.apply(doubleAdvectionMats[2])
 
 bc_f6.apply(sysMatStream[6])
+#bc_f6.apply(fe.PETScVector(sysMatLumped[6]))
 bc_f6.apply(advectionMats[6])
 bc_f6.apply(doubleAdvectionMats[6])
 
 # Apply BCs to matrices for distribution functions 7, 4, 8
 bc_f7.apply(sysMatStream[7])
+#bc_f7.apply(fe.PETScVector(sysMatLumped[7]))
 bc_f7.apply(advectionMats[7])
 bc_f7.apply(doubleAdvectionMats[7])
 
 bc_f4.apply(sysMatStream[4])
+#bc_f4.apply(fe.PETScVector(sysMatLumped[4]))
 bc_f4.apply(advectionMats[4])
 bc_f4.apply(doubleAdvectionMats[4])
 
 bc_f8.apply(sysMatStream[8])
+#bc_f8.apply(fe.PETScVector(sysMatLumped[8]))
 bc_f8.apply(advectionMats[8])
 bc_f8.apply(doubleAdvectionMats[8])
 
-massMat = fe.assemble(f_trial*v*fe.dx)
+
 streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
 advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
@@ -308,7 +324,7 @@ A_blocks = []
 
 for i in range(Q):
 
-    M = fe.as_backend_type(massMat).mat()
+    M = fe.as_backend_type(M_lumped).mat()
 
     K = fe.as_backend_type(advectionMats[i]).mat()
     D = fe.as_backend_type(doubleAdvectionMats[i]).mat()
@@ -375,14 +391,15 @@ for n in range(num_steps):
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
-    f_star_block = PETSc.Vec().createNest(
-    [fe.as_backend_type(f_star[i].vector()).vec().copy() for i in range(Q)]
-    )
+
     #print("collision_time =", post_coll_time - pre_coll_time)
     
 
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
+    f_star_block = PETSc.Vec().createNest(
+    [fe.as_backend_type(f_star[i].vector()).vec().copy() for i in range(Q)]
+    )
     blockStreamingAssemblyMatrix.mult(f_star_block, blockRhsVecsStreaming)
     post_assemble_stream_time = time.time() 
     #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
@@ -418,7 +435,17 @@ for n in range(num_steps):
     # Solve linear system for streaming step
     for idx in range(Q):
         vi = fe.PETScVector(subvecs[idx])
-        solverListStream[idx].solve(f_nP1[idx].vector(), vi)
+        #solverListStream[idx].solve(f_nP1[idx].vector(), vi)
+        f_nP1[idx].vector().vec().pointwiseDivide(vi.vec(), sysMatLumped[idx])
+   
+    bc_f5.apply(f_nP1[5].vector())
+    bc_f2.apply(f_nP1[2].vector())
+    bc_f6.apply(f_nP1[6].vector())
+
+    # Apply BCs for distribution functions 7, 4, 8
+    bc_f7.apply(f_nP1[7].vector())
+    bc_f4.apply(f_nP1[4].vector())
+    bc_f8.apply(f_nP1[8].vector())
     post_stream_time = time.time()
     #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
@@ -436,7 +463,7 @@ for n in range(num_steps):
     if n % 20000 == 0:
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
-        vel_file.write(vel_n, t)
+        #vel_file.write(vel_n, t)
         
         # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
         # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
@@ -475,10 +502,7 @@ for n in range(num_steps):
             u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
 
         for point in points:
-            u_expr = getVel(f_n)
-            V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-            u = fe.project(u_expr, V_vec)
-            u_at_point = u(point)
+            u_at_point = vel_n(point)
             u_x_values.append(u_at_point[0] / u_max)
 
 
