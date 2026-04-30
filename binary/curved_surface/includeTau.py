@@ -117,7 +117,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 120
+theta_deg = 30
 
 
 Cn = initDropDiam * Cn_param
@@ -541,9 +541,8 @@ for idx in range(Q):
 
     lin_form_idx = f_star[idx]*v*fe.dx\
         - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + dt*v*body_Force(getVel(f_star, force_density), idx, force_density)*fe.dx\
         + double_dot_product_term\
-        + dot_product_force_term + surface_term
+        + surface_term
         
     lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx, force_density)) )*v*fe.dx
 
@@ -715,17 +714,7 @@ for n in range(num_steps):
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
-    print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
-
-
-    collision_FE_start_time = time.time()
-    for idx in range(Q):
-        fe.assemble(linear_forms_collision[idx], tensor=rhs_vec_collision[idx])
-        
-    for idx in range(Q):
-        solver_list2[idx].solve(f_star[idx].vector(), rhs_vec_collision[idx])
-    collision_FE_fin_time = time.time()
-    print("collision FE time = ", collision_FE_fin_time - collision_FE_start_time)
+    #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
 
     
@@ -733,7 +722,7 @@ for n in range(num_steps):
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
     stream_FE_end_time = time.time()
-    print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
+    #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
 
     f5_upSlope_func.assign(f_star[7])
     f2_upSlope_func.assign(f_star[4])
