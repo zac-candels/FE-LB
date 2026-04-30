@@ -131,7 +131,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"newBC_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"test")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -557,8 +557,18 @@ rhs_vec_streaming = [fe.assemble(linear_forms_stream[i])
 rhs_vec_collision = [ fe.assemble(linear_forms_collision[i])
     for i in range(Q)]
 
+massForm = f_trial*v*fe.dx
+massMat = fe.assemble(massForm)
+mass_action_form = fe.action(massForm, fe.Constant(1))
+M_lumped = fe.assemble(massForm)
+M_lumped.zero()
+M_lumped.set_diagonal(fe.assemble(mass_action_form))
+M_vect = fe.assemble(mass_action_form)
+M_petsc = fe.as_backend_type(M_vect).vec()
+
 sys_mat = []
 sys_mat2 = []
+sysMatLumped = M_petsc
 for idx in range(Q):
     sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
     sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
@@ -714,7 +724,7 @@ for n in range(num_steps):
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
-    print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
+    #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
 
     
@@ -722,21 +732,7 @@ for n in range(num_steps):
     for idx in range(Q):
         fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
     stream_FE_end_time = time.time()
-    print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
-
-    f5_upSlope_func.assign(f_star[7])
-    f2_upSlope_func.assign(f_star[4])
-    f6_upSlope_func.assign(f_star[8])
-    f3_upSlope_func.assign(f_star[1] )
-    
-    f1_downSlope_func.assign(f_star[3] )
-    f5_downSlope_func.assign(f_star[7] )
-    f2_downSlope_func.assign(f_star[4] )
-    f6_downSlope_func.assign(f_star[8] )
-    
-    f7_upper_func.assign(f_star[5] )
-    f4_upper_func.assign(f_star[2] )
-    f8_upper_func.assign(f_star[6] )
+    #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
@@ -767,7 +763,26 @@ for n in range(num_steps):
 
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        #solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        vi = fe.as_backend_type(rhs_vec_streaming[idx]).vec()
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped)
+        
+    # Apply BCs for upSlope boundary
+    bc_f5_upSlope.apply( f_nP1[5].vector())
+    bc_f2_upSlope.apply( f_nP1[2].vector())
+    bc_f6_upSlope.apply( f_nP1[6].vector())
+    bc_f3_upSlope.apply( f_nP1[3].vector())
+    
+    # Apply BCs for downSlope boundary
+    bc_f1_downSlope.apply( f_nP1[1].vector())
+    bc_f5_downSlope.apply( f_nP1[5].vector())
+    bc_f2_downSlope.apply( f_nP1[2].vector())
+    bc_f6_downSlope.apply( f_nP1[6].vector())
+    
+    # Apply BCs for top boundary
+    bc_f7_upper.apply( f_nP1[7].vector())
+    bc_f4_upper.apply( f_nP1[4].vector())
+    bc_f8_upper.apply( f_nP1[8].vector())
         
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_nP1.vector(), rhs_mu)
@@ -837,14 +852,14 @@ for n in range(num_steps):
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.6e}"
-                           f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+            # log_file.write(f"{percent_mass_change:15.3f}"
+            #                f"{max_vel:15.6e}"
+            #                f"{theta_avg:15.2f}"
+            #                f"{min_distr:15.3f}"
+            #                f"{min_coord[0]:15.2f}"
+            #                f"{min_coord[1]:15.2f}"
+            #                f"{LB_mass:15.3f} \n")
+            # log_file.flush()
 
 if rank == 0:
     log_file.close()
