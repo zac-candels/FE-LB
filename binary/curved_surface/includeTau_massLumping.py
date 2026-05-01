@@ -103,7 +103,7 @@ lamd = 1/6
 T = 20
 R0 = 2
 initDropDiam = 2*R0
-L_x = 6*R0
+L_x = 7*R0
 L_y = 2*R0
 nx = 60
 ny = 30
@@ -511,51 +511,20 @@ lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
     + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
        - (Cn/(np.sqrt(2)) )*np.cos(theta)*(1 - phi_n**2)*v*ds_bottom  )
 
+advection_forms = []
+double_advection_forms = []
+
+# Define linear and bilinear forms for the collision and streaming steps
 for idx in range(Q):
 
-    bilinear_forms_collision.append(f_trial * v * fe.dx)
     bilinear_forms_stream.append(f_trial * v * fe.dx)
+    
+    advection_forms.append( v*fe.dot(xi[idx], fe.grad(f_trial))*fe.dx )
+    double_advection_forms.append( fe.dot(xi[idx],fe.grad(v))\
+                                  *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
 
-    double_dot_product_term = -0.5*dt**2 * fe.dot(xi[idx], fe.grad(f_star[idx]))\
-        * fe.dot(xi[idx], fe.grad(v)) * fe.dx
-
-    dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(getVel(f_n, force_density), idx, force_density) * fe.dx
-        
-
-    if idx in opp_idx:
-        # UFL scalar: dot product with facet normal
-        dot_xi_n = fe.dot(xi[idx], n)
-
-        # indicator = 1.0 when dot_xi_n < 0 (incoming), else 0.0
-        indicator = fe.conditional(fe.lt(dot_xi_n, 0.0),
-                                   fe.Constant(1.0),
-                                   fe.Constant(0.0))
-
-        # build surface term only for incoming distributions
-        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
-            * dot_xi_n * indicator * fe.ds
-    else:
-        # no surface contribution for this idx
-        surface_term = fe.Constant(0.0) * v * fe.ds
-
-    lin_form_idx = f_star[idx]*v*fe.dx\
-        - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
-        + double_dot_product_term\
-        + surface_term
-        
-    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx, force_density)) )*v*fe.dx
-
-    linear_forms_stream.append(lin_form_idx)
-    linear_forms_collision.append(lin_form_coll)
 
 # Assemble matrices for first step
-
-rhs_vec_streaming = [fe.assemble(linear_forms_stream[i])
-    for i in range(Q)]
-
-rhs_vec_collision = [ fe.assemble(linear_forms_collision[i])
-    for i in range(Q)]
 
 massForm = f_trial*v*fe.dx
 massMat = fe.assemble(massForm)
@@ -569,40 +538,24 @@ M_petsc = fe.as_backend_type(M_vect).vec()
 sys_mat = []
 sys_mat2 = []
 sysMatLumped = M_petsc
+advectionMats = []
+advectionTransposeMats = []
+doubleAdvectionMats = []
 for idx in range(Q):
-    sys_mat.append(fe.assemble(bilinear_forms_stream[idx]))
-    sys_mat2.append(fe.assemble(bilinear_forms_collision[idx]))
-mass_mat = fe.assemble(f_trial*v*fe.dx)
-
-solver_list = []
-solver_list2 = []
-for idx in range(Q):
-    A = sys_mat[idx]
-    A2 = sys_mat2[idx]
-
-    # Create CG solver
-    solver = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
-    solver.set_operator(A)
     
-    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
-    solver2.set_operator(A2)
+    advectionMats.append(fe.assemble(advection_forms[idx]))
+    A_T = advectionMats[idx].copy()
+    advectionTransposeMats.append(A_T)
+    doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
+massMat = fe.assemble(f_trial*v*fe.dx)
 
-    # Optional: set solver parameters
-    prm = solver.parameters
-    prm["absolute_tolerance"] = 1e-12
-    prm["relative_tolerance"] = 1e-8
-    prm["maximum_iterations"] = 1000
-    prm["nonzero_initial_guess"] = False
+streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
+advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
+doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
+rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 
-    solver_list.append(solver)
-    
-    prm2 = solver2.parameters
-    prm2["absolute_tolerance"] = 1e-12
-    prm2["relative_tolerance"] = 1e-8
-    prm2["maximum_iterations"] = 1000
-    prm2["nonzero_initial_guess"] = False
-
-    solver_list2.append(solver2)
+xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
+                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
@@ -645,22 +598,22 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
-# Apply BCs for upSlope boundary
-bc_f5_upSlope.apply(sys_mat[5])
-bc_f2_upSlope.apply(sys_mat[2])
-bc_f6_upSlope.apply(sys_mat[6])
-bc_f3_upSlope.apply(sys_mat[3])
+# # Apply BCs for upSlope boundary
+# bc_f5_upSlope.apply(sys_mat[5])
+# bc_f2_upSlope.apply(sys_mat[2])
+# bc_f6_upSlope.apply(sys_mat[6])
+# bc_f3_upSlope.apply(sys_mat[3])
 
-# Apply BCs for downSlope boundary
-bc_f1_downSlope.apply(sys_mat[1])
-bc_f5_downSlope.apply(sys_mat[5])
-bc_f2_downSlope.apply(sys_mat[2])
-bc_f6_downSlope.apply(sys_mat[6])
+# # Apply BCs for downSlope boundary
+# bc_f1_downSlope.apply(sys_mat[1])
+# bc_f5_downSlope.apply(sys_mat[5])
+# bc_f2_downSlope.apply(sys_mat[2])
+# bc_f6_downSlope.apply(sys_mat[6])
 
-# Apply BCs for top boundary
-bc_f7_upper.apply(sys_mat[7])
-bc_f4_upper.apply(sys_mat[4])
-bc_f8_upper.apply(sys_mat[8])
+# # Apply BCs for top boundary
+# bc_f7_upper.apply(sys_mat[7])
+# bc_f4_upper.apply(sys_mat[4])
+# bc_f8_upper.apply(sys_mat[8])
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
@@ -683,8 +636,8 @@ for n in range(num_steps):
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    fe.solve(mass_mat, forceDensity_x.vector(), forceVec_x)
-    fe.solve(mass_mat, forceDensity_y.vector(), forceVec_y)
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
     
 
     # We will try to do collision locally, since it is a pure
@@ -730,8 +683,14 @@ for n in range(num_steps):
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
-        fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
-    stream_FE_end_time = time.time()
+        massMat.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
+
+        rhsVecStreaming[idx].zero()
+        rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
+        rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
+        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
@@ -740,21 +699,21 @@ for n in range(num_steps):
 
 
     # Apply BCs for upSlope boundary
-    bc_f5_upSlope.apply( rhs_vec_streaming[5])
-    bc_f2_upSlope.apply( rhs_vec_streaming[2])
-    bc_f6_upSlope.apply( rhs_vec_streaming[6])
-    bc_f3_upSlope.apply( rhs_vec_streaming[3])
+    bc_f5_upSlope.apply( rhsVecStreaming[5])
+    bc_f2_upSlope.apply( rhsVecStreaming[2])
+    bc_f6_upSlope.apply( rhsVecStreaming[6])
+    bc_f3_upSlope.apply( rhsVecStreaming[3])
     
     # Apply BCs for downSlope boundary
-    bc_f1_downSlope.apply( rhs_vec_streaming[1])
-    bc_f5_downSlope.apply( rhs_vec_streaming[5])
-    bc_f2_downSlope.apply( rhs_vec_streaming[2])
-    bc_f6_downSlope.apply( rhs_vec_streaming[6])
+    bc_f1_downSlope.apply( rhsVecStreaming[1])
+    bc_f5_downSlope.apply( rhsVecStreaming[5])
+    bc_f2_downSlope.apply( rhsVecStreaming[2])
+    bc_f6_downSlope.apply( rhsVecStreaming[6])
     
     # Apply BCs for top boundary
-    bc_f7_upper.apply( rhs_vec_streaming[7])
-    bc_f4_upper.apply( rhs_vec_streaming[4])
-    bc_f8_upper.apply( rhs_vec_streaming[8])
+    bc_f7_upper.apply( rhsVecStreaming[7])
+    bc_f4_upper.apply( rhsVecStreaming[4])
+    bc_f8_upper.apply( rhsVecStreaming[8])
 
     # Apply BCs for noSlope boundary
     # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -764,7 +723,7 @@ for n in range(num_steps):
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
-        vi = fe.as_backend_type(rhs_vec_streaming[idx]).vec()
+        vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
         f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped)
         
     # Apply BCs for upSlope boundary

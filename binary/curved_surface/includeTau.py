@@ -103,7 +103,7 @@ lamd = 1/6
 T = 20
 R0 = 2
 initDropDiam = 2*R0
-L_x = 6*R0
+L_x = 7*R0
 L_y = 2*R0
 nx = 60
 ny = 30
@@ -131,7 +131,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"newBC_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"te")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -652,6 +652,98 @@ bc_f7_upper.apply(sys_mat[7])
 bc_f4_upper.apply(sys_mat[4])
 bc_f8_upper.apply(sys_mat[8])
 
+advection_forms = []
+double_advection_forms = []
+
+# Define linear and bilinear forms for the collision and streaming steps
+for idx in range(Q):
+
+    bilinear_forms_stream.append(f_trial * v * fe.dx)
+    
+    advection_forms.append( v*fe.dot(xi[idx], fe.grad(f_trial))*fe.dx )
+    double_advection_forms.append( fe.dot(xi[idx],fe.grad(v))\
+                                  *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
+
+
+# Assemble matrices for first step
+sysMatStream = []
+solverListStream = []
+rhsVecStreaming = []
+advectionMats = []
+advectionTransposeMats = []
+doubleAdvectionMats = []
+for idx in range(Q):
+    sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
+    
+    advectionMats.append(fe.assemble(advection_forms[idx]))
+    A_T = advectionMats[idx].copy()
+    advectionTransposeMats.append(A_T)
+    doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
+
+for idx in range(Q):
+    A = sysMatStream[idx]
+    solver = fe.LUSolver(A)
+    solverListStream.append(solver)
+
+
+vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
+vel_file.parameters["flush_output"] = True
+vel_file.parameters["functions_share_mesh"] = True
+vel_file.parameters["rewrite_function_mesh"] = False
+
+
+# Apply BCs for upSlope boundary
+bc_f5_upSlope.apply(sysMatStream[5])
+bc_f2_upSlope.apply(sysMatStream[2])
+bc_f6_upSlope.apply(sysMatStream[6])
+bc_f3_upSlope.apply(sysMatStream[3])
+
+# Apply BCs for downSlope boundary
+bc_f1_downSlope.apply(sysMatStream[1])
+bc_f5_downSlope.apply(sysMatStream[5])
+bc_f2_downSlope.apply(sysMatStream[2])
+bc_f6_downSlope.apply(sysMatStream[6])
+
+# Apply BCs for upSlope boundary
+bc_f5_upSlope.apply(advectionMats[5])
+bc_f2_upSlope.apply(advectionMats[2])
+bc_f6_upSlope.apply(advectionMats[6])
+bc_f3_upSlope.apply(advectionMats[3])
+
+# Apply BCs for downSlope boundary
+bc_f1_downSlope.apply(advectionMats[1])
+bc_f5_downSlope.apply(advectionMats[5])
+bc_f2_downSlope.apply(advectionMats[2])
+bc_f6_downSlope.apply(advectionMats[6])
+
+# Apply BCs for top boundary
+bc_f7_upper.apply(advectionMats[7])
+bc_f4_upper.apply(advectionMats[4])
+bc_f8_upper.apply(advectionMats[8])
+
+# Apply BCs for upSlope boundary
+bc_f5_upSlope.apply(doubleAdvectionMats[5])
+bc_f2_upSlope.apply(doubleAdvectionMats[2])
+bc_f6_upSlope.apply(doubleAdvectionMats[6])
+bc_f3_upSlope.apply(doubleAdvectionMats[3])
+
+# Apply BCs for downSlope boundary
+bc_f1_downSlope.apply(doubleAdvectionMats[1])
+bc_f5_downSlope.apply(doubleAdvectionMats[5])
+bc_f2_downSlope.apply(doubleAdvectionMats[2])
+bc_f6_downSlope.apply(doubleAdvectionMats[6])
+
+# Apply BCs for top boundary
+bc_f7_upper.apply(doubleAdvectionMats[7])
+bc_f4_upper.apply(doubleAdvectionMats[4])
+bc_f8_upper.apply(doubleAdvectionMats[8])
+
+massMat = fe.assemble(f_trial*v*fe.dx)
+streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
+advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
+doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
+rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
@@ -719,10 +811,19 @@ for n in range(num_steps):
 
     
     stream_FE_start_time = time.time()
+    pre_stream_time = time.time()
+    # Assemble RHS vectors for streaming step
     for idx in range(Q):
-        fe.assemble(linear_forms_stream[idx], tensor=rhs_vec_streaming[idx])
-    stream_FE_end_time = time.time()
-    print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
+        massMat.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
+
+        rhsVecStreaming[idx].zero()
+        rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
+        rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
+        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+    post_assemble_stream_time = time.time() 
+    print("stream FE time = ", post_assemble_stream_time - stream_FE_start_time)
 
     f5_upSlope_func.assign(f_star[7])
     f2_upSlope_func.assign(f_star[4])
@@ -744,21 +845,21 @@ for n in range(num_steps):
 
 
     # Apply BCs for upSlope boundary
-    bc_f5_upSlope.apply( rhs_vec_streaming[5])
-    bc_f2_upSlope.apply( rhs_vec_streaming[2])
-    bc_f6_upSlope.apply( rhs_vec_streaming[6])
-    bc_f3_upSlope.apply( rhs_vec_streaming[3])
+    bc_f5_upSlope.apply( rhsVecStreaming[5])
+    bc_f2_upSlope.apply( rhsVecStreaming[2])
+    bc_f6_upSlope.apply( rhsVecStreaming[6])
+    bc_f3_upSlope.apply( rhsVecStreaming[3])
     
     # Apply BCs for downSlope boundary
-    bc_f1_downSlope.apply( rhs_vec_streaming[1])
-    bc_f5_downSlope.apply( rhs_vec_streaming[5])
-    bc_f2_downSlope.apply( rhs_vec_streaming[2])
-    bc_f6_downSlope.apply( rhs_vec_streaming[6])
+    bc_f1_downSlope.apply( rhsVecStreaming[1])
+    bc_f5_downSlope.apply( rhsVecStreaming[5])
+    bc_f2_downSlope.apply( rhsVecStreaming[2])
+    bc_f6_downSlope.apply( rhsVecStreaming[6])
     
     # Apply BCs for top boundary
-    bc_f7_upper.apply( rhs_vec_streaming[7])
-    bc_f4_upper.apply( rhs_vec_streaming[4])
-    bc_f8_upper.apply( rhs_vec_streaming[8])
+    bc_f7_upper.apply( rhsVecStreaming[7])
+    bc_f4_upper.apply( rhsVecStreaming[4])
+    bc_f8_upper.apply( rhsVecStreaming[8])
 
     # Apply BCs for noSlope boundary
     # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -766,21 +867,27 @@ for n in range(num_steps):
     # bc_f6_noSlope.apply(sys_mat[6], rhs_vec_streaming[6])
 
     # # Solve linear system in each timestep, get f^{n+1}
+    solve_time = time.time()
     for idx in range(Q):
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
         
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    solve_time_done = time.time()
+    print("time to solve systems = ", solve_time_done - solve_time)
     
 
 
     # Update previous solutions
-
+    
+    update_time_start = time.time()
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
+    update_time_finish = time.time()
+    print("update time = ", update_time_finish - update_time_start)
     
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
