@@ -117,7 +117,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 30
+theta_deg = 60
 
 
 Cn = initDropDiam * Cn_param
@@ -131,7 +131,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"te")
+outDirName = os.path.join(WORKDIR, f"forceInCollisionCA60")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -806,7 +806,7 @@ for n in range(num_steps):
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
-    print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
+    #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
 
     
@@ -823,7 +823,7 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     post_assemble_stream_time = time.time() 
-    print("stream FE time = ", post_assemble_stream_time - stream_FE_start_time)
+    #print("stream FE time = ", post_assemble_stream_time - stream_FE_start_time)
 
     f5_upSlope_func.assign(f_star[7])
     f2_upSlope_func.assign(f_star[4])
@@ -874,7 +874,7 @@ for n in range(num_steps):
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_nP1.vector(), rhs_mu)
     solve_time_done = time.time()
-    print("time to solve systems = ", solve_time_done - solve_time)
+    #print("time to solve systems = ", solve_time_done - solve_time)
     
 
 
@@ -887,7 +887,7 @@ for n in range(num_steps):
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
     update_time_finish = time.time()
-    print("update time = ", update_time_finish - update_time_start)
+    #print("update time = ", update_time_finish - update_time_start)
     
     mass_n = fe.assemble(phi_n*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
@@ -897,12 +897,12 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 2000== 0:  # plot every 10 steps
+    
+        if n % 10000== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
-            iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time)
+            
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             # mu_file.write(mu_n, t)

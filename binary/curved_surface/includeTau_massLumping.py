@@ -117,7 +117,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 30
+theta_deg = 60
 
 
 Cn = initDropDiam * Cn_param
@@ -131,7 +131,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"test")
+outDirName = os.path.join(WORKDIR, f"massLumpingCA60")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -537,12 +537,12 @@ M_petsc = fe.as_backend_type(M_vect).vec()
 
 sys_mat = []
 sys_mat2 = []
-sysMatLumped = M_petsc
+sysMatLumped = []
 advectionMats = []
 advectionTransposeMats = []
 doubleAdvectionMats = []
 for idx in range(Q):
-    
+    sysMatLumped.append(M_petsc.copy())
     advectionMats.append(fe.assemble(advection_forms[idx]))
     A_T = advectionMats[idx].copy()
     advectionTransposeMats.append(A_T)
@@ -683,7 +683,7 @@ for n in range(num_steps):
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
-        massMat.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
@@ -697,7 +697,20 @@ for n in range(num_steps):
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
-
+    f5_upSlope_func.assign(f_star[7])
+    f2_upSlope_func.assign(f_star[4])
+    f6_upSlope_func.assign(f_star[8])
+    f3_upSlope_func.assign(f_star[1] )
+    
+    f1_downSlope_func.assign(f_star[3] )
+    f5_downSlope_func.assign(f_star[7] )
+    f2_downSlope_func.assign(f_star[4] )
+    f6_downSlope_func.assign(f_star[8] )
+    
+    f7_upper_func.assign(f_star[5] )
+    f4_upper_func.assign(f_star[2] )
+    f8_upper_func.assign(f_star[6] )
+    
     # Apply BCs for upSlope boundary
     bc_f5_upSlope.apply( rhsVecStreaming[5])
     bc_f2_upSlope.apply( rhsVecStreaming[2])
@@ -724,7 +737,7 @@ for n in range(num_steps):
     for idx in range(Q):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
         vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped)
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
         
     # Apply BCs for upSlope boundary
     bc_f5_upSlope.apply( f_nP1[5].vector())
