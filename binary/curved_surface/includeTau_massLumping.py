@@ -186,7 +186,7 @@ if rank == 0:
 mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = (1/2)*Cn_param*Pe*h**2
+dt = Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -316,38 +316,6 @@ def f_equil_init(vel_idx, force_density):
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
-
-def f_equil(f_list, vel_idx, force_density):
-
-    rho = getDens(f_list)
-    u   = getVel(f_list, force_density)    
-    ci       = xi[vel_idx]
-    cu = fe.dot(ci, u)
-    u2 = fe.dot(u, u)
-
-    feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-    
-
-    return feq
-
-    
-
-def body_Force(vel, vel_idx, force_density):
-    prefactor = w[vel_idx]
-    inverse_cs2 = 1 / c_s**2
-    inverse_cs4 = 1 / c_s**4
-
-    xi_dot_prod_F = fe.dot( xi[vel_idx], force_density)
-
-    u_dot_prod_F = fe.dot(vel, force_density)
-
-    xi_dot_u = fe.dot(xi[vel_idx], vel)
-
-    Force = prefactor*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
-                       + inverse_cs4*xi_dot_u*xi_dot_prod_F)
-
-    return Force
 
 
 force_density = -(1/We)*phi_n * fe.grad(mu_n)
@@ -503,7 +471,7 @@ ds_bottom = ds(1) + ds(2)
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
+lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
     - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
@@ -553,6 +521,8 @@ streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
 advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
 rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+prevTimeAcVec = f_star[0].vector().copy()
+rhsVecTemp = f_star[0].vector().copy()
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
@@ -627,19 +597,27 @@ for n in range(num_steps):
     t += dt
     
     #print("n = ", n)
-    
-    fe.assemble(lin_form_AC, tensor=rhs_AC)
+    prevTimeAcVec.zero()
+    fe.as_backend_type(prevTimeAcVec).vec().pointwiseMult(phi_n.vector().vec(), sysMatLumped[0])
+    fe.assemble(lin_form_AC, tensor=rhsVecTemp)
+    rhs_AC = prevTimeAcVec + rhsVecTemp
     fe.assemble(lin_form_mu, tensor=rhs_mu)
     
-    pre_coll_time_lb = time.time()
     
+    projectForceTimeStart = time.time()
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    #fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), sysMatLumped[0])
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), sysMatLumped[0])
+    projectForceTimeEnd = time.time()
+    #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
     
-
+    pre_coll_time_lb = time.time()
     # We will try to do collision locally, since it is a pure
     # time-dependnet ODE
     
@@ -691,12 +669,14 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+    stream_FE_end_time = time.time()
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
+    assignApplyTimeStart = time.time()
     f5_upSlope_func.assign(f_star[7])
     f2_upSlope_func.assign(f_star[4])
     f6_upSlope_func.assign(f_star[8])
@@ -727,12 +707,15 @@ for n in range(num_steps):
     bc_f7_upper.apply( rhsVecStreaming[7])
     bc_f4_upper.apply( rhsVecStreaming[4])
     bc_f8_upper.apply( rhsVecStreaming[8])
+    assignApplyTimeEnd = time.time()
+    #print("time to assign and apply = ", assignApplyTimeEnd - assignApplyTimeStart)
 
     # Apply BCs for noSlope boundary
     # bc_f5_noSlope.apply(sys_mat[5], rhs_vec_streaming[5])
     # bc_f2_noSlope.apply(sys_mat[2], rhs_vec_streaming[2])
     # bc_f6_noSlope.apply(sys_mat[6], rhs_vec_streaming[6])
 
+    solveTimeStart = time.time()
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
@@ -756,11 +739,15 @@ for n in range(num_steps):
     bc_f4_upper.apply( f_nP1[4].vector())
     bc_f8_upper.apply( f_nP1[8].vector())
         
-    phi_solver.solve(phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_nP1.vector(), rhs_mu)
-    
+    #phi_solver.solve(phi_nP1.vector(), rhs_AC)
+    rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
+    phi_nP1.vector().vec().pointwiseDivide(rhsPhiVec, sysMatLumped[0])
+    rhsMuVec = fe.as_backend_type(rhs_mu).vec()
+    #mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
 
-
+    solveTimeEnd = time.time()
+    #print("solve time = ", solveTimeEnd - solveTimeStart)
     # Update previous solutions
 
     for idx in range(Q):
