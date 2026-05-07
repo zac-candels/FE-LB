@@ -6,6 +6,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
 from petsc4py import PETSc
+import numba as nb
 
 start_time = time.time()
 
@@ -24,8 +25,8 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 15
-ny = 15
+nx = 200
+ny = 200
 h = L_x/nx
 
 Force_density = fe.Constant((2.6014e-5, 0.0))
@@ -349,6 +350,57 @@ blockFstarVecs = PETSc.Vec().createNest(FstarVecs)
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+
+
+@nb.njit(parallel=True, fastmath=True)
+def collide_bgk_forcing(f_vals, xi_arr, w, force_x, force_y, dt, tau, c_s):
+    Q, n_dofs = f_vals.shape
+
+    f_star = np.empty_like(f_vals)
+    ux_out = np.empty(n_dofs, dtype=np.float64)
+    uy_out = np.empty(n_dofs, dtype=np.float64)
+
+    cs2 = c_s * c_s
+    cs4 = cs2 * cs2
+    omega = dt / tau
+
+    for j in nb.prange(n_dofs):
+        rho = 0.0
+        mx = 0.0
+        my = 0.0
+
+        for q in range(Q):
+            fq = f_vals[q, j]
+            rho += fq
+            mx += xi_arr[q, 0] * fq
+            my += xi_arr[q, 1] * fq
+
+        ux = mx / rho + force_x[j] * dt / (2.0 * rho)
+        uy = my / rho + force_y[j] * dt / (2.0 * rho)
+
+        ux_out[j] = ux
+        uy_out[j] = uy
+
+        u2 = ux * ux + uy * uy
+        u_dot_F = ux * force_x[j] + uy * force_y[j]
+
+        for q in range(Q):
+            cx = xi_arr[q, 0]
+            cy = xi_arr[q, 1]
+
+            cu = cx * ux + cy * uy
+            feq = w[q] * rho * (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2)
+
+            ck_dot_F = cx * force_x[j] + cy * force_y[j]
+            force_term = w[q] * (
+                ck_dot_F / cs2
+                + ck_dot_F * u_dot_F / cs4
+                + u_dot_F / cs2
+            )
+
+            f_star[q, j] = f_vals[q, j] - omega * (f_vals[q, j] - feq) + dt * force_term
+
+    return f_star, ux_out, uy_out
     
 # Timestepping
 t = 0.0
@@ -365,34 +417,16 @@ for n in range(num_steps):
 
 
     # Compute rho and u as numpy arrays over all DOFs
-    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals[:,0]*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals[:,1]*dt/(2*rho)
-    vel = np.stack([ux, uy])
-    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-    u2 = ux**2 + uy**2                                    # (n_dofs,)
-    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-    
-    # Now for the foce term
-    
-    u_dot_F = ux * forceVals[:, 0] + uy * forceVals[:, 1]   # (n_dofs,)
-    ck_dot_F = xi_arr @ forceVals.T   # shape (Q, n_dofs)
-    
-    force_term = (
-    (1/c_s**2) * ck_dot_F
-    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
-    + (1/c_s**2) * u_dot_F[None, :]
+    f_star_np, ux, uy = collide_bgk_forcing(
+        f_vals, xi_arr, w,
+        forceVals[:,0], forceVals[:,1],
+        dt, tau, c_s
     )
-
-    force_term *= w[:, None]
-    
-
-    f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
 
-    #print("collision_time =", post_coll_time - pre_coll_time)
+    print("collision_time =", post_coll_time - pre_coll_time)
     
 
     pre_stream_time = time.time()
