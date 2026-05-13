@@ -89,11 +89,11 @@ lamd = 1/6
 
 
 
-T = 20
+T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 7*R0
-L_y = 2*R0
+L_x = 8*R0
+L_y = 4*R0
 
 
 surface_amplitude = 0.0 
@@ -105,7 +105,7 @@ Re = 1
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 60
+theta_deg = 30
 
 
 Cn = initDropDiam * Cn_param
@@ -119,7 +119,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"massLumpingFlatSurfCA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"lumpingUnstructuredGrid")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -157,7 +157,7 @@ def surfaceExpr(x):
 def surfExprDeriv(x):
     return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
 
-domain_n_points = 60
+domain_n_points = 61
 domain_points = []
 for n in range(domain_n_points + 1):
     x = n*L_x/domain_n_points
@@ -173,7 +173,7 @@ if rank == 0:
 mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = Cn_param*Pe*h**2
+dt =0.1*Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -575,7 +575,7 @@ for n in range(num_steps):
     force_term *= w[:, None]
     
 
-    f_star_np = f_vals - Re*dt*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - Re*c_s2*dt*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
@@ -660,8 +660,8 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 20== 0:  # plot every 10 steps
-            
+        if n % 200== 0:  # plot every 10 steps
+            print("n = ", n)
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
             iteration_time = time.time()
@@ -684,7 +684,7 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-            
+            print("umax = ", max_vel)
             # for idx in range(Q):
             #     f_vec = f_n[idx].vector().get_local()
             #     min_index = np.argmin(f_vec)
@@ -707,9 +707,10 @@ for n in range(num_steps):
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
-            # log_file.write(f"{percent_mass_change:15.3f}"
-            #                f"{max_vel:15.6e}"
-            #                f"{theta_avg:15.2f}"
+            log_file.write(f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.6e}"
+                            f"{theta_avg:15.2f}\n")
+            log_file.flush()
             #                f"{min_distr:15.3f}"
             #                f"{min_coord[0]:15.2f}"
             #                f"{min_coord[1]:15.2f}"
