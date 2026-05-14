@@ -117,7 +117,7 @@ beta_mass_diff = 0.000001
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
-theta_deg = 60
+theta_deg = 30
 
 
 Cn = initDropDiam * Cn_param
@@ -170,7 +170,7 @@ def surfaceExpr(x):
 def surfExprDeriv(x):
     return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
 
-domain_n_points = 60
+domain_n_points = 61
 domain_points = []
 for n in range(domain_n_points + 1):
     x = n*L_x/domain_n_points
@@ -186,7 +186,7 @@ if rank == 0:
 mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = Cn_param*Pe*h**2
+dt = (0.1)*Cn_param*Pe*h**2
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -764,7 +764,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 2000== 0:  # plot every 10 steps
+        if n % 10000== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)

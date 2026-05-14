@@ -187,7 +187,7 @@ ny = 40
 surface_amplitude = 0.0 
 surface_freq = L_x/(8*np.pi)
 
-beta_mass_diff = 0.000001
+
 
 Re = 1
 Pe = 0.1275 
@@ -207,7 +207,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"lumpingUnstructuredGrid")
+outDirName = os.path.join(WORKDIR, f"lumpingStructuredGrid")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -261,7 +261,8 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt =0.1*Cn_param*Pe*h**2
+dt =0.01*Cn_param*Pe*h**2
+beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -570,10 +571,10 @@ phi_file.parameters["flush_output"] = True
 phi_file.parameters["functions_share_mesh"] = True
 phi_file.parameters["rewrite_function_mesh"] = False
 
-# mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
-# mu_file.parameters["flush_output"] = True
-# mu_file.parameters["functions_share_mesh"] = True
-# mu_file.parameters["rewrite_function_mesh"] = False
+mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
+mu_file.parameters["flush_output"] = True
+mu_file.parameters["functions_share_mesh"] = True
+mu_file.parameters["rewrite_function_mesh"] = False
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
@@ -748,7 +749,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 10000== 0:  # plot every 10 steps
             print("n = ", n)
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
@@ -756,7 +757,7 @@ for n in range(num_steps):
             print("time elapsed ", iteration_time - start_time)
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
-            # mu_file.write(mu_n, t)
+            #mu_file.write(mu_n, t)
             
             total_mass = fe.assemble(phi_n*fe.dx)
             percent_mass_change = 100*float(mass_diff)/mass_init
@@ -789,7 +790,7 @@ for n in range(num_steps):
             # rho_expr = sum(fk for fk in f_n)
             # fe.project(rho_expr, V, function=rho_fn)
 
-            LB_mass = 1#fe.assemble(rho_fn*fe.dx)
+            LB_mass = fe.assemble(rho_fn*fe.dx)
             
             theta_avg = computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
                 

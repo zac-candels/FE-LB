@@ -50,13 +50,13 @@ def computeContactAngle(c_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[1] < 2*h}
+        if coord[1] < 1.5*h}
     
     # Filter by order parameter value
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if -0.5 < value < 0.5}
+        if -0.3 < value < 0.3}
     
     # Determine left-most interfacial point
     min_x = min(coord[0] for coord in nodal_dict.keys())
@@ -99,7 +99,7 @@ L_y = 4*R0
 surface_amplitude = 0.0 
 surface_freq = L_x/(8*np.pi)
 
-beta_mass_diff = 0.000001
+
 
 Re = 1
 Pe = 0.1275 
@@ -174,6 +174,7 @@ mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
 dt =0.1*Cn_param*Pe*h**2
+beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -482,10 +483,10 @@ phi_file.parameters["flush_output"] = True
 phi_file.parameters["functions_share_mesh"] = True
 phi_file.parameters["rewrite_function_mesh"] = False
 
-# mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
-# mu_file.parameters["flush_output"] = True
-# mu_file.parameters["functions_share_mesh"] = True
-# mu_file.parameters["rewrite_function_mesh"] = False
+mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
+mu_file.parameters["flush_output"] = True
+mu_file.parameters["functions_share_mesh"] = True
+mu_file.parameters["rewrite_function_mesh"] = False
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
@@ -660,7 +661,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 200== 0:  # plot every 10 steps
+        if n % 10000== 0:  # plot every 10 steps
             print("n = ", n)
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
