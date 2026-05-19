@@ -17,7 +17,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.002
+dt = 6.2e-3
 
 num_steps = int(np.ceil(T/dt))
 
@@ -25,8 +25,8 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 200
-ny = 200
+nx = 10
+ny = 10
 h = L_x/nx
 
 Force_density = fe.Constant((2.6014e-5, 0.0))
@@ -120,6 +120,9 @@ for idx in range(Q):
 def getDens(f_list):
     return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
         + f_list[5] + f_list[6] + f_list[7] + f_list[8]
+
+forceDensity_x = fe.Function(V)
+forceDensity_y = fe.Function(V)
 
 # Define velocity
 
@@ -320,6 +323,8 @@ advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
 rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 
+forceVec_x = f_star[0].vector().copy()
+forceVec_y = f_star[0].vector().copy()
 
 A_blocks = []
 
@@ -352,58 +357,11 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
 
-@nb.njit(parallel=True, fastmath=True)
-def collide_bgk_forcing(f_vals, xi_arr, w, force_x, force_y, dt, tau, c_s):
-    Q, n_dofs = f_vals.shape
-
-    f_star = np.empty_like(f_vals)
-    ux_out = np.empty(n_dofs, dtype=np.float64)
-    uy_out = np.empty(n_dofs, dtype=np.float64)
-
-    cs2 = c_s * c_s
-    cs4 = cs2 * cs2
-    omega = dt / tau
-
-    for j in nb.prange(n_dofs):
-        rho = 0.0
-        mx = 0.0
-        my = 0.0
-
-        for q in range(Q):
-            fq = f_vals[q, j]
-            rho += fq
-            mx += xi_arr[q, 0] * fq
-            my += xi_arr[q, 1] * fq
-
-        ux = mx / rho + force_x[j] * dt / (2.0 * rho)
-        uy = my / rho + force_y[j] * dt / (2.0 * rho)
-
-        ux_out[j] = ux
-        uy_out[j] = uy
-
-        u2 = ux * ux + uy * uy
-        u_dot_F = ux * force_x[j] + uy * force_y[j]
-
-        for q in range(Q):
-            cx = xi_arr[q, 0]
-            cy = xi_arr[q, 1]
-
-            cu = cx * ux + cy * uy
-            feq = w[q] * rho * (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2)
-
-            ck_dot_F = cx * force_x[j] + cy * force_y[j]
-            force_term = w[q] * (
-                ck_dot_F / cs2
-                + ck_dot_F * u_dot_F / cs4
-                + u_dot_F / cs2
-            )
-
-            f_star[q, j] = f_vals[q, j] - omega * (f_vals[q, j] - feq) + dt * force_term
-
-    return f_star, ux_out, uy_out
     
 # Timestepping
 t = 0.0
+forceVals_x = []
+forceVals_y = []
 for n in range(num_steps):
     t += dt
     
@@ -411,31 +369,71 @@ for n in range(num_steps):
     # We will try to do collision locally, since it is a pure
     # time-dependnet ODE
     
+    fe.assemble(Force_density.values()[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(v*fe.dx, tensor=forceVec_y)
+    forceVec_y.vec().scale(0)
+    
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    # petscForce_x = fe.as_backend_type(forceVec_x)
+    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    # petscForce_y = fe.as_backend_type(forceVec_y)
+    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+    projectForceTimeEnd = time.time()
+    #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
+    
+    pre_coll_time_lb = time.time()
+    # We will try to do collision locally, since it is a pure
+    # time-dependnet ODE
+    
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
-    forceVals = forceDensity_n.vector().get_local()
-    forceVals = forceVals.reshape((-1, mesh.geometry().dim()))
-
+    
+    forceVals_x = forceDensity_x.vector().get_local()
+    #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
+    
+    forceVals_y = forceDensity_y.vector().get_local()
+    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
 
     # Compute rho and u as numpy arrays over all DOFs
-    f_star_np, ux, uy = collide_bgk_forcing(
-        f_vals, xi_arr, w,
-        forceVals[:,0], forceVals[:,1],
-        dt, tau, c_s
+    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    vel = np.stack([ux, uy])
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
+    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    
+    # Now for the foce term
+    u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
+    ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
+    
+    force_term = (
+    (1/c_s**2) * ck_dot_F
+    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
+    + (1/c_s**2) * u_dot_F[None, :]
     )
+
+    force_term *= w[:, None]
+    
+
+    f_star_np = f_vals - tau*dt*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
-    post_coll_time = time.time()
 
-    print("collision_time =", post_coll_time - pre_coll_time)
+    #print("collision_time =", post_coll_time - pre_coll_time)
     
 
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
-    f_star_block = PETSc.Vec().createNest(
-    [fe.as_backend_type(f_star[i].vector()).vec().copy() for i in range(Q)]
-    )
-    blockStreamingAssemblyMatrix.mult(f_star_block, blockRhsVecsStreaming)
-    post_assemble_stream_time = time.time() 
+    for idx in range(Q):
+        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
+
+        rhsVecStreaming[idx].zero()
+        rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
+        rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
+        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
     
     
@@ -468,9 +466,9 @@ for n in range(num_steps):
     pre_stream_time = time.time()
     # Solve linear system for streaming step
     for idx in range(Q):
-        vi = fe.PETScVector(subvecs[idx])
-        #solverListStream[idx].solve(f_nP1[idx].vector(), vi)
-        f_nP1[idx].vector().vec().pointwiseDivide(vi.vec(), sysMatLumped[idx])
+        #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
+        vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
    
     bc_f5.apply(f_nP1[5].vector())
     bc_f2.apply(f_nP1[2].vector())
@@ -494,7 +492,8 @@ for n in range(num_steps):
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 20000 == 0:
+    if n % 5000 == 0:
+        print("n = ", n)
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
         #vel_file.write(vel_n, t)

@@ -661,7 +661,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 10000== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
             print("n = ", n)
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
@@ -686,23 +686,27 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
             print("umax = ", max_vel)
-            # for idx in range(Q):
-            #     f_vec = f_n[idx].vector().get_local()
-            #     min_index = np.argmin(f_vec)
-            #     min_value = f_vec[min_index]
+            for idx in range(Q):
+                f_vec = f_n[idx].vector().get_local()
+                min_index = np.argmin(f_vec)
+                min_value = f_vec[min_index]
                 
-            #     dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
-            #     min_coord = tuple(dof_coords[min_index])
+                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+                min_coord = tuple(dof_coords[min_index])
                 
-            #     distr_dict[min_coord] = min_value
+                distr_dict[min_coord] = min_value
                 
-            min_coord = (1,1)#min(distr_dict, key=distr_dict.get)
-            min_distr = 1#distr_dict[min_coord]
+            min_coord = min(distr_dict, key=distr_dict.get)
+            min_distr = distr_dict[min_coord]
             
-            # rho_expr = sum(fk for fk in f_n)
-            # fe.project(rho_expr, V, function=rho_fn)
+            rho_expr = sum(fk for fk in f_n)
+            fe.project(rho_expr, V, function=rho_fn)
+            
+            rho_vals = rho_fn.vector().get_local()
+            print("max density is", np.max(rho_vals))
+            print("min density is", np.min(rho_vals))
 
-            LB_mass = 1#fe.assemble(rho_fn*fe.dx)
+            LB_mass = fe.assemble(rho_fn*fe.dx)
             
             theta_avg = computeContactAngle(phi_n, h, Cn, mesh)
                 
@@ -710,13 +714,12 @@ for n in range(num_steps):
 
             log_file.write(f"{percent_mass_change:15.3f}"
                             f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}\n")
+                            f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
             log_file.flush()
-            #                f"{min_distr:15.3f}"
-            #                f"{min_coord[0]:15.2f}"
-            #                f"{min_coord[1]:15.2f}"
-            #                f"{LB_mass:15.3f} \n")
-            # log_file.flush()
 
 if rank == 0:
     log_file.close()

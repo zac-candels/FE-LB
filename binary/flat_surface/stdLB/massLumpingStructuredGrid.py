@@ -8,6 +8,7 @@ import matplotlib.tri as tri
 import time
 import sys 
 import mshr
+import shutil
 from scipy      import optimize
  
 comm = fe.MPI.comm_world
@@ -190,7 +191,7 @@ surface_freq = L_x/(8*np.pi)
 
 
 Re = 1
-Pe = 0.1275 
+Pe = 0.1275
 We = 2
 Cn_param=  0.05
 theta_deg = 30
@@ -207,7 +208,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"lumpingStructuredGrid")
+outDirName = os.path.join(WORKDIR, f"test")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -261,8 +262,8 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt =0.01*Cn_param*Pe*h**2
-beta_mass_diff = 0.1*dt
+dt = 1*Cn_param*Pe*h**2
+beta_mass_diff =  0.00001
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -484,6 +485,7 @@ ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_i
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
+
 lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
     - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
@@ -605,7 +607,7 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
 t = 0.0
 forceVals_x = []
 forceVals_y = []
-mass_init = fe.assemble(phi_n*fe.dx)
+mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
     t += dt
     
@@ -621,12 +623,12 @@ for n in range(num_steps):
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    #fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    petscForce_x = fe.as_backend_type(forceVec_x)
-    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
-    petscForce_y = fe.as_backend_type(forceVec_y)
-    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    # petscForce_x = fe.as_backend_type(forceVec_x)
+    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    # petscForce_y = fe.as_backend_type(forceVec_y)
+    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
     projectForceTimeEnd = time.time()
     #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
     
@@ -738,27 +740,50 @@ for n in range(num_steps):
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
     
+    # mass_n = fe.assemble(phi_n*fe.dx) 
+    # mass_nP1 = fe.assemble(phi_nP1*fe.dx)
+    # mass_diff.assign( ( mass_nP1 - mass_n ) )
+    
+    # print("mass_n = ", mass_n)
+    # print("mass_nP1 = ", mass_nP1)
+    # print("mass_diff = ", mass_diff.values()[0])
+    
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
     
-    mass_n = fe.assemble(phi_n*fe.dx)
+    mass_n = fe.assemble( (phi_n+1)/2*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
+    
+
     
 
     distr_dict = {}
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
-    if 1 == 1:
-        if n % 10000== 0:  # plot every 10 steps
+    if n < 40000000:
+        if n % 100== 0:  # plot every 10 steps
             print("n = ", n)
+            
+            
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
             iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time)
+            print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             #mu_file.write(mu_n, t)
             
+
+            
+            #print("mass_n = ", mass_nP1)
+            massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
+            print("phi max = ", np.max(phi_n.vector().get_local()))
+            print("phi min = ", np.min(phi_n.vector().get_local()))
+            print("mass_n = ", mass_n)
+            print("mass_diff = ", mass_diff.values()[0])
+            print("mass diff nonlin term = ", massDiffNonLinTerm.max())
+            
+            #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             total_mass = fe.assemble(phi_n*fe.dx)
             percent_mass_change = 100*float(mass_diff)/mass_init
             
@@ -770,25 +795,108 @@ for n in range(num_steps):
 
             # Compute nodal norms
             vel_norm = np.linalg.norm(vel_vec, axis=1)
+            
+            forceArr = np.column_stack([forceVals_x, forceVals_y])
+            
+            forceNorm = np.linalg.norm(forceArr)
+            
+            print("Force norm = ", forceNorm)
 
             # Maximum nodal value
             max_vel = vel_norm.max()
             print("umax = ", max_vel)
-            # for idx in range(Q):
-            #     f_vec = f_n[idx].vector().get_local()
-            #     min_index = np.argmin(f_vec)
-            #     min_value = f_vec[min_index]
+            for idx in range(Q):
+                f_vec = f_n[idx].vector().get_local()
+                min_index = np.argmin(f_vec)
+                min_value = f_vec[min_index]
                 
-            #     dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
-            #     min_coord = tuple(dof_coords[min_index])
+                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+                min_coord = tuple(dof_coords[min_index])
                 
-            #     distr_dict[min_coord] = min_value
+                distr_dict[min_coord] = min_value
                 
-            min_coord = (1,1)#min(distr_dict, key=distr_dict.get)
-            min_distr = 1#distr_dict[min_coord]
+            min_coord = min(distr_dict, key=distr_dict.get)
+            min_distr = distr_dict[min_coord]
             
-            # rho_expr = sum(fk for fk in f_n)
-            # fe.project(rho_expr, V, function=rho_fn)
+            rho_expr = sum(fk for fk in f_n)
+            fe.project(rho_expr, V, function=rho_fn)
+            
+            rho_vals = rho_fn.vector().get_local()
+            print("max density is", np.max(rho_vals))
+            print("min density is", np.min(rho_vals))
+
+            LB_mass = fe.assemble(rho_fn*fe.dx)
+            
+            theta_avg = 1#computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+                
+            #print("theta = ", theta_avg, "\n\n", flush=True)
+
+            log_file.write(f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.6e}"
+                            f"{theta_avg:15.2f}"
+                           f"{min_distr:15.3f}"
+                           f"{min_coord[0]:15.2f}"
+                           f"{min_coord[1]:15.2f}"
+                           f"{LB_mass:15.3f} \n")
+            log_file.flush()
+    elif 1 >= 4000:
+        if n % 50 == 0: 
+            print("n = ", n)
+            vel_expr = getVel(f_n, force_density)
+            fe.project(vel_expr, Vvec, function=vel_n)
+            iteration_time = time.time()
+            print("time elapsed ", iteration_time - start_time, "\n")
+            phi_file.write(phi_n, t)
+            vel_file.write(vel_n, t)
+            #mu_file.write(mu_n, t)
+            
+            print("mass_n = ", mass_n)
+            massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
+            print("phi max = ", np.max(phi_n.vector().get_local()))
+            print("phi min = ", np.min(phi_n.vector().get_local()))
+            print("mass diff = ", mass_diff.values()[0])
+            print("mass diff nonlin term = ", massDiffNonLinTerm.max())
+            total_mass = fe.assemble(phi_n*fe.dx)
+            percent_mass_change = 100*float(mass_diff)/mass_init
+            #print("mass diff = ", np.linalg.norm(mass_diff.vector().get_local()))
+            
+            # Determine spatial dimension
+            dim = vel_n.geometric_dimension()
+            vel_vec = vel_n.vector().get_local()
+            # Reshape to (num_nodes, dim)
+            vel_vec = vel_vec.reshape((-1, dim))
+
+            # Compute nodal norms
+            vel_norm = np.linalg.norm(vel_vec, axis=1)
+            
+            forceArr = np.column_stack([forceVals_x, forceVals_y])
+            
+            forceNorm = np.linalg.norm(forceArr)
+            
+            print("Force norm = ", forceNorm)
+
+            # Maximum nodal value
+            max_vel = vel_norm.max()
+            print("umax = ", max_vel)
+            for idx in range(Q):
+                f_vec = f_n[idx].vector().get_local()
+                min_index = np.argmin(f_vec)
+                min_value = f_vec[min_index]
+                
+                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+                min_coord = tuple(dof_coords[min_index])
+                
+                distr_dict[min_coord] = min_value
+                
+            min_coord = min(distr_dict, key=distr_dict.get)
+            min_distr = distr_dict[min_coord]
+            
+            rho_expr = sum(fk for fk in f_n)
+            fe.project(rho_expr, V, function=rho_fn)
+            
+            rho_vals = rho_fn.vector().get_local()
+            print("max density is", np.max(rho_vals))
+            print("min density is", np.min(rho_vals))
 
             LB_mass = fe.assemble(rho_fn*fe.dx)
             
@@ -798,13 +906,13 @@ for n in range(num_steps):
 
             log_file.write(f"{percent_mass_change:15.3f}"
                             f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}\n")
+                            f"{theta_avg:15.2f}"
+                           f"{min_distr:15.3f}"
+                           f"{min_coord[0]:15.2f}"
+                           f"{min_coord[1]:15.2f}"
+                           f"{LB_mass:15.3f} \n")
             log_file.flush()
-            #                f"{min_distr:15.3f}"
-            #                f"{min_coord[0]:15.2f}"
-            #                f"{min_coord[1]:15.2f}"
-            #                f"{LB_mass:15.3f} \n")
-            # log_file.flush()
+            
 
 if rank == 0:
     log_file.close()
