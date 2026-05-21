@@ -6,6 +6,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
+import shutil
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -17,22 +18,21 @@ plt.close('all')
 # Where to save the plots
 
 
-T = 1500
-CFL = 0.2
-R0 = 2
+T = 300
+R0 = 25
 initDropDiam = 2*R0
-L_x = 2.5*initDropDiam
-L_y = 0.6*initDropDiam
-nx = 80
-ny = 60
+L_x = 200
+L_y = 50
+nx = 200
+ny = 50
 h = min(L_x/nx, L_y/ny)
-dt = h*CFL / 100
+dt = 0.00001
 num_steps = int(np.ceil(T/dt))
 
-beta_mass_diff = 0.00000001
+beta_mass_diff = 0.0000001
 Pe = 0.1275
 Re = 0.1
-Cn = 0.05
+Cn = 0.025
 We = 1
 
 # Lattice speed of sound
@@ -44,19 +44,21 @@ rho_h = 1
 rho_l = 1
 
 # Relaxation times for heavier and lighter phases
-tau_h = 1
-tau_l = 1
+tau_h = 0.6
+tau_l = 0.6
 
 theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "LBAC_CA30_remove_vel_projection") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "test") #f"figures_CA{theta_deg}")
+if os.path.exists(outDirName):
+    shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
 
-xc, yc = L_x/2, initDropDiam/2 - 2
+xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -363,7 +365,7 @@ lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, phi_n), fe.grad(phi_n)
 
 lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
     + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-       - (Cn/(np.sqrt(2)) )*np.cos(theta)*(1 - phi_n**2)*v*ds_bottom  )
+        + (1/np.sqrt(2)*Cn)*np.cos(theta)*(phi_n**2 -1)*v*ds_bottom  )
 
 for idx in range(Q):
 
@@ -435,14 +437,24 @@ mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
 
-# outfile = fe.XDMFFile(comm, f"{outDirName}/solution.xdmf")
-# outfile.parameters["flush_output"] = True
-# outfile.parameters["functions_share_mesh"] = True
-# outfile.parameters["rewrite_function_mesh"] = False
+phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
+phi_file.parameters["flush_output"] = True
+phi_file.parameters["functions_share_mesh"] = True
+phi_file.parameters["rewrite_function_mesh"] = False
+
+# mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
+# mu_file.parameters["flush_output"] = True
+# mu_file.parameters["functions_share_mesh"] = True
+# mu_file.parameters["rewrite_function_mesh"] = False
+
+vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
+vel_file.parameters["flush_output"] = True
+vel_file.parameters["functions_share_mesh"] = True
+vel_file.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
-mass_init = fe.assemble(phi_n*fe.dx)
+mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
     t += dt
     
@@ -468,7 +480,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - 1/(tau_vec+0.5) * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - 1/(tau_vec) * (f_n_vec - f_eq_vec)
     
         # f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
@@ -490,12 +502,12 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_lower_func.vector()[:] = f_star[7].vector()[:]
-    f2_lower_func.vector()[:] = f_star[4].vector()[:]
-    f6_lower_func.vector()[:] = f_star[8].vector()[:]
-    f7_upper_func.vector()[:] = f_star[5].vector()[:]
-    f4_upper_func.vector()[:] = f_star[2].vector()[:]
-    f8_upper_func.vector()[:] = f_star[6].vector()[:]
+    f5_lower_func.assign(f_star[7])
+    f2_lower_func.assign( f_star[4] )
+    f6_lower_func.assign( f_star[8] )
+    f7_upper_func.assign( f_star[5] )
+    f4_upper_func.assign( f_star[2] )
+    f8_upper_func.assign( f_star[6] )
 
     # # Apply BCs for distribution functions 5, 2, and 6
     bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
@@ -523,16 +535,16 @@ for n in range(num_steps):
     
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
-    mass_n = fe.assemble(phi_n*fe.dx)
+    mass_n = fe.assemble( (phi_n+1)/2*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
         if n % 10 == 0:  # plot every 10 steps
-
+            phi_file.write(phi_n, t)
+            vel_file.write(vel_n, t)
             print("n = ", n)
-            total_mass = fe.assemble(phi_n*fe.dx)
-            print("total mass = ", total_mass, flush=True)
+            print("total mass = ", mass_n, flush=True)
             #outfile.write(phi_n, t)
             print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 

@@ -208,7 +208,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"compareToStdLB")
+outDirName = os.path.join(WORKDIR, f"test")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -611,6 +611,12 @@ t = 0.0
 forceVals_x = []
 forceVals_y = []
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
+
+dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
+wall_dofs = np.where(
+    (np.abs(dof_coords[:, 1]) < 1e-10) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+)[0]
 for n in range(num_steps):
     t += dt
     
@@ -651,6 +657,8 @@ for n in range(num_steps):
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    ux[wall_dofs] = 0.0
+    uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
@@ -669,7 +677,7 @@ for n in range(num_steps):
     )
     
 
-    f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - (dt/(tau+0.5))*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
@@ -764,7 +772,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 10== 0:  # plot every 10 steps
+        if n % 10 == 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -773,7 +781,7 @@ for n in range(num_steps):
             iteration_time = time.time()
             print("time elapsed ", iteration_time - start_time)
             phi_file.write(phi_n, t)
-            vel_file.write(vel_star, t)
+            vel_file.write(vel_n, t)
             #mu_file.write(mu_n, t)
             
 
