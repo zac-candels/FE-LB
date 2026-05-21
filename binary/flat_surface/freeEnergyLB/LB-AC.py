@@ -26,15 +26,16 @@ L_y = 50
 nx = 200
 ny = 50
 h = min(L_x/nx, L_y/ny)
-dt = 0.00001
+dt = 0.001
 num_steps = int(np.ceil(T/dt))
 
 beta_mass_diff = 0.0000001
 Pe = 0.1275
 Re = 0.1
-Cn = 0.025
+Cn_param = 0.025
 We = 1
 
+Cn = initDropDiam * Cn_param
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 c_s2 = 1/3
@@ -168,6 +169,11 @@ def f_equil_init(vel_idx):
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
+dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
+wall_dofs = np.where(
+    (np.abs(dof_coords[:, 1]) < 1e-10) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+)[0]
 def f_equil(f_list, phi, idx):
     """
     Compute equilibrium distribution for direction idx
@@ -188,8 +194,10 @@ def f_equil(f_list, phi, idx):
     density_vec = density_fn.vector().get_local()
 
     # Compute velocity at each DoF
-    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / c_s**2
-    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / c_s**2
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / (density_vec*c_s**2)
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / (density_vec*c_s**2)
+    ux_vec[wall_dofs] = 0.0
+    uy_vec[wall_dofs] = 0.0
 
     u2 = ux_vec**2 + uy_vec**2
 
@@ -416,15 +424,15 @@ for idx in range(Q):
     A = sys_mat[idx]
 
     # Create CG solver
-    solver = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver = fe.LUSolver("mumps")  # use ILU preconditioner
     solver.set_operator(A)
 
     # Optional: set solver parameters
-    prm = solver.parameters
-    prm["absolute_tolerance"] = 1e-12
-    prm["relative_tolerance"] = 1e-8
-    prm["maximum_iterations"] = 1000
-    prm["nonzero_initial_guess"] = False
+    # prm = solver.parameters
+    # prm["absolute_tolerance"] = 1e-12
+    # prm["relative_tolerance"] = 1e-8
+    # prm["maximum_iterations"] = 1000
+    # prm["nonzero_initial_guess"] = False
 
     solver_list.append(solver)
 
@@ -480,7 +488,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - 1/(tau_vec) * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - dt/(tau_vec) * (f_n_vec - f_eq_vec)
     
         # f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
