@@ -208,7 +208,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"compareToStdLB")
+outDirName = os.path.join(WORKDIR, f"velocityForceCorrection")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -671,6 +671,8 @@ for n in range(num_steps):
 
     f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
@@ -773,7 +775,7 @@ for n in range(num_steps):
             iteration_time = time.time()
             print("time elapsed ", iteration_time - start_time)
             phi_file.write(phi_n, t)
-            vel_file.write(vel_star, t)
+            vel_file.write(vel_n, t)
             #mu_file.write(mu_n, t)
             
 

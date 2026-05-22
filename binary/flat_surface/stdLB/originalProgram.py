@@ -90,36 +90,19 @@ L_x = 200
 L_y = 50
 nx = 200
 ny = 50
-h = min(L_x/nx, L_y/ny)
-
-beta_mass_diff = 0.000001
 
 
-# param_file = sys.argv[1]
+surface_amplitude = 0.0 
+surface_freq = L_x/(8*np.pi)
 
-# params = {}
 
-# with open(param_file, "r") as f:
-#     for line in f:
-#         line = line.strip()
-#         if line == "" or line.startswith("#"):
-#             continue
-#         key, value = line.split("=")
-#         params[key.strip()] = float(value.strip())
 
-# Re = params["Re"]
-# Pe = params["Pe"]
-# We = params["We"]
-# Cn_param = params["Cn_param"]
-# theta_deg = params["theta_deg"]
-
-Pe = 0.1275 
-We = 2
+Re = 1
+Pe = 0.1275
+We = 1
 Cn_param=  0.025
 theta_deg = 30
-dt = 0.001 #Cn_param*Pe*h**2
-beta_mass_diff =0.00001
-num_steps = int(np.ceil(T/dt))
+
 
 Cn = initDropDiam * Cn_param
 
@@ -132,11 +115,11 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "testOriginal") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "FixedStreamingRHS") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
-tau = 0.6
+tau = 1
 xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
@@ -163,6 +146,11 @@ w = np.array([
 # Set up domain. For simplicity, do unit square mesh.
 
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
+
+h = mesh.hmin()
+dt = 0.001  # 1*Cn_param*Pe*h**2
+beta_mass_diff = 0.00001
+num_steps = int(np.ceil(T/dt))
 
 # Set periodic boundary conditions at left and right endpoints
 
@@ -195,9 +183,10 @@ f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
-vel_n = fe.Function(Vvec)
+Vvec_continuous = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+Vvec_discontinuous = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+vel_cont = fe.Function(Vvec_continuous)
+vel_dis = fe.Function(Vvec_discontinuous)
 mu_n = fe.Function(V)
 rho_fn = fe.Function(V)
 
@@ -217,7 +206,7 @@ f_star = []
 for idx in range(Q):
     f_star.append(fe.Function(V))
 
-force_fn = fe.Function(V_vec)
+force_fn = fe.Function(Vvec_continuous)
 
 
 
@@ -267,18 +256,29 @@ xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 def f_equil(f_list, vel_idx, force_density):
 
     rho = getDens(f_list)
-    u   = getVel(f_list, force_density)    
-    ci       = xi[vel_idx]
+
+    u_raw = getVel(f_list, force_density)
+
+    x = fe.SpatialCoordinate(mesh)
+
+    delta = 2*h   # thickness of no-slip layer
+
+    u = fe.conditional(
+        fe.lt(x[1], delta),
+        fe.Constant((0.0, 0.0)),
+        u_raw
+    )
+
+    ci = xi[vel_idx]
+
     cu = fe.dot(ci, u)
     u2 = fe.dot(u, u)
 
-    feq = w[vel_idx] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-
-    
+    feq = w[vel_idx] * rho * (
+        1 + 3*cu + 4.5*cu**2 - 1.5*u2
+    )
 
     return feq
-
-    
 
 def body_Force(vel, vel_idx, force_density):
     prefactor = w[vel_idx]
@@ -442,7 +442,7 @@ for idx in range(Q):
         * fe.dot(xi[idx], fe.grad(v)) * fe.dx
 
     dot_product_force_term = 0.5*dt**2 * fe.dot(xi[idx], fe.grad(v))\
-        * body_Force(getVel(f_n, force_density), idx, force_density) * fe.dx
+        * body_Force(getVel(f_star, force_density), idx, force_density) * fe.dx
         
 
     if idx in opp_idx:
@@ -543,10 +543,15 @@ phi_file.parameters["rewrite_function_mesh"] = False
 # mu_file.parameters["functions_share_mesh"] = True
 # mu_file.parameters["rewrite_function_mesh"] = False
 
-vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
-vel_file.parameters["flush_output"] = True
-vel_file.parameters["functions_share_mesh"] = True
-vel_file.parameters["rewrite_function_mesh"] = False
+vel_cont_file = fe.XDMFFile(comm, f"{outDirName}/velCont.xdmf")
+vel_cont_file.parameters["flush_output"] = True
+vel_cont_file.parameters["functions_share_mesh"] = True
+vel_cont_file.parameters["rewrite_function_mesh"] = False
+
+vel_dis_file = fe.XDMFFile(comm, f"{outDirName}/velDis.xdmf")
+vel_dis_file.parameters["flush_output"] = True
+vel_dis_file.parameters["functions_share_mesh"] = True
+vel_dis_file.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
@@ -613,7 +618,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 10== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
         
             print("n = ", n)
 
@@ -631,16 +636,17 @@ for n in range(num_steps):
             percent_mass_change = 100*float(mass_diff)/mass_init
 
             vel_expr = getVel(f_n, force_density)
-            fe.project(vel_expr, Vvec, function=vel_n)
+            fe.project(vel_expr, Vvec_continuous, function=vel_cont)
+            fe.project(vel_expr, Vvec_discontinuous, function=vel_dis)
 
-            vel_vec = vel_n.vector().get_local()
+            vel_vec = vel_cont.vector().get_local()
 
-            fe.project(force_density, V_vec, function=force_fn)
+            fe.project(force_density, Vvec_continuous, function=force_fn)
 
             #force_file.write(force_fn, t)
 
             # Determine spatial dimension
-            dim = vel_n.geometric_dimension()
+            dim = vel_cont.geometric_dimension()
 
             # Reshape to (num_nodes, dim)
             vel_vec = vel_vec.reshape((-1, dim))
@@ -751,7 +757,8 @@ for n in range(num_steps):
             # plt.close()
             
             phi_file.write(phi_n, t)
-            vel_file.write(vel_n, t)
+            vel_cont_file.write(vel_cont, t)
+            vel_dis_file.write(vel_dis, t)
             # mu_file.write(mu_n, t)
 
 if rank == 0:
