@@ -99,7 +99,7 @@ surface_freq = L_x/(8*np.pi)
 
 Re = 1
 Pe = 0.1275
-We = 1
+We = 20
 Cn_param=  0.025
 theta_deg = 30
 
@@ -115,7 +115,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "FixedStreamingRHS") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "originalProgramModifyConstants") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -521,7 +521,7 @@ phi_solver.set_operator(phi_mat)
 mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
-if rank == 0:
+if 1==1:
     log_file = open(outDirName + "/simulation_log.txt", "w")
     log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"

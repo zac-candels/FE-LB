@@ -177,12 +177,12 @@ lamd = 1/6
 
 
 T = 300
-R0 = 2
+R0 = 25
 initDropDiam = 2*R0
-L_x = 8*R0
-L_y = 4*R0
-nx = 80
-ny = 40
+L_x = 200
+L_y = 50
+nx = 200
+ny = 50
 
 
 surface_amplitude = 0.0 
@@ -192,8 +192,8 @@ surface_freq = L_x/(8*np.pi)
 
 Re = 1
 Pe = 0.1275
-We = 2
-Cn_param=  0.05
+We = 20
+Cn_param=  0.025
 theta_deg = 30
 
 
@@ -208,7 +208,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"test")
+outDirName = os.path.join(WORKDIR, f"testLumping")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -263,6 +263,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 
 h = mesh.hmin()
 dt = 1*Cn_param*Pe*h**2
+dt = 0.01
 beta_mass_diff =  0.00001
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
@@ -657,17 +658,19 @@ for n in range(num_steps):
     u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
     ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
     
-    force_term = (
-    (1/c_s**2) * ck_dot_F
-    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
-    + (1/c_s**2) * u_dot_F[None, :]
-    )
+    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term *= w[:, None]
+    force_term = w[:, None] * (
+          ck_dot_F / c_s**2
+        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
+        - u_dot_F[None, :] / c_s**2        # ← minus sign
+    )
     
 
     f_star_np = f_vals - Re*c_s2*dt*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
