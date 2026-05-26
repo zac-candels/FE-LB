@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, "/home/zcandels/FE-LB")
 import fenics as fe
 import os
 import numpy as np
@@ -5,11 +7,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as tri
-import time
-import sys 
+import time 
 import mshr
 import shutil
 from scipy      import optimize
+import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -830,9 +832,11 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_fn*fe.dx)
             
-            theta_avg = 1#computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, Cn, mesh)
                 
-            #print("theta = ", theta_avg, "\n\n", flush=True)
+            print("theta avg = ", theta_avg, flush=True)
+            print("theta geom = ", theta_geom, "\n\n", flush=True)
 
             log_file.write(f"{percent_mass_change:15.3f}"
                             f"{max_vel:15.6e}"
@@ -903,9 +907,12 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_fn*fe.dx)
             
-            theta_avg = computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+            #theta_avg = computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
+            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, Cn, mesh)
                 
-            print("theta = ", theta_avg, "\n\n", flush=True)
+            print("theta avg = ", theta_avg, flush=True)
+            print("theta geom = ", theta_geom, "\n\n", flush=True)
 
             log_file.write(f"{percent_mass_change:15.3f}"
                             f"{max_vel:15.6e}"
