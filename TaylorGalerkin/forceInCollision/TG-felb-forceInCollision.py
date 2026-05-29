@@ -25,15 +25,15 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 10
-ny = 10
+nx = 20
+ny = 20
 h = L_x/nx
 
 Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"block_lumped")
+outDirName = os.path.join(WORKDIR, f"fixedForceTerm")
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -410,7 +410,7 @@ for n in range(num_steps):
     force_term = (
     (1/c_s**2) * ck_dot_F
     + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
-    + (1/c_s**2) * u_dot_F[None, :]
+    - (1/c_s**2) * u_dot_F[None, :]
     )
 
     force_term *= w[:, None]

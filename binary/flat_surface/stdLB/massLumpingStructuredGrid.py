@@ -179,12 +179,12 @@ lamd = 1/6
 
 
 T = 300
-R0 = 25
+R0 = 2
 initDropDiam = 2*R0
-L_x = 200
-L_y = 50
-nx = 200
-ny = 50
+L_x = 8*R0
+L_y = 4*R0
+nx = 80
+ny = 40
 
 
 surface_amplitude = 0.0 
@@ -210,7 +210,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"testLumping")
+outDirName = os.path.join(WORKDIR, f"writePressure")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -265,7 +265,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 
 h = mesh.hmin()
 dt = 1*Cn_param*Pe*h**2
-dt = 0.01
+dt = 0.001
 beta_mass_diff =  0.00001
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
@@ -303,7 +303,7 @@ Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 vel_star = fe.Function(Vvec)
 vel_n = fe.Function(Vvec)
 mu_n = fe.Function(V)
-rho_fn = fe.Function(V)
+rho_n = fe.Function(V)
 forceDensity_x = fe.Function(V)
 forceDensity_y = fe.Function(V)
 
@@ -586,6 +586,11 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
+pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
+pres_file.parameters["flush_output"] = True 
+pres_file.parameters["functions_share_mesh"] = True 
+pres_file.parameters["rewrite_function_mesh"] = False
+
 # # Apply BCs for upSlope boundary
 # bc_f5_upSlope.apply(sys_mat[5])
 # bc_f2_upSlope.apply(sys_mat[2])
@@ -770,12 +775,16 @@ for n in range(num_steps):
             print("n = ", n)
             
             
+            rho_expr = getDens(f_n)
+            fe.project(rho_expr, V, function=rho_n)
+            
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
             iteration_time = time.time()
             print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
+            pres_file.write(rho_n, t)
             #mu_file.write(mu_n, t)
             
 
@@ -823,91 +832,12 @@ for n in range(num_steps):
             min_coord = min(distr_dict, key=distr_dict.get)
             min_distr = distr_dict[min_coord]
             
-            rho_expr = sum(fk for fk in f_n)
-            fe.project(rho_expr, V, function=rho_fn)
-            
-            rho_vals = rho_fn.vector().get_local()
+            rho_vals = rho_n.vector().get_local()
             print("max density is", np.max(rho_vals))
             print("min density is", np.min(rho_vals))
 
-            LB_mass = fe.assemble(rho_fn*fe.dx)
+            LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, Cn, mesh)
-                
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
-
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
-    elif 1 >= 4000:
-        if n % 50 == 0: 
-            print("n = ", n)
-            vel_expr = getVel(f_n, force_density)
-            fe.project(vel_expr, Vvec, function=vel_n)
-            iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
-            phi_file.write(phi_n, t)
-            vel_file.write(vel_n, t)
-            #mu_file.write(mu_n, t)
-            
-            print("mass_n = ", mass_n)
-            massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
-            print("mass diff = ", mass_diff.values()[0])
-            print("mass diff nonlin term = ", massDiffNonLinTerm.max())
-            total_mass = fe.assemble(phi_n*fe.dx)
-            percent_mass_change = 100*float(mass_diff)/mass_init
-            #print("mass diff = ", np.linalg.norm(mass_diff.vector().get_local()))
-            
-            # Determine spatial dimension
-            dim = vel_n.geometric_dimension()
-            vel_vec = vel_n.vector().get_local()
-            # Reshape to (num_nodes, dim)
-            vel_vec = vel_vec.reshape((-1, dim))
-
-            # Compute nodal norms
-            vel_norm = np.linalg.norm(vel_vec, axis=1)
-            
-            forceArr = np.column_stack([forceVals_x, forceVals_y])
-            
-            forceNorm = np.linalg.norm(forceArr)
-            
-            print("Force norm = ", forceNorm)
-
-            # Maximum nodal value
-            max_vel = vel_norm.max()
-            print("umax = ", max_vel)
-            for idx in range(Q):
-                f_vec = f_n[idx].vector().get_local()
-                min_index = np.argmin(f_vec)
-                min_value = f_vec[min_index]
-                
-                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
-                min_coord = tuple(dof_coords[min_index])
-                
-                distr_dict[min_coord] = min_value
-                
-            min_coord = min(distr_dict, key=distr_dict.get)
-            min_distr = distr_dict[min_coord]
-            
-            rho_expr = sum(fk for fk in f_n)
-            fe.project(rho_expr, V, function=rho_fn)
-            
-            rho_vals = rho_fn.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
-
-            LB_mass = fe.assemble(rho_fn*fe.dx)
-            
-            #theta_avg = computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
             theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
             theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, Cn, mesh)
                 

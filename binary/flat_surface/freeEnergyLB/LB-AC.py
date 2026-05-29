@@ -19,21 +19,17 @@ plt.close('all')
 
 
 T = 300
-R0 = 25
+R0 = 2
 initDropDiam = 2*R0
-L_x = 200
-L_y = 50
-nx = 200
-ny = 50
-h = min(L_x/nx, L_y/ny)
-dt = 0.001
-num_steps = int(np.ceil(T/dt))
+L_x = 8*R0
+L_y = 4*R0
+nx = 80
+ny = 40
 
-beta_mass_diff = 0.0000001
 Pe = 0.1275
-Re = 0.1
-Cn_param = 0.025
-We = 1
+Re = 1
+Cn_param = 0.05
+We = 2
 
 Cn = initDropDiam * Cn_param
 # Lattice speed of sound
@@ -45,14 +41,14 @@ rho_h = 1
 rho_l = 1
 
 # Relaxation times for heavier and lighter phases
-tau_h = 0.6
-tau_l = 0.6
+tau_h = 1
+tau_l = 1
 
 theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "test") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "test1") #f"figures_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -88,6 +84,11 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 
 # Set periodic boundary conditions at left and right endpoints
 
+h = mesh.hmin()
+dt = 0.1*Cn_param*Pe*h**2
+#dt = 0.00001
+beta_mass_diff = 0.1*dt
+num_steps = int(np.ceil(T/dt))
 
 class PeriodicBoundaryX(fe.SubDomain):
     def inside(self, point, on_boundary):
@@ -196,8 +197,8 @@ def f_equil(f_list, phi, idx):
     # Compute velocity at each DoF
     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / (density_vec*c_s**2)
     uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / (density_vec*c_s**2)
-    ux_vec[wall_dofs] = 0.0
-    uy_vec[wall_dofs] = 0.0
+    # ux_vec[wall_dofs] = 0.0
+    # uy_vec[wall_dofs] = 0.0
 
     u2 = ux_vec**2 + uy_vec**2
 

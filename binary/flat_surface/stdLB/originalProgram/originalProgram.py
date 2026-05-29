@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
 import sys 
+#import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -84,12 +85,12 @@ def computeContactAngle(c_n, h, Cn, mesh):
 
 
 T = 300
-R0 = 25
+R0 = 2
 initDropDiam = 2*R0
-L_x = 200
-L_y = 50
-nx = 200
-ny = 50
+L_x = 8*R0
+L_y = 4*R0
+nx = 80
+ny = 40
 
 
 surface_amplitude = 0.0 
@@ -99,8 +100,8 @@ surface_freq = L_x/(8*np.pi)
 
 Re = 1
 Pe = 0.1275
-We = 20
-Cn_param=  0.025
+We = 10000
+Cn_param=  0.05
 theta_deg = 30
 
 
@@ -115,7 +116,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "originalProgramModifyConstants") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "We10000") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -148,8 +149,9 @@ w = np.array([
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 h = mesh.hmin()
-dt = 0.001  # 1*Cn_param*Pe*h**2
-beta_mass_diff = 0.00001
+dt = 0.1*Cn_param*Pe*h**2
+#dt = 0.00001
+beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
 
 # Set periodic boundary conditions at left and right endpoints
@@ -188,7 +190,7 @@ Vvec_discontinuous = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pb
 vel_cont = fe.Function(Vvec_continuous)
 vel_dis = fe.Function(Vvec_discontinuous)
 mu_n = fe.Function(V)
-rho_fn = fe.Function(V)
+rho_n = fe.Function(V)
 
 v = fe.TestFunction(V)
 q = fe.TestFunction(V)
@@ -297,7 +299,7 @@ def body_Force(vel, vel_idx, force_density):
     return Force
 
 
-force_density = -(1/We)*phi_n * fe.grad(mu_n)
+force_density = (1/We)*mu_n * fe.grad(phi_n)
 
 
 # # Initialize distribution functions. We will use
@@ -431,7 +433,7 @@ lin_form_AC = phi_n * q * fe.dx - dt*q*fe.dot(getVel(f_n, force_density), fe.gra
 
 lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*r*fe.dx\
     + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(r))*fe.dx\
-        + (1/np.sqrt(2)*Cn)*np.cos(theta)*(phi_n**2 -1)*v*ds_bottom  )
+        + (1/np.sqrt(2)*Cn)*np.cos(theta)*(phi_n**2 -1)*r*ds_bottom  )
 
 for idx in range(Q):
 
@@ -455,7 +457,7 @@ for idx in range(Q):
                                    fe.Constant(0.0))
 
         # build surface term only for incoming distributions
-        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_n[opp_idx[idx]])) \
+        surface_term = 0.5*dt**2 * v * fe.dot(xi[idx], fe.grad(f_star[opp_idx[idx]])) \
             * dot_xi_n * indicator * fe.ds
     else:
         # no surface contribution for this idx
@@ -467,7 +469,7 @@ for idx in range(Q):
         + double_dot_product_term\
         + dot_product_force_term
         
-    lin_form_coll = (f_n[idx] - dt/tau * (f_n[idx] - f_equil(f_n, idx, force_density)) )*v*fe.dx
+    lin_form_coll = (f_n[idx] - dt/(tau ) * (f_n[idx] - f_equil(f_n, idx, force_density)) )*v*fe.dx
 
     linear_forms_stream.append(lin_form_idx)
     linear_forms_collision.append(lin_form_coll)
@@ -490,26 +492,26 @@ for idx in range(Q):
     A2 = sys_mat2[idx]
 
     # Create CG solver
-    solver = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver = fe.LUSolver("mumps")  # use ILU preconditioner
     solver.set_operator(A)
     
-    solver2 = fe.KrylovSolver("cg", "hypre_amg")  # use ILU preconditioner
+    solver2 = fe.LUSolver("mumps")  # use ILU preconditioner
     solver2.set_operator(A2)
 
     # Optional: set solver parameters
     prm = solver.parameters
-    prm["absolute_tolerance"] = 1e-12
-    prm["relative_tolerance"] = 1e-8
-    prm["maximum_iterations"] = 1000
-    prm["nonzero_initial_guess"] = False
+    # prm["absolute_tolerance"] = 1e-12
+    # prm["relative_tolerance"] = 1e-8
+    # prm["maximum_iterations"] = 1000
+    # prm["nonzero_initial_guess"] = False
 
     solver_list.append(solver)
     
-    prm2 = solver2.parameters
-    prm2["absolute_tolerance"] = 1e-12
-    prm2["relative_tolerance"] = 1e-8
-    prm2["maximum_iterations"] = 1000
-    prm2["nonzero_initial_guess"] = False
+    # prm2 = solver2.parameters
+    # prm2["absolute_tolerance"] = 1e-12
+    # prm2["relative_tolerance"] = 1e-8
+    # prm2["maximum_iterations"] = 1000
+    # prm2["nonzero_initial_guess"] = False
 
     solver_list2.append(solver2)
 
@@ -552,6 +554,11 @@ vel_dis_file = fe.XDMFFile(comm, f"{outDirName}/velDis.xdmf")
 vel_dis_file.parameters["flush_output"] = True
 vel_dis_file.parameters["functions_share_mesh"] = True
 vel_dis_file.parameters["rewrite_function_mesh"] = False
+
+pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
+pres_file.parameters["flush_output"] = True 
+pres_file.parameters["functions_share_mesh"] = True 
+pres_file.parameters["rewrite_function_mesh"] = False
 
 # Timestepping
 t = 0.0
@@ -623,9 +630,9 @@ for n in range(num_steps):
             print("n = ", n)
 
             rho_expr = sum(fk for fk in f_n)
-            fe.project(rho_expr, V, function=rho_fn)
+            fe.project(rho_expr, V, function=rho_n)
 
-            LB_mass = fe.assemble(rho_fn*fe.dx)
+            LB_mass = fe.assemble(rho_n*fe.dx)
             
 
             total_mass = fe.assemble(phi_n*fe.dx)
@@ -759,6 +766,7 @@ for n in range(num_steps):
             phi_file.write(phi_n, t)
             vel_cont_file.write(vel_cont, t)
             vel_dis_file.write(vel_dis, t)
+            pres_file.write(rho_n, t)
             # mu_file.write(mu_n, t)
 
 if rank == 0:
