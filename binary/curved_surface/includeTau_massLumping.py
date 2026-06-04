@@ -58,7 +58,7 @@ def computeContactAngle(c_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if -0.5 < value < 0.5}
+        if -0.25 < value < 0.25}
     
     # Determine left-most interfacial point
     min_x = min(coord[0] for coord in nodal_dict.keys())
@@ -111,14 +111,11 @@ ny = 30
 surface_amplitude = 0.5 
 surface_freq = L_x/(8*np.pi)
 
-beta_mass_diff = 0.000001
-
 
 Pe = 0.1275 
 We = 2
 Cn_param=  0.05
 theta_deg = 30
-
 
 Cn = initDropDiam * Cn_param
 
@@ -131,7 +128,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"massLumpingCA60")
+outDirName = os.path.join(WORKDIR, f"CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -186,7 +183,8 @@ if rank == 0:
 mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = (0.1)*Cn_param*Pe*h**2
+dt = Cn_param*Pe*h**2
+beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -592,7 +590,7 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
 t = 0.0
 forceVals_x = []
 forceVals_y = []
-mass_init = fe.assemble(phi_n*fe.dx)
+mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
     t += dt
     
@@ -642,13 +640,13 @@ for n in range(num_steps):
     u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
     ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
     
-    force_term = (
-    (1/c_s**2) * ck_dot_F
-    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
-    + (1/c_s**2) * u_dot_F[None, :]
-    )
+    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term *= w[:, None]
+    force_term = w[:, None] * (
+          ck_dot_F / c_s**2
+        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
+        - u_dot_F[None, :] / c_s**2        # ← minus sign
+    )
     
 
     f_star_np = f_vals - (dt/tau)*(f_vals - feq) + dt*force_term
@@ -756,7 +754,7 @@ for n in range(num_steps):
     phi_n.assign(phi_nP1)
     mu_n.assign(mu_nP1)
     
-    mass_n = fe.assemble(phi_n*fe.dx)
+    mass_n = fe.assemble( (phi_n+1)/2*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
     
 
@@ -764,7 +762,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 10000== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)

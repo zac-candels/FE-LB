@@ -24,153 +24,6 @@ plt.close('all')
 
 fe.parameters["form_compiler"]["optimize"] = True
 fe.parameters["form_compiler"]["cpp_optimize"] = True
-
-def calc_R(xc, yc, x_coords, y_coords):
-    #calculate the distance of each 2D points from the center (xc, yc) 
-    return np.sqrt((x_coords-xc)**2 + (y_coords-yc)**2)
-
-def f_2(c):
-    #calculate the algebraic distance between the data points and the mean circle centered at c=(xc, yc) 
-    Ri = calc_R(*c)
-    return Ri - Ri.mean()
-
-def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
-    
-    V = c_n.function_space()
-    Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
-    grad_c_fn = fe.project(fe.grad(c_n), Vvec)
-    angles = []
-    n_vec = np.array([0.0, -1.0])
-    
-    barycenters = []
-    barycenter_vals = []
-    for cell in fe.cells(mesh):
-        
-        midpt = cell.midpoint().array()
-        midpt = tuple( (midpt[0], midpt[1]) )
-        barycenters.append( midpt )
-        barycenter_vals.append( c_n(midpt) )
-    
-    # Build dictionary
-    nodal_dict = {
-    tuple(coord): val
-    for coord, val in zip(barycenters, barycenter_vals)
-    }
-
-    
-    # Filter by y-coordinate
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if coord[1] < 1.5*h}
-    
-    # Filter by order parameter value
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if -0.3 < value < 0.3}
-    
-    # Determine left-most interfacial point
-    min_x = min(coord[0] for coord in nodal_dict.keys())
-
-    # Filter points so we get rid of points near right CL
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if coord[0] > min_x + 5*Cn}
-    
-    iter = 0
-    for coord, value in nodal_dict.items():
-        iter += 1
-        #print("coord is", coord)
-        grad_c = np.array(grad_c_fn(coord))
-        cos_theta = np.dot(grad_c, n_vec) / np.linalg.norm(grad_c)
-        angles.append( np.arccos(cos_theta))
-
-    #print("Averaged over ", iter, " points")
-        
-    theta_avg = np.mean(angles)
-    theta_avg = theta_avg * 180 / np.pi
-    
-    return theta_avg
-        
-def computeContactAngle_regression(c_n, mesh):
-    phi_vals = c_n.vector().get_local()
-    
-    V = c_n.function_space()
-    dof_coords = V.tabulate_dof_coordinates()
-    
-    x_coords = dof_coords[:,0]
-    y_coords = dof_coords[:,1]
-    
-    x_m = np.mean(x_coords)
-    y_m = np.mean(y_coords)
-    
-    center_estimate = x_m, y_m
-    
-    center_2, ier = optimize.leastsq(f_2, center_estimate)
-
-    x_c, y_c = center_2
-    Ri       = calc_R(*center_2)
-    Radius       = Ri.mean()
-    residu  = sum((Ri - Radius)**2)
-
-    y_min = min(y_coords)
-
-    tol = 1
-    hydrophilicity = ""
-    if y_min < y_c:
-        hydrophilicity = "Hydrophobic"
-    elif y_min > y_c:
-        hydrophilicity = "Hydrophilic"
-    elif abs(y_min - y_c) < tol:
-        hydrophilicity = "Neither"
-        
-
-    x_min = min(x_coords)
-    x_max = max(y_coords)
-    # Equation of circle fitted to the extracted droplet interface.
-    # 
-    x_fit = np.linspace(x_c - Radius**2, x_c + Radius**2, 5000000)
-    y_fit_top = y_c + np.sqrt(Radius**2 - (x_fit-x_c)**2)
-    y_fit_bottom = y_c + -np.sqrt(Radius**2 - (x_fit-x_c)**2)
-
-
-    x_fit = x_fit[~np.isnan(y_fit_top)]
-    y_fit_top = y_fit_top[~np.isnan(y_fit_top)]
-    y_fit_bottom = y_fit_bottom[~np.isnan(y_fit_bottom)]
-
-    circle_top = np.column_stack( [x_fit, y_fit_top] )
-    circle_bottom = np.column_stack( [x_fit, y_fit_bottom] )
-
-    circle_top = circle_top[~np.isnan(circle_top).any(axis=1)]
-    circle_bottom = circle_bottom[~np.isnan(circle_bottom).any(axis=1)]
-    x_fit = circle_bottom[:, 0]
-
-    closest_val_y = np.min(y_coords)
-
-    if hydrophilicity == "Hydrophilic": # ie \theta < 90
-        print("\n\n hydrophilic")
-        closest_val_x = - np.sqrt( Radius**2 - (closest_val_y - y_c)**2 ) + x_c
-        deriv = -(closest_val_x - x_c)/np.sqrt( Radius**2 - (closest_val_x - x_c)**2 )
-        CA_1 = 180*np.arctan(deriv)/np.pi
-    elif hydrophilicity == "Hydrophobic": # ie \theta > 90
-        print("\n\n hydrophobic")
-        closest_val_x = - np.sqrt( Radius**2 - (closest_val_y - y_c)**2 ) + x_c
-        deriv = (closest_val_x - x_c)/np.sqrt( Radius**2 - (closest_val_x - x_c)**2 )
-        CA_1 = 180 + 180*np.arctan(deriv)/np.pi
-    elif hydrophilicity == "Neither":
-        if abs(Radius**2 - (closest_val_x - x_c)**2) < 2*tol:
-            deriv = "undefined"
-            CA_1 = 90
-
-        
-    print("theta = ", CA_1)
-    
-    
-    
-    
-    return 
       
         
 epsT = 0.05
@@ -183,8 +36,8 @@ R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
 L_y = 4*R0
-nx = 80
-ny = 40
+nx = 160
+ny = 80
 
 
 surface_amplitude = 0.0 
@@ -194,10 +47,10 @@ surface_freq = L_x/(8*np.pi)
 
 Re = 1
 Pe = 0.1275
-We = 20
-Cn_param=  0.025
+forceMag = 0.001
+Cn_param=  0.05
 theta_deg = 30
-
+tau=0.001
 
 Cn = initDropDiam * Cn_param
 
@@ -210,11 +63,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"writePressure")
+outDirName = os.path.join(WORKDIR, f"suspendedSquareDroplet")
+if os.path.exists(outDirName):
+    shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
+xc, yc = L_x/2, L_y/2
 
 Q = 9
 # D2Q9 lattice velocities
@@ -264,9 +119,9 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 1*Cn_param*Pe*h**2
-dt = 0.001
-beta_mass_diff =  0.00001
+dt = 0.1*Cn_param*Pe*h**2
+#dt = 0.0001
+beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -297,19 +152,20 @@ f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
-V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-Vvec = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
+V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(Vvec)
-vel_n = fe.Function(Vvec)
+vel_star = fe.Function(V_dis)
+vel_cont = fe.Function(V_cont)
+vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
 rho_n = fe.Function(V)
 forceDensity_x = fe.Function(V)
 forceDensity_y = fe.Function(V)
 
 v = fe.TestFunction(V)
-v_vec = fe.TestFunction(V_vec)
-trial_vec = fe.TrialFunction(V_vec)
+v_vec = fe.TestFunction(V_cont)
+trial_vec = fe.TrialFunction(V_cont)
 
 # Define FE functions to hold post-streaming solution at nP1 timesteps
 f_nP1 = []
@@ -323,7 +179,7 @@ f_star = []
 for idx in range(Q):
     f_star.append(fe.Function(V))
 
-force_fn = fe.Function(V_vec)
+force_fn = fe.Function(V_dis)
 
 
 
@@ -370,7 +226,7 @@ def f_equil_init(vel_idx, force_density):
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
 
-force_density = -(1/We)*phi_n * fe.grad(mu_n)
+force_density = -forceMag*phi_n * fe.grad(mu_n)
 
 
 # # Initialize distribution functions. We will use
@@ -382,7 +238,7 @@ for idx in range(Q):
     
 # Initialize \phi
 c_init_expr = fe.Expression(
-    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
+    "-tanh( ( max(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R ) / (sqrt(2)*eps) )",
     degree=2,  # polynomial degree used for interpolation
     xc=xc,
     yc=yc,
@@ -393,9 +249,9 @@ c_init_expr = fe.Expression(
 phi_n = fe.interpolate(c_init_expr, V)
 mass_diff = fe.Constant(0.0)
 
-force_density = -(1/We)*phi_n * fe.grad(mu_n)
+force_density = -forceMag*phi_n * fe.grad(mu_n)
 
-forceDensity_n = fe.project(force_density, V_vec)
+forceDensity_n = fe.project(force_density, V_dis)
 
 # Define boundary conditions.
 
@@ -586,6 +442,11 @@ vel_file.parameters["flush_output"] = True
 vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
+div_file = fe.XDMFFile(comm, f"{outDirName}/div.xdmf")
+div_file.parameters["flush_output"] = True
+div_file.parameters["functions_share_mesh"] = True
+div_file.parameters["rewrite_function_mesh"] = False
+
 pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
 pres_file.parameters["flush_output"] = True 
 pres_file.parameters["functions_share_mesh"] = True 
@@ -611,6 +472,11 @@ pres_file.parameters["rewrite_function_mesh"] = False
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
+dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
+wall_dofs = np.where(
+    (np.abs(dof_coords[:, 1]) < 1e-10) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+)[0]
 # Timestepping
 t = 0.0
 forceVals_x = []
@@ -628,8 +494,8 @@ for n in range(num_steps):
     
     
     projectForceTimeStart = time.time()
-    fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
-    fe.assemble(-(1/We)*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    fe.assemble(-forceMag*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(-forceMag*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
     fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
     # petscForce_x = fe.as_backend_type(forceVec_x)
@@ -656,6 +522,8 @@ for n in range(num_steps):
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    # ux[wall_dofs] = 0.0
+    # uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
@@ -674,11 +542,13 @@ for n in range(num_steps):
     )
     
 
-    f_star_np = f_vals - Re*c_s2*dt*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - 1/(tau/dt + 0.5)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
-    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    # rho = f_star_np.sum(axis=0)
+    # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    # vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
@@ -710,14 +580,14 @@ for n in range(num_steps):
     f8_upper_func.assign(f_star[6])
 
     # # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply( rhsVecStreaming[5])
-    bc_f2.apply( rhsVecStreaming[2])
-    bc_f6.apply( rhsVecStreaming[6])
+    # bc_f5.apply( rhsVecStreaming[5])
+    # bc_f2.apply( rhsVecStreaming[2])
+    # bc_f6.apply( rhsVecStreaming[6])
 
-    # # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply( rhsVecStreaming[7])
-    bc_f4.apply(rhsVecStreaming[4])
-    bc_f8.apply(rhsVecStreaming[8])
+    # # # Apply BCs for distribution functions 7, 4, 8
+    # bc_f7.apply( rhsVecStreaming[7])
+    # bc_f4.apply(rhsVecStreaming[4])
+    # bc_f8.apply(rhsVecStreaming[8])
 
     solveTimeStart = time.time()
     # # Solve linear system in each timestep, get f^{n+1}
@@ -779,12 +649,15 @@ for n in range(num_steps):
             fe.project(rho_expr, V, function=rho_n)
             
             vel_expr = getVel(f_n, force_density)
-            fe.project(vel_expr, Vvec, function=vel_n)
+            fe.project(vel_expr, V_dis, function=vel_dis)
+            fe.project(vel_expr, V_cont, function=vel_cont)
+            div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
             print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
-            vel_file.write(vel_n, t)
+            vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
+            div_file.write(div_u, t)
             #mu_file.write(mu_n, t)
             
 
@@ -802,8 +675,8 @@ for n in range(num_steps):
             percent_mass_change = 100*float(mass_diff)/mass_init
             
             # Determine spatial dimension
-            dim = vel_n.geometric_dimension()
-            vel_vec = vel_n.vector().get_local()
+            dim = vel_cont.geometric_dimension()
+            vel_vec = vel_cont.vector().get_local()
             # Reshape to (num_nodes, dim)
             vel_vec = vel_vec.reshape((-1, dim))
 

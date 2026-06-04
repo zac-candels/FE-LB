@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import time
 from petsc4py import PETSc
 import numba as nb
+import shutil
 
 start_time = time.time()
 
@@ -33,7 +34,9 @@ Force_density = fe.Constant((2.6014e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"fixedForceTerm")
+outDirName = os.path.join(WORKDIR, f"testCorrectedForceTerm")
+if os.path.exists(outDirName):
+    shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
@@ -407,17 +410,20 @@ for n in range(num_steps):
     u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
     ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
     
-    force_term = (
-    (1/c_s**2) * ck_dot_F
-    + (1/c_s**4) * ck_dot_F * u_dot_F[None, :]
-    - (1/c_s**2) * u_dot_F[None, :]
-    )
+    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term *= w[:, None]
+    force_term = w[:, None] * (
+          ck_dot_F / c_s**2
+        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
+        - u_dot_F[None, :] / c_s**2        # ← minus sign
+    )
     
 
-    f_star_np = f_vals - tau*dt*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    rho = f_star_np.sum(axis=0)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
 
     #print("collision_time =", post_coll_time - pre_coll_time)
