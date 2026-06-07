@@ -69,7 +69,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 
 
 h = mesh.hmin()
-dt = 0.00025*h/np.sqrt(2)
+dt = 0.0005*h/np.sqrt(2)
 nu = 0.01666
 tau = 0.05
 
@@ -77,7 +77,7 @@ tau_bar = tau + dt/2
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"dt{dt:.2e}_h{h:.2f}_newSplitting")
+outDirName = os.path.join(WORKDIR, f"dt{dt:.2e}_h{h:.2f}_forceCorrection")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -409,9 +409,9 @@ for n in range(num_steps):
     #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
 
     # Compute rho and u as numpy arrays over all DOFs
-    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    rho = f_vals.sum(axis=0)                     # shape (n_dofs,)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*(dt)/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*(dt)/(2*rho)
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
@@ -423,14 +423,14 @@ for n in range(num_steps):
     
     ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term = w[:, None] * (
+    force_term = (1 - dt/(2*tau_bar))*w[:, None] * (
           ck_dot_F / c_s**2
         + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
         - u_dot_F[None, :] / c_s**2        # ← minus sign
     )
     
 
-    f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - dt/(tau_bar)*(f_vals - feq) + dt*force_term
     [f_star_coll[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
 
     #print("collision_time =", post_coll_time - pre_coll_time)
@@ -481,52 +481,19 @@ for n in range(num_steps):
     for idx in range(Q):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
         vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-        f_star_stream[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
    
-    bc_f5.apply(f_star_stream[5].vector())
-    bc_f2.apply(f_star_stream[2].vector())
-    bc_f6.apply(f_star_stream[6].vector())
+    bc_f5.apply(f_nP1[5].vector())
+    bc_f2.apply(f_nP1[2].vector())
+    bc_f6.apply(f_nP1[6].vector())
 
     # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(f_star_stream[7].vector())
-    bc_f4.apply(f_star_stream[4].vector())
-    bc_f8.apply(f_star_stream[8].vector())
+    bc_f7.apply(f_nP1[7].vector())
+    bc_f4.apply(f_nP1[4].vector())
+    bc_f8.apply(f_nP1[8].vector())
     post_stream_time = time.time()
     #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
     
-    
-    f_vals = np.array([f_star_stream[idx].vector().get_local() for idx in range(Q)])
-    
-    forceVals_x = forceDensity_x.vector().get_local()
-    #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
-    
-    forceVals_y = forceDensity_y.vector().get_local()
-    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
-
-    # Compute rho and u as numpy arrays over all DOFs
-    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*(dt/2)/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*(dt/2)/(2*rho)
-    vel = np.stack([ux, uy])
-    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-    u2 = ux**2 + uy**2                                    # (n_dofs,)
-    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-    
-    # Now for the foce term
-    u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
-    ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
-    
-    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
-
-    force_term = w[:, None] * (
-          ck_dot_F / c_s**2
-        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
-        - u_dot_F[None, :] / c_s**2        # ← minus sign
-    )
-    
-
-    f_new = f_vals - dt/tau*(f_vals - feq) + dt*force_term
-    [f_nP1[idx].vector().set_local(f_new[idx,:]) for idx in range(Q)]
 
 
     # Update previous solutions
