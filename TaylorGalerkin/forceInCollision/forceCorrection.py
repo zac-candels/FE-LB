@@ -21,12 +21,12 @@ T = 100000
 
 
 Re = 0.96
-L_x = float(10/6)
-L_y = float(10/6)
+L_x = float(100)
+L_y = float(100)
 nx = 10
 ny = 10
 
-Force_density = fe.Constant((0.0048, 0.0))
+Force_density = fe.Constant((3.36e-4, 0.0))
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -42,7 +42,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = 0.1
+u_max = 2.2916
 
 # D2Q9 lattice velocities
 xi = [
@@ -69,9 +69,9 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, nx)
 
 
 h = mesh.hmin()
-dt = 0.0005*h/np.sqrt(2)
+dt = 0.0001*h/np.sqrt(2)
 nu = 0.01666
-tau = 0.05
+tau = 0.55
 
 tau_bar = tau + dt/2
 
@@ -506,7 +506,7 @@ for n in range(num_steps):
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
 
-    if n % 5000 == 0:
+    if n % 100000 == 0:
         print("n = ", n)
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
@@ -544,7 +544,6 @@ for n in range(num_steps):
         u_x_values = []
         u_ex = np.linspace(0, L_y, num_points_analytical)
         nu = tau/3
-        u_max = 0.1
         for i in range(num_points_analytical):
             u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
 

@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
+import shutil
 
 start_time = time.time()
 
@@ -15,7 +16,7 @@ plt.close('all')
 
 
 T = 100000
-dt = 0.01
+dt = 0.001
 
 num_steps = int(np.ceil(T/dt))
 
@@ -32,11 +33,14 @@ Force_density = np.array([2.6014e-5, 0.0])
 # Where to save the plots
 WORKDIR = os.getcwd()
 outDirName = os.path.join(WORKDIR, "update")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+if os.path.exists(outDirName):
+    shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 tau = 1
+tau_bar = tau + dt/2
 
 # Number of discrete velocities
 Q = 9
@@ -303,9 +307,21 @@ for idx in range(Q):
     linear_forms_stream.append(lin_form_stream)
     linear_forms_collision.append(lin_form_coll)
 
+
+massForm = f_trial*v*fe.dx
+massMat = fe.assemble(massForm)
+mass_action_form = fe.action(massForm, fe.Constant(1))
+M_lumped = fe.assemble(massForm)
+M_lumped.zero()
+M_lumped.set_diagonal(fe.assemble(mass_action_form))
+M_vect = fe.assemble(mass_action_form)
+M_petsc = fe.as_backend_type(M_vect).vec()
+
+
 # Assemble matrices for first step
 sysMatStream = []
 sysMatColl = []
+sysMatLumped = []
 solverListStream = []
 solverListColl = []
 rhsVecStreaming = []
@@ -315,6 +331,7 @@ advectionTransposeMats = []
 doubleAdvectionMats = []
 for idx in range(Q):
     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
+    sysMatLumped.append(M_petsc.copy())
     sysMatColl.append(fe.assemble(bilinear_forms_collision[idx]))
     rhsVecStreaming.append( fe.assemble(linear_forms_stream[idx]) )
     rhsVecCollision.append( fe.assemble(linear_forms_collision[idx]) )
@@ -392,7 +409,10 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
     
 # Timestepping
 t = 0.0
-for n in range(num_steps):
+tMax = 5000
+n=0
+while t < tMax:
+    n+=1
     t += dt
     
     pre_coll_time = time.time()
@@ -411,7 +431,7 @@ for n in range(num_steps):
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
 
-    f_star_np = f_vals - (dt/tau)*(f_vals - feq)
+    f_star_np = f_vals - (dt/tau_bar)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
@@ -432,16 +452,16 @@ for n in range(num_steps):
 
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
-    forceTerm1 = 1/c_s**2 * forceVec0
-    forceTerm2 = 1/c_s**2 * forceVec1 
-    forceTerm3 = 1/c_s**4 * doubleForceVelVec0 
-    forceTerm4 = 1/c_s**4 * doubleForceVelVec1 
-    forceTerm5 = 1/c_s**2 * forceVelVec
+    forceTerm1 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVec0
+    forceTerm2 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVec1 
+    forceTerm3 = (1-dt/(2*tau_bar))* 1/c_s**4 * doubleForceVelVec0 
+    forceTerm4 = (1-dt/(2*tau_bar))* 1/c_s**4 * doubleForceVelVec1 
+    forceTerm5 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVelVec
     for idx in range(Q):
         rhsVecStreaming[idx].zero()
         forceTermVec.zero()
         f_vec = f_star[idx].vector()
-        massMat.mult(f_vec, streamingPrevTimeVecs[idx])
+        M_lumped.mult(f_vec, streamingPrevTimeVecs[idx])
         advectionMats[idx].mult(f_vec, advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_vec, doubleAdvectionVecs[idx])
         if idx == 0:
@@ -547,13 +567,26 @@ for n in range(num_steps):
     pre_stream_time = time.time()
     # Solve linear system for streaming step
     for idx in range(Q):
-        solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
+        vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+        # solverListStream[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
     post_stream_time = time.time()
     #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
 
 
     # Update previous solutions
 
+
+        
+    bc_f5.apply(f_nP1[5].vector())
+    bc_f2.apply(f_nP1[2].vector())
+    bc_f6.apply(f_nP1[6].vector())
+
+    # Apply BCs for distribution functions 7, 4, 8
+    bc_f7.apply(f_nP1[7].vector())
+    bc_f4.apply(f_nP1[4].vector())
+    bc_f8.apply(f_nP1[8].vector())
+    
     for idx in range(Q):
         f_n[idx].assign(f_nP1[idx])
         
@@ -561,11 +594,11 @@ for n in range(num_steps):
         
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
-
-    if n % 100 == 0:
+    if n%100000 == 0:
+        print("n = ", n)
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
-        vel_file.write(vel_n, t)
+        #vel_file.write(vel_n, t)
         
         # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
         # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
@@ -599,20 +632,17 @@ for n in range(num_steps):
         u_x_values = []
         u_ex = np.linspace(0, L_y, num_points_analytical)
         nu = tau/3
-        u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+        u_max = 0.1
         for i in range(num_points_analytical):
             u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
 
         for point in points:
-            u_expr = getVel(f_n)
-            V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-            u = fe.project(u_expr, V_vec)
-            u_at_point = u(point)
+            u_at_point = vel_n(point)
             u_x_values.append(u_at_point[0] / u_max)
 
 
 
-        fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+        fig_name = "felb_dt" + str(dt) + ".png"
         output = os.path.join(outDirName, fig_name)
 
         plt.figure()
