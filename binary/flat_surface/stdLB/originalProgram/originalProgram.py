@@ -18,6 +18,15 @@ plt.close('all')
 
 # Where to save the plots
 
+rho_c = 1000 
+l_c = 1e-3 
+tau = 0.51
+surfTen = 0.0728
+nu_phys = 1e-6
+c_s2 = 1/3
+t_c = c_s2 * (tau-1/2)* l_c**2/nu_phys
+
+
 
 def computeContactAngle(c_n, h, Cn, mesh):
     
@@ -88,24 +97,13 @@ T = 300
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 4*R0
+L_y = 2*R0
 nx = 80
-ny = 40
-
-
-surface_amplitude = 0.0 
-surface_freq = L_x/(8*np.pi)
-
-
-
-Re = 1
-Pe = 0.1275
-We = 10000
-Cn_param=  0.05
+ny = 20
+h = min(L_x/nx, L_y/ ny)
+interfaceThickness = h
+M_tilde = 0.01
 theta_deg = 30
-
-
-Cn = initDropDiam * Cn_param
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -116,11 +114,10 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "We10000") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"tau{tau}_epsilon{interfaceThickness}_M{M_tilde}") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
-tau = 1
 xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
@@ -149,7 +146,7 @@ w = np.array([
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 h = mesh.hmin()
-dt = 0.1*Cn_param*Pe*h**2
+dt = 0.00005*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -299,7 +296,7 @@ def body_Force(vel, vel_idx, force_density):
     return Force
 
 
-force_density = (1/We)*mu_n * fe.grad(phi_n)
+force_density = -phi_n * fe.grad(mu_n)
 
 
 # # Initialize distribution functions. We will use
@@ -316,13 +313,13 @@ c_init_expr = fe.Expression(
     xc=xc,
     yc=yc,
     R=initDropDiam/2,
-    eps=Cn
+    eps=interfaceThickness
 )
 
 phi_n = fe.interpolate(c_init_expr, V)
 mass_diff = fe.Constant(0.0)
 
-force_density = -(1/We)*phi_n * fe.grad(mu_n)
+force_density = -phi_n * fe.grad(mu_n)
 
 
 
@@ -428,12 +425,12 @@ bilin_form_AC = phi_trial * q * fe.dx
 bilin_form_mu = mu_trial * r * fe.dx
 
 lin_form_AC = phi_n * q * fe.dx - dt*q*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
-    - dt*(1/Pe)*q*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*q*fe.dx\
+    - dt*M_tilde*q*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*q*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(q)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*r*fe.dx\
-    + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(r))*fe.dx\
-        + (1/np.sqrt(2)*Cn)*np.cos(theta)*(phi_n**2 -1)*r*ds_bottom  )
+lin_form_mu =  (t_c**2*surfTen/(rho_c*l_c**2*interfaceThickness))* phi_n*(phi_n**2 - 1)*r*fe.dx\
+    + (interfaceThickness*surfTen*t_c**2/(rho_c*l_c**4))*fe.dot(fe.grad(phi_n),fe.grad(r))*fe.dx
+        #- (surfTen*t_c**2/(rho_c*l_c**2))*1/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*phi_n*(1-phi_n)*r*ds_bottom
 
 for idx in range(Q):
 
@@ -625,7 +622,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 50== 0:  # plot every 10 steps
         
             print("n = ", n)
 
@@ -635,10 +632,9 @@ for n in range(num_steps):
             LB_mass = fe.assemble(rho_n*fe.dx)
             
 
-            total_mass = fe.assemble(phi_n*fe.dx)
-            #print("total mass = ", total_mass, flush=True)
+            print("total mass = ", mass_n, flush=True)
 
-            #print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+            print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 
             percent_mass_change = 100*float(mass_diff)/mass_init
 
@@ -679,7 +675,7 @@ for n in range(num_steps):
             min_coord = min(distr_dict, key=distr_dict.get)
             min_distr = distr_dict[min_coord]
 
-            theta_avg = 1#computeContactAngle(phi_n, h, Cn, mesh)
+            theta_avg = computeContactAngle(phi_n, h, interfaceThickness, mesh)
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
