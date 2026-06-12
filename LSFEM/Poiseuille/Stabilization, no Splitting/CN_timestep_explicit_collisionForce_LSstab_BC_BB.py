@@ -1,20 +1,20 @@
 import fenics as fe
 import numpy as np
 import matplotlib
-matplotlib.use("TkAgg")
+#matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
 plt.close('all')
 
-T = 20000
-dt = 1
+T = 100000
+dt = 0.05
 num_steps = int(np.ceil(T/dt))
 
 
 Re = 0.96
-nx = ny = 5
-L_x = 32
-L_y = 32
+nx = ny = 10
+L_x = 100
+L_y = 100
 h = L_x/nx
 
 error_vec = []
@@ -24,11 +24,11 @@ c_s = np.sqrt(1/3) # np.sqrt( 1./3. * h**2/dt**2 )
 
 #nu = 1.0/6.0
 #tau = nu/c_s**2 + dt/2 
-tau = 1
+tau = 0.1
 
 # Number of discrete velocities
 Q = 9
-Force_density = np.array([2.6041666e-5, 0.0])
+Force_density = np.array([1.1111111111111117e-05, 0.0])
 
 
 #Force prefactor 
@@ -44,6 +44,8 @@ u_wall = (0.0, 0.0)
 
 nu = tau/3
 u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+
+print("u_max = ", u_max, "\n\n")
 
 
 # D2Q9 lattice velocities
@@ -415,7 +417,7 @@ for n in range(0, num_steps):
     fe.project(f_n[2], V, function=f4_upper_func)
     fe.project(f_n[6], V, function=f8_upper_func)
     
-    if n%1000 == 0:
+    if n%20000 == 0:
         u_expr = vel(f_n)
         V_vec = fe.VectorFunctionSpace(mesh, "P", 2, constrained_domain=pbc)
         u_n = fe.project(u_expr, V_vec)
@@ -424,11 +426,42 @@ for n in range(0, num_steps):
         u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                                      degree = 2, u_max = u_max, L_y = L_y)
         u_e = fe.interpolate(u_e, V)
-        error = np.abs(u_e.vector().get_local() - u_n_x.vector().get_local()).max()
-        print('t = %.4f: error = %.3g' % (t, error))
+        error = np.abs( u_max - u_n_x.vector().get_local().max() )/u_max*100
+        print('error = %.5g' % error, "%")
         print('max u:', u_n_x.vector().get_local().max())
         if n%10 == 0:
             error_vec.append(error)
+            
+        plt.rcParams['text.usetex'] = True
+        # Plot velocity profile at x=L_x/2
+        num_points_analytical = 200
+        num_points_numerical = 10
+        y_values_analytical = np.linspace(0, L_y, num_points_analytical)
+        y_values_numerical = np.linspace(0, L_y, num_points_numerical)
+        x_fixed = L_x/2
+        points = [(x_fixed, y) for y in y_values_numerical]
+        u_x_values = []
+        u_ex = np.linspace(0, L_y, num_points_analytical)
+        nu = tau/3
+        u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
+        for i in range(num_points_analytical):
+            u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_y -1)**2 )
+            
+        for point in points:
+            u_at_point = u_n(point)
+            u_x_values.append(u_at_point[0] / u_max)
+            
+        plt.figure()
+        plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+        plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+        plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
+        plt.xlabel(r"$y/L_y$", fontsize=20)
+        title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
+        #plt.title(title_str)
+        plt.legend()
+        plt.tick_params(direction="in")
+        plt.show()
+        plt.savefig("/home/zcandels/Desktop/felb.pdf")
             
     
 error_vec = np.asarray(error_vec)
@@ -462,36 +495,7 @@ plt.ylabel("y")
 plt.show()
 
 #%%
-plt.rcParams['text.usetex'] = True
-# Plot velocity profile at x=L_x/2
-num_points_analytical = 200
-num_points_numerical = 10
-y_values_analytical = np.linspace(0, L_y, num_points_analytical)
-y_values_numerical = np.linspace(0, L_y, num_points_numerical)
-x_fixed = L_x/2
-points = [(x_fixed, y) for y in y_values_numerical]
-u_x_values = []
-u_ex = np.linspace(0, L_y, num_points_analytical)
-nu = tau/3
-u_max = Force_density[0]*L_y**2/(8*rho_init*nu)
-for i in range(num_points_analytical):
-    u_ex[i] = ( 1 - (2*y_values_analytical[i]/L_y -1)**2 )
-    
-for point in points:
-    u_at_point = u(point)
-    u_x_values.append(u_at_point[0] / u_max)
-    
-plt.figure()
-plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-plt.ylabel(r"$u_x/u_{\mathrm{max}}$", fontsize=20)
-plt.xlabel(r"$y/L_y$", fontsize=20)
-title_str = f"Velocity profile at x = L_x/2, tau = {tau}"
-#plt.title(title_str)
-plt.legend()
-plt.tick_params(direction="in")
-plt.show()
-plt.savefig("/home/zcandels/Desktop/felb.pdf")
+
 
 #%% Create grid of u_x and u_y values
 
@@ -547,4 +551,3 @@ for idx, fi in enumerate(f_n):
 # e.g., f_grids[0] is f0_grid, f_grids[1] is f1_grid, etc.
 
     
-

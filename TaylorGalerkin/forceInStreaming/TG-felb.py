@@ -15,8 +15,8 @@ rank = fe.MPI.rank(comm)
 plt.close('all')
 
 
-T = 100000
-dt = 0.001
+T = 10000000
+dt=0.001
 
 num_steps = int(np.ceil(T/dt))
 
@@ -24,23 +24,25 @@ num_steps = int(np.ceil(T/dt))
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 5
-ny = 5
+nx = 2
+ny = 2
 h = L_x/nx
 
 Force_density = np.array([2.6014e-5, 0.0])
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "update")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, "lowSpatialResolution")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
-tau = 1
-tau_bar = tau + dt/2
+nu = float(1/3)
+tau = nu/c_s**2 + 0.5*dt
+
+max_U_vels = []
 
 # Number of discrete velocities
 Q = 9
@@ -409,7 +411,7 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
     
 # Timestepping
 t = 0.0
-tMax = 5000
+tMax = 15000
 n=0
 while t < tMax:
     n+=1
@@ -431,7 +433,7 @@ while t < tMax:
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
 
-    f_star_np = f_vals - (dt/tau_bar)*(f_vals - feq)
+    f_star_np = f_vals - (dt/tau)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
     post_coll_time = time.time()
@@ -452,11 +454,11 @@ while t < tMax:
 
     pre_stream_time = time.time()
     # Assemble RHS vectors for streaming step
-    forceTerm1 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVec0
-    forceTerm2 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVec1 
-    forceTerm3 = (1-dt/(2*tau_bar))* 1/c_s**4 * doubleForceVelVec0 
-    forceTerm4 = (1-dt/(2*tau_bar))* 1/c_s**4 * doubleForceVelVec1 
-    forceTerm5 = (1-dt/(2*tau_bar))* 1/c_s**2 * forceVelVec
+    forceTerm1 =  1/c_s**2 * forceVec0
+    forceTerm2 =  1/c_s**2 * forceVec1 
+    forceTerm3 =  1/c_s**4 * doubleForceVelVec0 
+    forceTerm4 =  1/c_s**4 * doubleForceVelVec1 
+    forceTerm5 =  1/c_s**2 * forceVelVec
     for idx in range(Q):
         rhsVecStreaming[idx].zero()
         forceTermVec.zero()
@@ -594,7 +596,7 @@ while t < tMax:
         
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
-    if n%100000 == 0:
+    if n%5000 == 0:
         print("n = ", n)
         vel_expr = getVel(f_n)
         fe.project(vel_expr, Vvec, function=vel_n)
@@ -622,6 +624,8 @@ while t < tMax:
         print('t = %.4f: error = %.3g' % (t, error), flush=True)
         print('max u:', u_new.max(), flush=True)
         print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
+        
+        max_U_vels.append(u_new.max())
 
         num_points_analytical = 200
         num_points_numerical = 10
