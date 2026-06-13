@@ -1,4 +1,5 @@
 import fenics as fe
+import ufl
 import os
 import numpy as np
 import matplotlib
@@ -111,7 +112,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "aaaaaaaaaaaaaa") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -236,15 +237,37 @@ def f_equil_init(vel_idx, force_density):
     rho_expr = fe.Constant(1.0)
 
     vel_0 = - (dt/2)*force_density/rho_init
+    
+    vel_grad = fe.grad(vel_0)
 
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_0)
-    return w[vel_idx] * rho_expr * (
+    
+    
+    f_eq  = w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
+    
+    c_c_outer = fe.outer(ci, ci)
+    
+    I = fe.Identity(2)
+    
+    Q = c_c_outer - c_s2 * I
+    
+    F_u_outer1 = fe.outer( force_density, vel_0 )
+    u_F_outer2 = fe.outer(vel_0, force_density) 
+    force_vel_outer = F_u_outer1 + u_F_outer2
+    c_dot_F = fe.inner( ci, force_density)
+    
+    f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
+        - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\
+                                 + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
+    
+    
+    return f_eq + f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
