@@ -18,13 +18,6 @@ plt.close('all')
 
 # Where to save the plots
 
-rho_c = 1000 
-l_c = 1e-3 
-tau = 0.51
-surfTen = 0.0728
-nu_phys = 1e-6
-c_s2 = 1/3
-t_c = c_s2 * (tau-1/2)* l_c**2/nu_phys
 
 
 
@@ -101,8 +94,12 @@ L_y = 2*R0
 nx = 80
 ny = 20
 h = min(L_x/nx, L_y/ ny)
-interfaceThickness = h
-M_tilde = 0.01
+
+A = 0.5
+kappa = 0.02
+interfaceThickness = np.sqrt(kappa/A)
+tau = 1
+M_tilde = 10
 theta_deg = 30
 
 # Lattice speed of sound
@@ -114,7 +111,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"tau{tau}_epsilon{interfaceThickness}_M{M_tilde}") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -146,7 +143,7 @@ w = np.array([
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 h = mesh.hmin()
-dt = 0.00005*h**2
+dt = 0.01*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -428,9 +425,9 @@ lin_form_AC = phi_n * q * fe.dx - dt*q*fe.dot(getVel(f_n, force_density), fe.gra
     - dt*M_tilde*q*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*q*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(q)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  (t_c**2*surfTen/(rho_c*l_c**2*interfaceThickness))* phi_n*(phi_n**2 - 1)*r*fe.dx\
-    + (interfaceThickness*surfTen*t_c**2/(rho_c*l_c**4))*fe.dot(fe.grad(phi_n),fe.grad(r))*fe.dx
-        #- (surfTen*t_c**2/(rho_c*l_c**2))*1/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*phi_n*(1-phi_n)*r*ds_bottom
+lin_form_mu =  A* phi_n*(phi_n**2 - 1)*r*fe.dx\
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(r))*fe.dx\
+        + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*r*ds_bottom
 
 for idx in range(Q):
 
@@ -622,7 +619,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 50== 0:  # plot every 10 steps
+        if n % 10== 0:  # plot every 10 steps
         
             print("n = ", n)
 
