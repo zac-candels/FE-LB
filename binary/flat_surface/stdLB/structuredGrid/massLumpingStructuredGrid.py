@@ -30,29 +30,22 @@ epsT = 0.05
 lamd = 1/6   
 
 
-
 T = 300
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 4*R0
-nx = 160
-ny = 80
+L_y = 2*R0
+nx = 80
+ny = 20
+h = min(L_x/nx, L_y/ ny)
 
-
-surface_amplitude = 0.0 
-surface_freq = L_x/(8*np.pi)
-
-
-
-Re = 1
-Pe = 0.1275
-forceMag = 0.001
-Cn_param=  0.05
+A = 0.5
+kappa = 0.02
+interfaceThickness = np.sqrt(kappa/A)
+tau = 0.1
+M_tilde = 10
 theta_deg = 30
-tau=0.001
 
-Cn = initDropDiam * Cn_param
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -63,13 +56,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"suspendedSquareDroplet")
+outDirName = os.path.join(WORKDIR, f"lumpingTest")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/2, L_y/2
+xc, yc = L_x/2, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -119,7 +112,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.1*Cn_param*Pe*h**2
+dt = 0.01*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -226,7 +219,7 @@ def f_equil_init(vel_idx, force_density):
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
 
-force_density = -forceMag*phi_n * fe.grad(mu_n)
+force_density = -phi_n * fe.grad(mu_n)
 
 
 # # Initialize distribution functions. We will use
@@ -238,18 +231,18 @@ for idx in range(Q):
     
 # Initialize \phi
 c_init_expr = fe.Expression(
-    "-tanh( ( max(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R ) / (sqrt(2)*eps) )",
+    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
     degree=2,  # polynomial degree used for interpolation
     xc=xc,
     yc=yc,
     R=initDropDiam/2,
-    eps=Cn
+    eps=interfaceThickness
 )
 
 phi_n = fe.interpolate(c_init_expr, V)
 mass_diff = fe.Constant(0.0)
 
-force_density = -forceMag*phi_n * fe.grad(mu_n)
+force_density = -phi_n * fe.grad(mu_n)
 
 forceDensity_n = fe.project(force_density, V_dis)
 
@@ -346,13 +339,13 @@ bilin_form_mu = f_trial * v * fe.dx
 
 
 lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
-    - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
+    - dt*M_tilde*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
-    + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-       - (Cn/(np.sqrt(2)) )*np.cos(theta)*(1 - phi_n**2)*v*ds_bottom  )
-
+lin_form_mu =  A*phi_n*(phi_n**2 - 1)*v*fe.dx\
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
+       + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
+       
 advection_forms = []
 double_advection_forms = []
 
@@ -494,8 +487,8 @@ for n in range(num_steps):
     
     
     projectForceTimeStart = time.time()
-    fe.assemble(-forceMag*phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
-    fe.assemble(-forceMag*phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
     fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
     # petscForce_x = fe.as_backend_type(forceVec_x)
@@ -542,7 +535,7 @@ for n in range(num_steps):
     )
     
 
-    f_star_np = f_vals - 1/(tau/dt + 0.5)*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - dt/(tau)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     # rho = f_star_np.sum(axis=0)
     # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
@@ -649,30 +642,27 @@ for n in range(num_steps):
             fe.project(rho_expr, V, function=rho_n)
             
             vel_expr = getVel(f_n, force_density)
-            fe.project(vel_expr, V_dis, function=vel_dis)
+            #fe.project(vel_expr, V_dis, function=vel_dis)
             fe.project(vel_expr, V_cont, function=vel_cont)
-            div_u = fe.project(fe.div(vel_cont), V)
+            #div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
             print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
-            div_file.write(div_u, t)
+            #div_file.write(div_u, t)
             #mu_file.write(mu_n, t)
             
 
             
             #print("mass_n = ", mass_nP1)
-            massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
+            #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
             print("phi max = ", np.max(phi_n.vector().get_local()))
             print("phi min = ", np.min(phi_n.vector().get_local()))
-            print("mass_n = ", mass_n)
-            print("mass_diff = ", mass_diff.values()[0])
-            print("mass diff nonlin term = ", massDiffNonLinTerm.max())
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
-            total_mass = fe.assemble(phi_n*fe.dx)
             percent_mass_change = 100*float(mass_diff)/mass_init
+            print("mass change = ", percent_mass_change, "%")
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -682,12 +672,7 @@ for n in range(num_steps):
 
             # Compute nodal norms
             vel_norm = np.linalg.norm(vel_vec, axis=1)
-            
-            forceArr = np.column_stack([forceVals_x, forceVals_y])
-            
-            forceNorm = np.linalg.norm(forceArr)
-            
-            print("Force norm = ", forceNorm)
+        
 
             # Maximum nodal value
             max_vel = vel_norm.max()
@@ -711,8 +696,8 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, Cn, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, Cn, mesh)
+            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
                 
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)

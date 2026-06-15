@@ -99,7 +99,7 @@ h = min(L_x/nx, L_y/ ny)
 A = 0.5
 kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
-tau = 1
+tau = 0.1
 M_tilde = 10
 theta_deg = 30
 
@@ -112,7 +112,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "aaaaaaaaaaaaaa") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "just_bounceback") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -276,17 +276,7 @@ def f_equil(f_list, vel_idx, force_density):
 
     rho = getDens(f_list)
 
-    u_raw = getVel(f_list, force_density)
-
-    x = fe.SpatialCoordinate(mesh)
-
-    delta = 2*h   # thickness of no-slip layer
-
-    u = fe.conditional(
-        fe.lt(x[1], delta),
-        fe.Constant((0.0, 0.0)),
-        u_raw
-    )
+    u = getVel(f_list, force_density)
 
     ci = xi[vel_idx]
 
@@ -642,7 +632,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 10== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
         
             print("n = ", n)
 
