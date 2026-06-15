@@ -144,7 +144,7 @@ w = np.array([
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
 h = mesh.hmin()
-dt = 0.01*h**2
+dt = 0.05*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -643,18 +643,21 @@ for n in range(num_steps):
     #if rank == 0:
     if 1 == 1:
         if n % 10== 0:  # plot every 10 steps
-        
-            print("n = ", n)
 
+            phi_file.write(phi_n, t)
+            vel_cont_file.write(vel_cont, t)
+            vel_dis_file.write(vel_dis, t)
+            pres_file.write(rho_n, t)
+        
             rho_expr = sum(fk for fk in f_n)
             fe.project(rho_expr, V, function=rho_n)
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
 
-            print("total mass = ", mass_n, flush=True)
+            #print("total mass = ", mass_n, flush=True)
 
-            print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+            #print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 
             percent_mass_change = 100*float(mass_diff)/mass_init
 
@@ -682,31 +685,32 @@ for n in range(num_steps):
 
             #print("Max||u||:", max_vel, flush=True)
             
-            for idx in range(Q):
-                f_vec = f_n[idx].vector().get_local()
-                min_index = np.argmin(f_vec)
-                min_value = f_vec[min_index]
+            # for idx in range(Q):
+            #     f_vec = f_n[idx].vector().get_local()
+            #     min_index = np.argmin(f_vec)
+            #     min_value = f_vec[min_index]
                 
-                dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
-                min_coord = tuple(dof_coords[min_index])
+            #     dof_coords = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+            #     min_coord = tuple(dof_coords[min_index])
                 
-                distr_dict[min_coord] = min_value
+            #     distr_dict[min_coord] = min_value
                 
-            min_coord = min(distr_dict, key=distr_dict.get)
-            min_distr = distr_dict[min_coord]
+            min_coord = [1, 1]#min(distr_dict, key=distr_dict.get)
+            min_distr = 1#distr_dict[min_coord]
 
-            theta_avg = computeContactAngle(phi_n, h, interfaceThickness, mesh)
-                
-            print("theta = ", theta_avg, "\n\n", flush=True)
+            if rank == 0:
+                theta_avg = computeContactAngle(phi_n, h, interfaceThickness, mesh)
+                    
+                print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.6e}"
-                           f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+                log_file.write(f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.6e}"
+                            f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
 
             # coords = mesh.coordinates()
             # x = coords[:, 0]   # x-coordinates
@@ -779,10 +783,7 @@ for n in range(num_steps):
             # #plt.show()
             # plt.close()
             
-            phi_file.write(phi_n, t)
-            vel_cont_file.write(vel_cont, t)
-            vel_dis_file.write(vel_dis, t)
-            pres_file.write(rho_n, t)
+
             # mu_file.write(mu_n, t)
 
 if rank == 0:
