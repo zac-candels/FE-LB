@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"lumpingTest")
+outDirName = os.path.join(WORKDIR, f"testNewforce")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -470,6 +470,8 @@ wall_dofs = np.where(
 t = 0.0
 forceVals_x = []
 forceVals_y = []
+inverse_cs2 = 1 / c_s**2
+inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
     t += dt
@@ -480,20 +482,6 @@ for n in range(num_steps):
     fe.assemble(lin_form_AC, tensor=rhsVecTemp)
     rhs_AC = prevTimeAcVec + rhsVecTemp
     fe.assemble(lin_form_mu, tensor=rhs_mu)
-    
-    
-    projectForceTimeStart = time.time()
-    fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
-    fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
-    
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    # petscForce_x = fe.as_backend_type(forceVec_x)
-    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
-    # petscForce_y = fe.as_backend_type(forceVec_y)
-    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
-    projectForceTimeEnd = time.time()
-    #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
     
     pre_coll_time_lb = time.time()
     # We will try to do collision locally, since it is a pure
@@ -518,33 +506,37 @@ for n in range(num_steps):
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
-    # Now for the foce term
-    u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
-    ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
-    
-    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term = w[:, None] * (
-          ck_dot_F / c_s**2
-        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
-        - u_dot_F[None, :] / c_s**2        # ← minus sign
-    )
-    
-
-    f_star_np = f_vals - dt/(tau)*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - dt/(tau)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
-    # rho = f_star_np.sum(axis=0)
-    # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-    # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    # vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    rho = f_star_np.sum(axis=0)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
 
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
-
+    u_dot_prod_F = fe.dot(vel_star, force_density)
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
+        
+
+        xi_dot_prod_F = fe.dot( xi[idx], force_density)
+
+        u_dot_prod_F = fe.dot(vel_star, force_density)
+
+        xi_dot_u = fe.dot(xi[idx], vel_star)
+
+        Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
+                           + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+        
+        advectionForceTerm = fe.assemble(
+            fe.dot(xi[idx], fe.grad(v))* Force * fe.dx)
+            
+        basicForceTerm = fe.assemble(v*Force*fe.dx)
+        
         M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
@@ -553,6 +545,9 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        
+        rhsVecStreaming[idx].axpy(dt, basicForceTerm)
+        rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
     stream_FE_end_time = time.time()
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
