@@ -108,7 +108,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.005*h**2
+dt = 0.01*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -144,7 +144,7 @@ phi_n = fe.Function(V)
 V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(V_dis)
+vel_star = fe.Function(V_cont)
 vel_cont = fe.Function(V_cont)
 vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
@@ -404,9 +404,10 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
-if rank == 0:
+if 1==1:
     log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'% mass change':>15}"
+    log_file.write(f"{'n' :>15}"
+                   f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
                    f"{'smallest f':>15}"
@@ -489,6 +490,14 @@ for n in range(num_steps):
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
     
+    
+    fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    
     forceVals_x = forceDensity_x.vector().get_local()
     #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
     
@@ -510,8 +519,8 @@ for n in range(num_steps):
     f_star_np = f_vals - dt/(tau)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
     rho = f_star_np.sum(axis=0)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
 
     post_coll_time_lb = time.time()
@@ -522,14 +531,16 @@ for n in range(num_steps):
     stream_FE_start_time = time.time()
     for idx in range(Q):
         
+        if idx == 0:
+            Force = -w[idx]*(inverse_cs2* u_dot_prod_F)
 
-        xi_dot_prod_F = fe.dot( xi[idx], force_density)
-
-        u_dot_prod_F = fe.dot(vel_star, force_density)
-
-        xi_dot_u = fe.dot(xi[idx], vel_star)
-
-        Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
+        else:
+    
+            xi_dot_prod_F = fe.dot( xi[idx], force_density)
+    
+            xi_dot_u = fe.dot(xi[idx], vel_star)
+    
+            Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
                            + inverse_cs4*xi_dot_u*xi_dot_prod_F)
         
         advectionForceTerm = fe.assemble(
@@ -625,7 +636,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 2000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -693,9 +704,10 @@ for n in range(num_steps):
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
+            log_file.write(f"{n:15d}"
+                           f"{percent_mass_change:15.3f}"
+                           f"{max_vel:15.6e}"
+                           f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
                            f"{min_coord[1]:15.2f}"

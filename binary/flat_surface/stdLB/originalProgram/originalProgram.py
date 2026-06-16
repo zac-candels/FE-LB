@@ -19,7 +19,9 @@ plt.close('all')
 
 # Where to save the plots
 
-
+fe.parameters["form_compiler"]["optimize"] = True
+fe.parameters["form_compiler"]["cpp_optimize"] = True
+      
 
 
 def computeContactAngle(c_n, h, Cn, mesh):
@@ -532,7 +534,8 @@ mu_solver.set_operator(mu_mat)
 
 if 1==1:
     log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'% mass change':>15}"
+    log_file.write(f"{'n' :>15}"
+                   f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
                    f"{'smallest f':>15}"
@@ -632,7 +635,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 1000 == 0:  # plot every 10 steps
         
             print("n = ", n)
 
@@ -689,7 +692,8 @@ for n in range(num_steps):
                 
             print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
+            log_file.write(f"{n:15d}"
+                           f"{percent_mass_change:15.3f}"
                            f"{max_vel:15.6e}"
                            f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
