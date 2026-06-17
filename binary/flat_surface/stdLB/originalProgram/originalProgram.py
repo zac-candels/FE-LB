@@ -673,7 +673,7 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
 
-            #print("Max||u||:", max_vel, flush=True)
+            print("Max||u||:", max_vel, flush=True)
             
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
@@ -694,7 +694,7 @@ for n in range(num_steps):
 
             log_file.write(f"{n:15d}"
                            f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.6e}"
+                           f"{max_vel:15.8g}"
                            f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"

@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"lumpingTest")
+outDirName = os.path.join(WORKDIR, f"forceInCollision")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -108,7 +108,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.005*h**2
+dt = 0.0025*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -630,7 +630,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 2000== 0:  # plot every 10 steps
             print("n = ", n)
             
             

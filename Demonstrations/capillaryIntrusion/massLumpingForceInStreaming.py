@@ -10,6 +10,7 @@ import matplotlib.tri as tri
 import time 
 import mshr
 import shutil
+import random
 from scipy      import optimize
 import src.postProcessing.computeContactAngle as cca 
  
@@ -25,14 +26,43 @@ plt.close('all')
 fe.parameters["form_compiler"]["optimize"] = True
 fe.parameters["form_compiler"]["cpp_optimize"] = True
       
+def trackMeniscus(phi_n, mesh):
+   
+    barycenters = []
+    barycenter_vals = []
+    for cell in fe.cells(mesh):
+        
+        midpt = cell.midpoint().array()
+        midpt = tuple( (midpt[0], midpt[1]) )
+        barycenters.append( midpt )
+        barycenter_vals.append( phi_n(midpt) )
+    
+    # Build dictionary
+    nodal_dict = {
+    tuple(coord): val
+    for coord, val in zip(barycenters, barycenter_vals)
+    }
+
+    # Filter by order parameter value
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if -0.5 < value < 0.5}
+    
+
+    # Determine left-most interfacial point
+    min_x = min(coord[0] for coord in nodal_dict.keys())
+    
+    return min_x
+
 
 T = 300
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 2*R0
-nx = 88
-ny = 22
+L_y = 1*R0
+nx = 80
+ny = 20
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -52,13 +82,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"testNewforce")
+outDirName = os.path.join(WORKDIR, f"capIntrusion")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
+xc, yc = L_x/6, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -85,27 +115,6 @@ w = np.array([
 
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
-# def surfaceExpr(x):
-    
-#     return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
-
-# def surfExprDeriv(x):
-#     return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
-
-# domain_n_points = 61
-# domain_points = []
-# for n in range(domain_n_points + 1):
-#     x = n*L_x/domain_n_points
-#     domain_points.append(fe.Point(x, surfaceExpr(x) ))
-# domain_points.append(fe.Point(L_x,  surface_amplitude))
-# domain_points.append(fe.Point(L_x, L_y))
-# domain_points.append(fe.Point(0., L_y))
-# domain_points.append(fe.Point(0., surface_amplitude))
-# domain1 = mshr.Polygon(domain_points)
-# if rank == 0:
-#     mesh = mshr.generate_mesh(domain1, domain_n_points)
-#     fe.File("mesh.xml") << mesh  # save to disk
-# mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
 dt = 0.005*h**2
@@ -144,7 +153,7 @@ phi_n = fe.Function(V)
 V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(V_cont)
+vel_star = fe.Function(V_dis)
 vel_cont = fe.Function(V_cont)
 vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
@@ -201,37 +210,15 @@ def f_equil_init(vel_idx, force_density):
     rho_expr = fe.Constant(1.0)
 
     vel_0 = - (dt/2)*force_density/rho_init
-    
-    vel_grad = fe.grad(vel_0)
 
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_0)
-    
-    
-    f_eq  = w[vel_idx] * rho_expr * (
+    return w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
-    
-    c_c_outer = fe.outer(ci, ci)
-    
-    I = fe.Identity(2)
-    
-    Q = c_c_outer - c_s2 * I
-    
-    F_u_outer1 = fe.outer( force_density, vel_0 )
-    u_F_outer2 = fe.outer(vel_0, force_density) 
-    force_vel_outer = F_u_outer1 + u_F_outer2
-    c_dot_F = fe.inner( ci, force_density)
-    
-    f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
-        - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\
-                                 + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
-    
-    
-    return f_eq + f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
@@ -248,16 +235,23 @@ for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx, force_density), V))
     
 # Initialize \phi
-c_init_expr = fe.Expression(
-    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
-    degree=2,  # polynomial degree used for interpolation
-    xc=xc,
-    yc=yc,
-    R=initDropDiam/2,
-    eps=interfaceThickness
-)
+class InitialConditions(fe.UserExpression):
+    def __init__(self, **kwargs):
+        random.seed(2 + fe.MPI.rank(fe.MPI.comm_world))
+        super().__init__(**kwargs)
+    def eval(self, values, x):
+        if x[0] <= xc:
+            values[0] = 1
+        elif x[0] > L_x - L_x/6:
+            values[0] = 1
+        else:
+            values[0] = -1
 
-phi_n = fe.interpolate(c_init_expr, V)
+    def value_shape(self):
+        return ()
+
+phi_init = InitialConditions(degree=1)
+phi_n.interpolate(phi_init)
 mass_diff = fe.Constant(0.0)
 
 force_density = -phi_n * fe.grad(mu_n)
@@ -346,11 +340,20 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0)
+        return on_boundary and fe.near(x[1], 0.0) and x[0] < L_x - L_x/6
+    
+# Subdomain for bottom wall
+class Top(fe.SubDomain):
+    def inside(self, x, on_boundary):
+        return on_boundary and fe.near(x[1], L_y) and x[0] < L_x - L_x/6
 
 bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
 ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
+
+top = Top()
+top.mark(boundaries, 2)   # assign ID = 1 to bottom boundary
+ds_top = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=2)
 
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
@@ -362,7 +365,8 @@ lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
 
 lin_form_mu =  A*phi_n*(phi_n**2 - 1)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-       + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
+       + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom\
+           + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_top
        
 advection_forms = []
 double_advection_forms = []
@@ -426,10 +430,9 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
-if 1==1:
+if rank == 0:
     log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'n' :>15}"
-                   f"{'% mass change':>15}"
+    log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
                    f"{'smallest f':>15}"
@@ -511,7 +514,6 @@ for n in range(num_steps):
     # time-dependnet ODE
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
-    
     
     fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
@@ -720,16 +722,19 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            
+            meniscusPosition = trackMeniscus(phi_n, mesh)
+            
+            print("x_{meniscus} = ", meniscusPosition)
                 
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
+            log_file.write(f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.6e}"
+                            f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
                            f"{min_coord[1]:15.2f}"

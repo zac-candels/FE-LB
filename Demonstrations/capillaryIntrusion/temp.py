@@ -31,8 +31,8 @@ R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
 L_y = 2*R0
-nx = 88
-ny = 22
+nx = 80
+ny = 20
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -108,7 +108,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.005*h**2
+dt = 0.01*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -201,37 +201,15 @@ def f_equil_init(vel_idx, force_density):
     rho_expr = fe.Constant(1.0)
 
     vel_0 = - (dt/2)*force_density/rho_init
-    
-    vel_grad = fe.grad(vel_0)
 
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_0)
-    
-    
-    f_eq  = w[vel_idx] * rho_expr * (
+    return w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
-    
-    c_c_outer = fe.outer(ci, ci)
-    
-    I = fe.Identity(2)
-    
-    Q = c_c_outer - c_s2 * I
-    
-    F_u_outer1 = fe.outer( force_density, vel_0 )
-    u_F_outer2 = fe.outer(vel_0, force_density) 
-    force_vel_outer = F_u_outer1 + u_F_outer2
-    c_dot_F = fe.inner( ci, force_density)
-    
-    f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
-        - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\
-                                 + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
-    
-    
-    return f_eq + f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
@@ -728,7 +706,7 @@ for n in range(num_steps):
 
             log_file.write(f"{n:15d}"
                            f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
+                           f"{max_vel:15.6e}"
                            f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
