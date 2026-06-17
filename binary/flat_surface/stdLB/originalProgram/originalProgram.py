@@ -114,7 +114,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "just_bounceback") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "bouncebackAndNoSlipInFeq") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -278,7 +278,17 @@ def f_equil(f_list, vel_idx, force_density):
 
     rho = getDens(f_list)
 
-    u = getVel(f_list, force_density)
+    u_raw = getVel(f_list, force_density)
+
+    x = fe.SpatialCoordinate(mesh)
+
+    delta = 1*h   # thickness of no-slip layer
+
+    u = fe.conditional(
+        fe.lt(x[1], delta),
+        fe.Constant((0.0, 0.0)),
+        u_raw
+    )
 
     ci = xi[vel_idx]
 
@@ -635,9 +645,10 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 1000 == 0:  # plot every 10 steps
+        if n % 2000 == 0:  # plot every 10 steps
         
-            print("n = ", n)
+            if rank == 0:
+                print("n = ", n, flush=True)
 
             rho_expr = sum(fk for fk in f_n)
             fe.project(rho_expr, V, function=rho_n)
@@ -645,9 +656,9 @@ for n in range(num_steps):
             LB_mass = fe.assemble(rho_n*fe.dx)
             
 
-            print("total mass = ", mass_n, flush=True)
+            #print("total mass = ", mass_n, flush=True)
 
-            print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
+            #print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 
             percent_mass_change = 100*float(mass_diff)/mass_init
 
@@ -673,7 +684,7 @@ for n in range(num_steps):
             # Maximum nodal value
             max_vel = vel_norm.max()
 
-            print("Max||u||:", max_vel, flush=True)
+            #print("Max||u||:", max_vel, flush=True)
             
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
@@ -688,9 +699,9 @@ for n in range(num_steps):
             min_coord = min(distr_dict, key=distr_dict.get)
             min_distr = distr_dict[min_coord]
 
-            theta_avg = computeContactAngle(phi_n, h, interfaceThickness, mesh)
+            theta_avg = 1#computeContactAngle(phi_n, h, interfaceThickness, mesh)
                 
-            print("theta = ", theta_avg, "\n\n", flush=True)
+            #print("theta = ", theta_avg, "\n\n", flush=True)
 
             log_file.write(f"{n:15d}"
                            f"{percent_mass_change:15.3f}"

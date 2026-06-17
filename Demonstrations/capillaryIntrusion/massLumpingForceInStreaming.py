@@ -434,7 +434,7 @@ if rank == 0:
     log_file = open(outDirName + "/simulation_log.txt", "w")
     log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
-                   f"{'theta':>15}"
+                   f"{'x_{meniscus}':>15}"
                    f"{'smallest f':>15}"
                    f"{'smallest f x':>15}"
                    f"{'smallest f y':>15}"
@@ -661,7 +661,9 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
         if n % 2000== 0:  # plot every 10 steps
-            print("n = ", n)
+        
+            if rank == 0:
+                print("n = ", n)
             
             
             rho_expr = getDens(f_n)
@@ -672,7 +674,7 @@ for n in range(num_steps):
             fe.project(vel_expr, V_cont, function=vel_cont)
             #div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
+            # print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
@@ -683,12 +685,12 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
+            # print("phi max = ", np.max(phi_n.vector().get_local()))
+            # print("phi min = ", np.min(phi_n.vector().get_local()))
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             percent_mass_change = 100*float(mass_diff)/mass_init
-            print("mass change = ", percent_mass_change, "%")
+            # print("mass change = ", percent_mass_change, "%")
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -702,7 +704,7 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-            print("umax = ", max_vel)
+            # print("umax = ", max_vel)
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
                 min_index = np.argmin(f_vec)
@@ -717,8 +719,8 @@ for n in range(num_steps):
             min_distr = distr_dict[min_coord]
             
             rho_vals = rho_n.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
+            # print("max density is", np.max(rho_vals))
+            # print("min density is", np.min(rho_vals))
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
@@ -727,14 +729,14 @@ for n in range(num_steps):
             
             meniscusPosition = trackMeniscus(phi_n, mesh)
             
-            print("x_{meniscus} = ", meniscusPosition)
+            # print("x_{meniscus} = ", meniscusPosition)
                 
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
+            # print("theta avg = ", theta_avg, flush=True)
+            # print("theta geom = ", theta_geom, "\n\n", flush=True)
 
             log_file.write(f"{percent_mass_change:15.3f}"
                             f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
+                            f"{meniscusPosition:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
                            f"{min_coord[1]:15.2f}"

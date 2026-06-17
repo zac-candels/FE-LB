@@ -360,7 +360,7 @@ lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
     - dt*M_tilde*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  A*phi_n*(phi_n**2 - 1)*v*fe.dx\
+lin_form_mu =  A*phi_n**3*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
        + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
        
@@ -407,7 +407,9 @@ advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
 doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
 rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 prevTimeAcVec = f_star[0].vector().copy()
-rhsVecTemp = f_star[0].vector().copy()
+prevTimeMuVec = f_star[0].vector().copy()
+rhsVecACTemp = f_star[0].vector().copy()
+rhsVecMuTemp = f_star[0].vector().copy()
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
@@ -502,9 +504,13 @@ for n in range(num_steps):
     #print("n = ", n)
     prevTimeAcVec.zero()
     fe.as_backend_type(prevTimeAcVec).vec().pointwiseMult(phi_n.vector().vec(), sysMatLumped[0])
-    fe.assemble(lin_form_AC, tensor=rhsVecTemp)
-    rhs_AC = prevTimeAcVec + rhsVecTemp
-    fe.assemble(lin_form_mu, tensor=rhs_mu)
+    fe.assemble(lin_form_AC, tensor=rhsVecACTemp)
+    rhs_AC = prevTimeAcVec + rhsVecACTemp
+    
+    prevTimeMuVec.zero()
+    fe.as_backend_type(prevTimeMuVec).vec().pointwiseMult(-A*phi_n.vector().vec(), sysMatLumped[0])
+    fe.assemble(lin_form_mu, tensor=rhsVecMuTemp)
+    rhs_mu = prevTimeMuVec + rhsVecMuTemp
     
     pre_coll_time_lb = time.time()
     # We will try to do collision locally, since it is a pure
@@ -658,7 +664,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 2000== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
