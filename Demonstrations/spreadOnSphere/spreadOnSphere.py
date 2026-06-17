@@ -21,18 +21,18 @@ start_time = time.time()
 plt.close('all')
 
 # Where to save the plots
-
+fe.set_log_active(False)
 fe.parameters["form_compiler"]["optimize"] = True
 fe.parameters["form_compiler"]["cpp_optimize"] = True
       
 
 T = 300
-R0 = 2
+R0 = 1
 initDropDiam = 2*R0
-L_x = 8*R0
-L_y = 2*R0
-nx = 88
-ny = 22
+L_x = 4*R0
+L_y = 6*R0
+nx = 50
+ny = 70
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -52,13 +52,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"dt0.01")
+outDirName = os.path.join(WORKDIR, f"spreadOnSphere")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
+xc, yc = L_x/2, L_y/2 + L_y/4
 
 Q = 9
 # D2Q9 lattice velocities
@@ -83,32 +83,70 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
+rectangle = mshr.Rectangle(fe.Point(0.0, 0.0), fe.Point(L_x, L_y))
 
-# def surfaceExpr(x):
+# Circular hole in the center
+radius = R0
+center = fe.Point(L_x/2, L_y/2)
+circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
+
+# Subtract circle from rectangle
+domain = rectangle - circle
+
+# Generate mesh
+mesh = mshr.generate_mesh(domain, 100)
+
+boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
+
+tol = 1e-3
+for facet in fe.facets(mesh):
     
-#     return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
+    x = facet.midpoint()
+    
+    r = np.sqrt((x.x() - center.x())**2 + (x.y() - center.y())**2)
 
-# def surfExprDeriv(x):
-#     return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
+    if abs(r - radius) < tol:
+        print("circle boundary facet")
 
-# domain_n_points = 61
-# domain_points = []
-# for n in range(domain_n_points + 1):
-#     x = n*L_x/domain_n_points
-#     domain_points.append(fe.Point(x, surfaceExpr(x) ))
-# domain_points.append(fe.Point(L_x,  surface_amplitude))
-# domain_points.append(fe.Point(L_x, L_y))
-# domain_points.append(fe.Point(0., L_y))
-# domain_points.append(fe.Point(0., surface_amplitude))
-# domain1 = mshr.Polygon(domain_points)
-# if rank == 0:
-#     mesh = mshr.generate_mesh(domain1, domain_n_points)
-#     fe.File("mesh.xml") << mesh  # save to disk
-# mesh = fe.Mesh("mesh.xml")  # load on all ranks
+        n = facet.normal()
+        
+        # Bottom boundary → normal has negative y component
+        if n.x() > 0 and n.y() < 0 and n.y() < n.x():
+            print("boundary marker 1 upperHalf_downSlope_lt45")
+            boundary_markers[facet] = 1
+            
+        if n.x() > 0 and n.y() < 0 and n.y() > n.x():
+            print("boundary marker 2 upperHalf_downSlope_gt45")
+            boundary_markers[facet] = 2
+            
+        if n.x() < 0 and n.y() < 0 and abs(n.y()) > abs(n.x()):
+            print("boundary marker 3 lowerHalf_upSlope_gt45")
+            boundary_markers[facet] = 3
+            
+        if n.x() < 0 and n.y() < 0 and abs(n.y()) < abs(n.x()):
+            print("boundary marker 4 lowerHalf_upSlope_lt45")
+            boundary_markers[facet] = 4
+            
+        if n.x() > 0 and n.y() < 0 and abs(n.y()) < abs(n.x()):
+            print("boundary marker 5 lowerHalf_downSlope_lt45")
+            boundary_markers[facet] = 5
+            
+        if n.x() > 0 and n.y() < 0 and abs(n.y()) > abs(n.x()):
+            print("boundary marker 6 lowerHalf_downSlope_gt45")
+            boundary_markers[facet] = 6
+            
+        if n.x() > 0 and n.y() > 0 and abs(n.y()) > abs(n.x()):
+            print("boundary marker 7 upperHalf_upSlope_gt45")
+            boundary_markers[facet] = 7
+            
+        if n.x() > 0 and n.y() > 0 and abs(n.y()) < abs(n.x()):
+            print("boundary marker 8 upperHalf_upSlope_lt45")
+            boundary_markers[facet] = 8
+    
+
 
 h = mesh.hmin()
-dt = 0.01*h**2
+dt = 0.005*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -330,6 +368,180 @@ bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
 bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
 bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
+# Boundary conditions for lowerHalf_upSlope_lt45 boundary marker 4
+f7_lowerHalf_upSlope_lt45 = f_n[5] 
+f4_lowerHalf_upSlope_lt45 = f_n[2] 
+f8_lowerHalf_upSlope_lt45 = f_n[6] 
+f1_lowerHalf_upSlope_lt45 = f_n[3]
+
+f7_lowerHalf_upSlope_lt45_func = fe.Function(V)
+f4_lowerHalf_upSlope_lt45_func = fe.Function(V)
+f8_lowerHalf_upSlope_lt45_func = fe.Function(V)
+f1_lowerHalf_upSlope_lt45_func = fe.Function(V)
+
+fe.project(f7_lowerHalf_upSlope_lt45, V, function=f7_lowerHalf_upSlope_lt45_func)
+fe.project(f4_lowerHalf_upSlope_lt45, V, function=f4_lowerHalf_upSlope_lt45_func)
+fe.project(f8_lowerHalf_upSlope_lt45, V, function=f8_lowerHalf_upSlope_lt45_func)
+fe.project(f1_lowerHalf_upSlope_lt45, V, function=f1_lowerHalf_upSlope_lt45_func)
+
+bc_f7_lowerHalf_upSlope_lt45 = fe.DirichletBC(V, f7_lowerHalf_upSlope_lt45_func, boundary_markers, 4)
+bc_f4_lowerHalf_upSlope_lt45 = fe.DirichletBC(V, f4_lowerHalf_upSlope_lt45_func, boundary_markers, 4)
+bc_f8_lowerHalf_upSlope_lt45 = fe.DirichletBC(V, f8_lowerHalf_upSlope_lt45_func, boundary_markers, 4)
+bc_f1_lowerHalf_upSlope_lt45 = fe.DirichletBC(V, f1_lowerHalf_upSlope_lt45_func, boundary_markers, 4)
+
+
+# Boundary conditions for lowerHalf_upSlope_gt45 boundary marker 3
+f4_lowerHalf_upSlope_gt45 = f_n[2] 
+f8_lowerHalf_upSlope_gt45 = f_n[6] 
+f1_lowerHalf_upSlope_gt45 = f_n[3] 
+f5_lowerHalf_upSlope_gt45 = f_n[7]
+
+f4_lowerHalf_upSlope_gt45_func = fe.Function(V)
+f8_lowerHalf_upSlope_gt45_func = fe.Function(V)
+f1_lowerHalf_upSlope_gt45_func = fe.Function(V)
+f5_lowerHalf_upSlope_gt45_func = fe.Function(V)
+
+fe.project(f4_lowerHalf_upSlope_gt45, V, function=f4_lowerHalf_upSlope_gt45_func)
+fe.project(f8_lowerHalf_upSlope_gt45, V, function=f8_lowerHalf_upSlope_gt45_func)
+fe.project(f1_lowerHalf_upSlope_gt45, V, function=f1_lowerHalf_upSlope_gt45_func)
+fe.project(f5_lowerHalf_upSlope_gt45, V, function=f5_lowerHalf_upSlope_gt45_func)
+
+bc_f4_lowerHalf_upSlope_gt45 = fe.DirichletBC(V, f4_lowerHalf_upSlope_gt45_func, boundary_markers, 3)
+bc_f8_lowerHalf_upSlope_gt45 = fe.DirichletBC(V, f8_lowerHalf_upSlope_gt45_func, boundary_markers, 3)
+bc_f1_lowerHalf_upSlope_gt45 = fe.DirichletBC(V, f1_lowerHalf_upSlope_gt45_func, boundary_markers, 3)
+bc_f5_lowerHalf_upSlope_gt45 = fe.DirichletBC(V, f5_lowerHalf_upSlope_gt45_func, boundary_markers, 3)
+
+
+# Boundary conditions for lowerHalf_downSlope_gt45 boundary marker 6
+f6_lowerHalf_downSlope_gt45 = f_n[8] 
+f3_lowerHalf_downSlope_gt45 = f_n[7] 
+f7_lowerHalf_downSlope_gt45 = f_n[5] 
+f4_lowerHalf_downSlope_gt45 = f_n[2]
+
+f6_lowerHalf_downSlope_gt45_func = fe.Function(V)
+f3_lowerHalf_downSlope_gt45_func = fe.Function(V)
+f7_lowerHalf_downSlope_gt45_func = fe.Function(V)
+f4_lowerHalf_downSlope_gt45_func = fe.Function(V)
+
+fe.project(f6_lowerHalf_downSlope_gt45, V, function=f6_lowerHalf_downSlope_gt45_func)
+fe.project(f3_lowerHalf_downSlope_gt45, V, function=f3_lowerHalf_downSlope_gt45_func)
+fe.project(f7_lowerHalf_downSlope_gt45, V, function=f7_lowerHalf_downSlope_gt45_func)
+fe.project(f4_lowerHalf_downSlope_gt45, V, function=f4_lowerHalf_downSlope_gt45_func)
+
+bc_f6_lowerHalf_downSlope_gt45 = fe.DirichletBC(V, f6_lowerHalf_downSlope_gt45_func, boundary_markers, 6)
+bc_f3_lowerHalf_downSlope_gt45 = fe.DirichletBC(V, f3_lowerHalf_downSlope_gt45_func, boundary_markers, 6)
+bc_f7_lowerHalf_downSlope_gt45 = fe.DirichletBC(V, f7_lowerHalf_downSlope_gt45_func, boundary_markers, 6)
+bc_f4_lowerHalf_downSlope_gt45 = fe.DirichletBC(V, f4_lowerHalf_downSlope_gt45_func, boundary_markers, 6)
+
+
+# Boundary conditions for lowerHalf_downSlope_lt45 boundary marker 5
+f3_lowerHalf_downSlope_lt45 = f_n[1]
+f7_lowerHalf_downSlope_lt45 = f_n[5] 
+f4_lowerHalf_downSlope_lt45 = f_n[3] 
+f8_lowerHalf_downSlope_lt45 = f_n[6] 
+
+f3_lowerHalf_downSlope_lt45_func = fe.Function(V)
+f7_lowerHalf_downSlope_lt45_func = fe.Function(V)
+f4_lowerHalf_downSlope_lt45_func = fe.Function(V)
+f8_lowerHalf_downSlope_lt45_func = fe.Function(V)
+
+fe.project(f3_lowerHalf_downSlope_lt45, V, function=f3_lowerHalf_downSlope_lt45_func)
+fe.project(f7_lowerHalf_downSlope_lt45, V, function=f7_lowerHalf_downSlope_lt45_func)
+fe.project(f4_lowerHalf_downSlope_lt45, V, function=f4_lowerHalf_downSlope_lt45_func)
+fe.project(f8_lowerHalf_downSlope_lt45, V, function=f8_lowerHalf_downSlope_lt45_func)
+
+bc_f3_lowerHalf_downSlope_lt45 = fe.DirichletBC(V, f3_lowerHalf_downSlope_lt45_func, boundary_markers, 5)
+bc_f7_lowerHalf_downSlope_lt45 = fe.DirichletBC(V, f7_lowerHalf_downSlope_lt45_func, boundary_markers, 5)
+bc_f4_lowerHalf_downSlope_lt45 = fe.DirichletBC(V, f4_lowerHalf_downSlope_lt45_func, boundary_markers, 5)
+bc_f8_lowerHalf_downSlope_lt45 = fe.DirichletBC(V, f8_lowerHalf_downSlope_lt45_func, boundary_markers, 5)
+
+
+# Boundary conditions for upperHalf_upSlope_lt45 boundary marker 8
+f5_upperHalf_upSlope_lt45 = f_n[7] 
+f2_upperHalf_upSlope_lt45 = f_n[4] 
+f6_upperHalf_upSlope_lt45 = f_n[8] 
+f3_upperHalf_upSlope_lt45 = f_n[1]
+
+f5_upperHalf_upSlope_lt45_func = fe.Function(V)
+f2_upperHalf_upSlope_lt45_func = fe.Function(V)
+f6_upperHalf_upSlope_lt45_func = fe.Function(V)
+f3_upperHalf_upSlope_lt45_func = fe.Function(V)
+
+fe.project(f5_upperHalf_upSlope_lt45, V, function=f5_upperHalf_upSlope_lt45_func)
+fe.project(f2_upperHalf_upSlope_lt45, V, function=f2_upperHalf_upSlope_lt45_func)
+fe.project(f6_upperHalf_upSlope_lt45, V, function=f6_upperHalf_upSlope_lt45_func)
+fe.project(f3_upperHalf_upSlope_lt45, V, function=f3_upperHalf_upSlope_lt45_func)
+
+bc_f5_upperHalf_upSlope_lt45 = fe.DirichletBC(V, f5_upperHalf_upSlope_lt45_func, boundary_markers, 8)
+bc_f2_upperHalf_upSlope_lt45 = fe.DirichletBC(V, f2_upperHalf_upSlope_lt45_func, boundary_markers, 8)
+bc_f6_upperHalf_upSlope_lt45 = fe.DirichletBC(V, f6_upperHalf_upSlope_lt45_func, boundary_markers, 8)
+bc_f3_upperHalf_upSlope_lt45 = fe.DirichletBC(V, f3_upperHalf_upSlope_lt45_func, boundary_markers, 8)
+
+# Boundary conditions for upperHalf_upSlope_gt45 boundary marker 7
+f2_upperHalf_upSlope_gt45 = f_n[4] 
+f6_upperHalf_upSlope_gt45 = f_n[8] 
+f3_upperHalf_upSlope_gt45 = f_n[1] 
+f7_upperHalf_upSlope_gt45 = f_n[5]
+
+f2_upperHalf_upSlope_gt45_func = fe.Function(V)
+f6_upperHalf_upSlope_gt45_func = fe.Function(V)
+f3_upperHalf_upSlope_gt45_func = fe.Function(V)
+f7_upperHalf_upSlope_gt45_func = fe.Function(V)
+
+fe.project(f2_upperHalf_upSlope_gt45, V, function=f2_upperHalf_upSlope_gt45_func)
+fe.project(f6_upperHalf_upSlope_gt45, V, function=f6_upperHalf_upSlope_gt45_func)
+fe.project(f3_upperHalf_upSlope_gt45, V, function=f3_upperHalf_upSlope_gt45_func)
+fe.project(f7_upperHalf_upSlope_gt45, V, function=f7_upperHalf_upSlope_gt45_func)
+
+bc_f2_upperHalf_upSlope_gt45 = fe.DirichletBC(V, f2_upperHalf_upSlope_gt45_func, boundary_markers, 7)
+bc_f6_upperHalf_upSlope_gt45 = fe.DirichletBC(V, f6_upperHalf_upSlope_gt45_func, boundary_markers, 7)
+bc_f3_upperHalf_upSlope_gt45 = fe.DirichletBC(V, f3_upperHalf_upSlope_gt45_func, boundary_markers, 7)
+bc_f7_upperHalf_upSlope_gt45 = fe.DirichletBC(V, f7_upperHalf_upSlope_gt45_func, boundary_markers, 7)
+
+
+# Boundary conditions for upperHalf_downSlope_gt45 boundary marker 2
+f8_upperHalf_downSlope_gt45 = f_n[6] 
+f1_upperHalf_downSlope_gt45 = f_n[3] 
+f5_upperHalf_downSlope_gt45 = f_n[7] 
+f2_upperHalf_downSlope_gt45 = f_n[4]
+
+f8_upperHalf_downSlope_gt45_func = fe.Function(V)
+f1_upperHalf_downSlope_gt45_func = fe.Function(V)
+f5_upperHalf_downSlope_gt45_func = fe.Function(V)
+f2_upperHalf_downSlope_gt45_func = fe.Function(V)
+
+fe.project(f8_upperHalf_downSlope_gt45, V, function=f8_upperHalf_downSlope_gt45_func)
+fe.project(f1_upperHalf_downSlope_gt45, V, function=f1_upperHalf_downSlope_gt45_func)
+fe.project(f5_upperHalf_downSlope_gt45, V, function=f5_upperHalf_downSlope_gt45_func)
+fe.project(f2_upperHalf_downSlope_gt45, V, function=f2_upperHalf_downSlope_gt45_func)
+
+bc_f8_upperHalf_downSlope_gt45 = fe.DirichletBC(V, f8_upperHalf_downSlope_gt45_func, boundary_markers, 2)
+bc_f1_upperHalf_downSlope_gt45 = fe.DirichletBC(V, f1_upperHalf_downSlope_gt45_func, boundary_markers, 2)
+bc_f5_upperHalf_downSlope_gt45 = fe.DirichletBC(V, f5_upperHalf_downSlope_gt45_func, boundary_markers, 2)
+bc_f2_upperHalf_downSlope_gt45 = fe.DirichletBC(V, f2_upperHalf_downSlope_gt45_func, boundary_markers, 2)
+
+
+# Boundary conditions for upperHalf_downSlope_lt45 boundary marker 1
+f1_upperHalf_downSlope_lt45 = f_n[3] 
+f5_upperHalf_downSlope_lt45 = f_n[7] 
+f2_upperHalf_downSlope_lt45 = f_n[4] 
+f6_upperHalf_downSlope_lt45 = f_n[8]
+
+f1_upperHalf_downSlope_lt45_func = fe.Function(V)
+f5_upperHalf_downSlope_lt45_func = fe.Function(V)
+f2_upperHalf_downSlope_lt45_func = fe.Function(V)
+f6_upperHalf_downSlope_lt45_func = fe.Function(V)
+
+fe.project(f1_upperHalf_downSlope_lt45, V, function=f1_upperHalf_downSlope_lt45_func)
+fe.project(f5_upperHalf_downSlope_lt45, V, function=f5_upperHalf_downSlope_lt45_func)
+fe.project(f2_upperHalf_downSlope_lt45, V, function=f2_upperHalf_downSlope_lt45_func)
+fe.project(f6_upperHalf_downSlope_lt45, V, function=f6_upperHalf_downSlope_lt45_func)
+
+bc_f1_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f1_upperHalf_downSlope_lt45_func, boundary_markers, 1)
+bc_f5_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f5_upperHalf_downSlope_lt45_func, boundary_markers, 1)
+bc_f2_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f2_upperHalf_downSlope_lt45_func, boundary_markers, 1)
+bc_f6_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f6_upperHalf_downSlope_lt45_func, boundary_markers, 1)
+
 
 
 # Define variational problems
@@ -348,9 +560,9 @@ class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
         return on_boundary and fe.near(x[1], 0.0)
 
-bottom = Bottom()
-bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
-ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_id=1)
+
+ds = fe.Measure("ds", domain=mesh, subdomain_data=boundary_markers)
+ds_bottom = ds(1) + ds(2) + ds(3) + ds(4) + ds(5) + ds(6) + ds(7) + ds(8)
 
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
@@ -498,6 +710,8 @@ forceVals_y = []
 inverse_cs2 = 1 / c_s**2
 inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
+
+phi_file.write(phi_n, t)
 for n in range(num_steps):
     t += dt
     
@@ -594,14 +808,94 @@ for n in range(num_steps):
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
-    assignApplyTimeStart = time.time()
+    f7_upper_func.assign(f_star[5] )
+    f4_upper_func.assign(f_star[2] )
+    f8_upper_func.assign(f_star[6] )
+    
     f5_lower_func.assign(f_star[7])
-    f2_lower_func.assign( f_star[4])
+    f2_lower_func.assign(f_star[4])
     f6_lower_func.assign(f_star[8])
-    f7_upper_func.assign(f_star[5])
-    f4_upper_func.assign(f_star[2])
-    f8_upper_func.assign(f_star[6])
-
+    
+    assignApplyTimeStart = time.time()
+    f7_lowerHalf_upSlope_lt45_func.assign(f_star[5])
+    f4_lowerHalf_upSlope_lt45_func.assign(f_star[2])
+    f8_lowerHalf_upSlope_lt45_func.assign(f_star[6])
+    f1_lowerHalf_upSlope_lt45_func.assign(f_star[3])
+    
+    f4_lowerHalf_upSlope_gt45_func.assign(f_star[2])
+    f8_lowerHalf_upSlope_gt45_func.assign(f_star[6])
+    f1_lowerHalf_upSlope_gt45_func.assign(f_star[3])
+    f5_lowerHalf_upSlope_gt45_func.assign(f_star[7])
+    
+    f6_lowerHalf_downSlope_gt45_func.assign(f_star[8])
+    f3_lowerHalf_downSlope_gt45_func.assign(f_star[7])
+    f7_lowerHalf_downSlope_gt45_func.assign(f_star[5])
+    f4_lowerHalf_downSlope_gt45_func.assign(f_star[2])
+    
+    f3_lowerHalf_downSlope_lt45_func.assign(f_star[1])
+    f7_lowerHalf_downSlope_lt45_func.assign(f_star[5])
+    f4_lowerHalf_downSlope_lt45_func.assign(f_star[3])
+    f8_lowerHalf_downSlope_lt45_func.assign(f_star[6])
+    
+    f5_upperHalf_upSlope_lt45_func.assign(f_star[7])
+    f2_upperHalf_upSlope_lt45_func.assign(f_star[4])
+    f6_upperHalf_upSlope_lt45_func.assign(f_star[8])
+    f3_upperHalf_upSlope_lt45_func.assign(f_star[1])
+    
+    f2_upperHalf_upSlope_gt45_func.assign(f_star[4])
+    f6_upperHalf_upSlope_gt45_func.assign(f_star[8])
+    f3_upperHalf_upSlope_gt45_func.assign(f_star[1])
+    f7_upperHalf_upSlope_gt45_func.assign(f_star[5])
+    
+    f8_upperHalf_downSlope_gt45_func.assign(f_star[6])
+    f1_upperHalf_downSlope_gt45_func.assign(f_star[3])
+    f5_upperHalf_downSlope_gt45_func.assign(f_star[7])
+    f2_upperHalf_downSlope_gt45_func.assign(f_star[4])
+    
+    f5_upperHalf_upSlope_lt45_func.assign(f_star[7])
+    f2_upperHalf_upSlope_lt45_func.assign(f_star[4])
+    f6_upperHalf_upSlope_lt45_func.assign(f_star[8])
+    f3_upperHalf_upSlope_lt45_func.assign(f_star[1])
+    
+    bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[5])
+    bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[2])
+    bc_f8_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[6])
+    bc_f1_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[3])
+    
+    bc_f4_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[2])
+    bc_f8_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[6])
+    bc_f1_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[3])
+    bc_f5_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[7])
+    
+    bc_f6_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[8])
+    bc_f3_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[7])
+    bc_f7_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[5])
+    bc_f4_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[2])
+    
+    bc_f3_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[1])
+    bc_f7_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[5])
+    bc_f4_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[3])
+    bc_f8_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[6])
+    
+    bc_f5_upperHalf_upSlope_lt45.apply(rhsVecStreaming[7])
+    bc_f2_upperHalf_upSlope_lt45.apply(rhsVecStreaming[4])
+    bc_f6_upperHalf_upSlope_lt45.apply(rhsVecStreaming[8])
+    bc_f3_upperHalf_upSlope_lt45.apply(rhsVecStreaming[1])
+    
+    bc_f2_upperHalf_upSlope_gt45.apply(rhsVecStreaming[4])
+    bc_f6_upperHalf_upSlope_gt45.apply(rhsVecStreaming[8])
+    bc_f3_upperHalf_upSlope_gt45.apply(rhsVecStreaming[1])
+    bc_f7_upperHalf_upSlope_gt45.apply(rhsVecStreaming[5])
+    
+    bc_f8_upperHalf_downSlope_gt45.apply(rhsVecStreaming[6])
+    bc_f1_upperHalf_downSlope_gt45.apply(rhsVecStreaming[3])
+    bc_f5_upperHalf_downSlope_gt45.apply(rhsVecStreaming[7])
+    bc_f2_upperHalf_downSlope_gt45.apply(rhsVecStreaming[4])
+    
+    bc_f1_upperHalf_downSlope_lt45.apply(rhsVecStreaming[3])
+    bc_f5_upperHalf_downSlope_lt45.apply(rhsVecStreaming[7])
+    bc_f2_upperHalf_downSlope_lt45.apply(rhsVecStreaming[4])
+    bc_f6_upperHalf_downSlope_lt45.apply(rhsVecStreaming[8])
     # # Apply BCs for distribution functions 5, 2, and 6
     # bc_f5.apply( rhsVecStreaming[5])
     # bc_f2.apply( rhsVecStreaming[2])
@@ -618,6 +912,46 @@ for n in range(num_steps):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
         vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
         f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+        
+    bc_f7_lowerHalf_upSlope_lt45.apply(f_nP1[5].vector())
+    bc_f4_lowerHalf_upSlope_lt45.apply(f_nP1[2].vector())
+    bc_f8_lowerHalf_upSlope_lt45.apply(f_nP1[6].vector())
+    bc_f1_lowerHalf_upSlope_lt45.apply(f_nP1[3].vector())
+    
+    bc_f4_lowerHalf_upSlope_gt45.apply(f_nP1[2].vector())
+    bc_f8_lowerHalf_upSlope_gt45.apply(f_nP1[6].vector())
+    bc_f1_lowerHalf_upSlope_gt45.apply(f_nP1[3].vector())
+    bc_f5_lowerHalf_upSlope_gt45.apply(f_nP1[7].vector())
+    
+    bc_f6_lowerHalf_downSlope_gt45.apply(f_nP1[8].vector())
+    bc_f3_lowerHalf_downSlope_gt45.apply(f_nP1[7].vector())
+    bc_f7_lowerHalf_downSlope_gt45.apply(f_nP1[5].vector())
+    bc_f4_lowerHalf_downSlope_gt45.apply(f_nP1[2].vector())
+    
+    bc_f3_lowerHalf_downSlope_lt45.apply(f_nP1[1].vector())
+    bc_f7_lowerHalf_downSlope_lt45.apply(f_nP1[5].vector())
+    bc_f4_lowerHalf_downSlope_lt45.apply(f_nP1[3].vector())
+    bc_f8_lowerHalf_downSlope_lt45.apply(f_nP1[6].vector())
+    
+    bc_f5_upperHalf_upSlope_lt45.apply(f_nP1[7].vector())
+    bc_f2_upperHalf_upSlope_lt45.apply(f_nP1[4].vector())
+    bc_f6_upperHalf_upSlope_lt45.apply(f_nP1[8].vector())
+    bc_f3_upperHalf_upSlope_lt45.apply(f_nP1[1].vector())
+    
+    bc_f2_upperHalf_upSlope_gt45.apply(f_nP1[4].vector())
+    bc_f6_upperHalf_upSlope_gt45.apply(f_nP1[8].vector())
+    bc_f3_upperHalf_upSlope_gt45.apply(f_nP1[1].vector())
+    bc_f7_upperHalf_upSlope_gt45.apply(f_nP1[5].vector())
+    
+    bc_f8_upperHalf_downSlope_gt45.apply(f_nP1[6].vector())
+    bc_f1_upperHalf_downSlope_gt45.apply(f_nP1[3].vector())
+    bc_f5_upperHalf_downSlope_gt45.apply(f_nP1[7].vector())
+    bc_f2_upperHalf_downSlope_gt45.apply(f_nP1[4].vector())
+    
+    bc_f1_upperHalf_downSlope_lt45.apply(f_nP1[3].vector())
+    bc_f5_upperHalf_downSlope_lt45.apply(f_nP1[7].vector())
+    bc_f2_upperHalf_downSlope_lt45.apply(f_nP1[4].vector())
+    bc_f6_upperHalf_downSlope_lt45.apply(f_nP1[8].vector())
         
     # Apply BCs for lower boundary
     bc_f5.apply( f_nP1[5].vector())
@@ -664,7 +998,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -726,8 +1060,8 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
                 
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)
