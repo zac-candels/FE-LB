@@ -59,9 +59,9 @@ def trackMeniscus(phi_n, mesh):
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 8*R0
+L_x = 15*R0
 L_y = 1*R0
-nx = 80
+nx = 150
 ny = 20
 h = min(L_x/nx, L_y/ ny)
 
@@ -82,13 +82,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion")
+outDirName = os.path.join(WORKDIR, f"capIntrusion_theta{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/6, R0 - 0.6*R0
+xc, yc = L_x/4, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -125,13 +125,36 @@ num_steps = int(np.ceil(T/dt))
 
 
 class PeriodicBoundary(fe.SubDomain):
+
     def inside(self, x, on_boundary):
-        return bool(x[0] < fe.DOLFIN_EPS and x[0] > -fe.DOLFIN_EPS and on_boundary)
+
+        left = fe.near(x[0], 0.0)
+
+        bottom_periodic = (
+            fe.near(x[1], 0.0)
+            and (x[0] < L_x/5 or x[0] > 4*L_x/5)
+        )
+
+        return bool((left or bottom_periodic)
+                    and on_boundary)
+
     def map(self, x, y):
-        y[0] = x[0] - L_x
-        y[1] = x[1]
 
+        # x-periodicity
+        if fe.near(x[0], L_x):
+            y[0] = x[0] - L_x
+            y[1] = x[1]
 
+        # y-periodicity on selected intervals
+        elif (fe.near(x[1], L_y)
+              and (x[0] < L_x/5 or x[0] > 4*L_x/5)):
+            y[0] = x[0]
+            y[1] = x[1] - L_y
+
+        else:
+            y[0] = x[0]
+            y[1] = x[1]
+            
 pbc = PeriodicBoundary()
 
 
@@ -242,7 +265,7 @@ class InitialConditions(fe.UserExpression):
     def eval(self, values, x):
         if x[0] <= xc:
             values[0] = 1
-        elif x[0] > L_x - L_x/6:
+        elif x[0] > L_x - L_x/7:
             values[0] = 1
         else:
             values[0] = -1
@@ -340,12 +363,12 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0) and x[0] < L_x - L_x/6
+        return on_boundary and fe.near(x[1], 0.0) and x[0] > L_x/10 and x[0] < 4*L_x/5
     
 # Subdomain for bottom wall
 class Top(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], L_y) and x[0] < L_x - L_x/6
+        return on_boundary and fe.near(x[1], L_y) and x[0] > L_x/10 and x[0] < 4*L_x/5
 
 bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
@@ -660,7 +683,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 2000== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n)

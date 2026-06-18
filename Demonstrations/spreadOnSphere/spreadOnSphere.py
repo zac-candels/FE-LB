@@ -94,11 +94,13 @@ circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
 domain = rectangle - circle
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 100)
+mesh = mshr.generate_mesh(domain, 50)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
-tol = 1e-3
+tol = mesh.hmin()/10
+ctr_circle_facet = 0
+ctr_bdy_marker = 0 
 for facet in fe.facets(mesh):
     
     x = facet.midpoint()
@@ -107,44 +109,52 @@ for facet in fe.facets(mesh):
 
     if abs(r - radius) < tol:
         print("circle boundary facet")
-
+        ctr_circle_facet +=1
         n = facet.normal()
         
         # Bottom boundary → normal has negative y component
-        if n.x() > 0 and n.y() < 0 and n.y() < n.x():
+        if n.y() < 0 and n.x() < 0 and abs(n.x()) < abs(n.y()):
             print("boundary marker 1 upperHalf_downSlope_lt45")
             boundary_markers[facet] = 1
+            ctr_bdy_marker+=1
             
-        if n.x() > 0 and n.y() < 0 and n.y() > n.x():
+        if n.y() < 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
             print("boundary marker 2 upperHalf_downSlope_gt45")
             boundary_markers[facet] = 2
+            ctr_bdy_marker+=1
             
-        if n.x() < 0 and n.y() < 0 and abs(n.y()) > abs(n.x()):
+        if n.y() > 0 and n.x() < 0 and abs(n.x()) > abs(n.y()):
             print("boundary marker 3 lowerHalf_upSlope_gt45")
             boundary_markers[facet] = 3
+            ctr_bdy_marker+=1
             
-        if n.x() < 0 and n.y() < 0 and abs(n.y()) < abs(n.x()):
+        if n.y() > 0 and n.x() < 0 and abs(n.x()) < abs(n.y()):
             print("boundary marker 4 lowerHalf_upSlope_lt45")
             boundary_markers[facet] = 4
+            ctr_bdy_marker+=1
             
-        if n.x() > 0 and n.y() < 0 and abs(n.y()) < abs(n.x()):
+        if n.y() > 0 and n.x() > 0 and abs(n.x()) < abs(n.y()):
             print("boundary marker 5 lowerHalf_downSlope_lt45")
             boundary_markers[facet] = 5
+            ctr_bdy_marker+=1
             
-        if n.x() > 0 and n.y() < 0 and abs(n.y()) > abs(n.x()):
+        if n.y() > 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
             print("boundary marker 6 lowerHalf_downSlope_gt45")
             boundary_markers[facet] = 6
+            ctr_bdy_marker+=1
             
-        if n.x() > 0 and n.y() > 0 and abs(n.y()) > abs(n.x()):
+        if n.y() < 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
             print("boundary marker 7 upperHalf_upSlope_gt45")
             boundary_markers[facet] = 7
+            ctr_bdy_marker+=1
             
-        if n.x() > 0 and n.y() > 0 and abs(n.y()) < abs(n.x()):
+        if n.y() < 0 and n.x() > 0 and abs(n.x()) < abs(n.y()):
             print("boundary marker 8 upperHalf_upSlope_lt45")
             boundary_markers[facet] = 8
-    
+            ctr_bdy_marker+=1
 
-
+print("total number of circle facets is", ctr_circle_facet )
+print("total number of boundary markers is ", ctr_bdy_marker)
 h = mesh.hmin()
 dt = 0.005*h**2
 #dt = 0.0001
@@ -828,13 +838,13 @@ for n in range(num_steps):
     f5_lowerHalf_upSlope_gt45_func.assign(f_star[7])
     
     f6_lowerHalf_downSlope_gt45_func.assign(f_star[8])
-    f3_lowerHalf_downSlope_gt45_func.assign(f_star[7])
+    f3_lowerHalf_downSlope_gt45_func.assign(f_star[1])
     f7_lowerHalf_downSlope_gt45_func.assign(f_star[5])
     f4_lowerHalf_downSlope_gt45_func.assign(f_star[2])
     
     f3_lowerHalf_downSlope_lt45_func.assign(f_star[1])
     f7_lowerHalf_downSlope_lt45_func.assign(f_star[5])
-    f4_lowerHalf_downSlope_lt45_func.assign(f_star[3])
+    f4_lowerHalf_downSlope_lt45_func.assign(f_star[2])
     f8_lowerHalf_downSlope_lt45_func.assign(f_star[6])
     
     f5_upperHalf_upSlope_lt45_func.assign(f_star[7])
@@ -852,10 +862,10 @@ for n in range(num_steps):
     f5_upperHalf_downSlope_gt45_func.assign(f_star[7])
     f2_upperHalf_downSlope_gt45_func.assign(f_star[4])
     
-    f5_upperHalf_upSlope_lt45_func.assign(f_star[7])
-    f2_upperHalf_upSlope_lt45_func.assign(f_star[4])
-    f6_upperHalf_upSlope_lt45_func.assign(f_star[8])
-    f3_upperHalf_upSlope_lt45_func.assign(f_star[1])
+    f1_upperHalf_downSlope_lt45_func.assign(f_star[3])
+    f5_upperHalf_downSlope_lt45_func.assign(f_star[7])
+    f2_upperHalf_downSlope_lt45_func.assign(f_star[4])
+    f6_upperHalf_downSlope_lt45_func.assign(f_star[8])
     
     bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[5])
     bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[2])
@@ -868,13 +878,13 @@ for n in range(num_steps):
     bc_f5_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[7])
     
     bc_f6_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[8])
-    bc_f3_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[7])
+    bc_f3_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[1])
     bc_f7_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[5])
     bc_f4_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[2])
     
     bc_f3_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[1])
     bc_f7_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[5])
-    bc_f4_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[3])
+    bc_f4_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[2])
     bc_f8_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[6])
     
     bc_f5_upperHalf_upSlope_lt45.apply(rhsVecStreaming[7])
@@ -924,13 +934,13 @@ for n in range(num_steps):
     bc_f5_lowerHalf_upSlope_gt45.apply(f_nP1[7].vector())
     
     bc_f6_lowerHalf_downSlope_gt45.apply(f_nP1[8].vector())
-    bc_f3_lowerHalf_downSlope_gt45.apply(f_nP1[7].vector())
+    bc_f3_lowerHalf_downSlope_gt45.apply(f_nP1[1].vector())
     bc_f7_lowerHalf_downSlope_gt45.apply(f_nP1[5].vector())
     bc_f4_lowerHalf_downSlope_gt45.apply(f_nP1[2].vector())
     
     bc_f3_lowerHalf_downSlope_lt45.apply(f_nP1[1].vector())
     bc_f7_lowerHalf_downSlope_lt45.apply(f_nP1[5].vector())
-    bc_f4_lowerHalf_downSlope_lt45.apply(f_nP1[3].vector())
+    bc_f4_lowerHalf_downSlope_lt45.apply(f_nP1[2].vector())
     bc_f8_lowerHalf_downSlope_lt45.apply(f_nP1[6].vector())
     
     bc_f5_upperHalf_upSlope_lt45.apply(f_nP1[7].vector())
@@ -998,7 +1008,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
