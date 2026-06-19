@@ -94,7 +94,7 @@ circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
 domain = rectangle - circle
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 50)
+mesh = mshr.generate_mesh(domain, 70)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
@@ -424,7 +424,7 @@ bc_f5_lowerHalf_upSlope_gt45 = fe.DirichletBC(V, f5_lowerHalf_upSlope_gt45_func,
 
 # Boundary conditions for lowerHalf_downSlope_gt45 boundary marker 6
 f6_lowerHalf_downSlope_gt45 = f_n[8] 
-f3_lowerHalf_downSlope_gt45 = f_n[7] 
+f3_lowerHalf_downSlope_gt45 = f_n[1] 
 f7_lowerHalf_downSlope_gt45 = f_n[5] 
 f4_lowerHalf_downSlope_gt45 = f_n[2]
 
@@ -447,7 +447,7 @@ bc_f4_lowerHalf_downSlope_gt45 = fe.DirichletBC(V, f4_lowerHalf_downSlope_gt45_f
 # Boundary conditions for lowerHalf_downSlope_lt45 boundary marker 5
 f3_lowerHalf_downSlope_lt45 = f_n[1]
 f7_lowerHalf_downSlope_lt45 = f_n[5] 
-f4_lowerHalf_downSlope_lt45 = f_n[3] 
+f4_lowerHalf_downSlope_lt45 = f_n[2] 
 f8_lowerHalf_downSlope_lt45 = f_n[6] 
 
 f3_lowerHalf_downSlope_lt45_func = fe.Function(V)
@@ -553,6 +553,25 @@ bc_f2_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f2_upperHalf_downSlope_lt45_f
 bc_f6_upperHalf_downSlope_lt45 = fe.DirichletBC(V, f6_upperHalf_downSlope_lt45_func, boundary_markers, 1)
 
 
+cells_with_marker1 = []
+
+for cell in fe.cells(mesh):
+
+    for facet in fe.facets(cell):
+
+        if boundary_markers[facet] == 1:
+
+            mp = cell.midpoint()
+
+            cells_with_marker1.append((mp.x(), mp.y()))
+
+            break   # avoid printing the same cell multiple times
+
+
+print("Number of cells:", len(cells_with_marker1))
+
+for x, y in cells_with_marker1:
+    print(f"({x:.6f}, {y:.6f})")
 
 # Define variational problems
 
@@ -721,6 +740,14 @@ inverse_cs2 = 1 / c_s**2
 inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 
+facet_vis = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
+
+for facet in fe.facets(mesh):
+    if facet.exterior() and boundary_markers[facet] in boundary_markers:
+        facet_vis[facet] = 1
+
+fe.File("bottom_facets.pvd") << facet_vis
+
 phi_file.write(phi_n, t)
 for n in range(num_steps):
     t += dt
@@ -760,8 +787,8 @@ for n in range(num_steps):
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    # ux[wall_dofs] = 0.0
-    # uy[wall_dofs] = 0.0
+    ux[wall_dofs] = 0.0
+    uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
@@ -867,45 +894,45 @@ for n in range(num_steps):
     f2_upperHalf_downSlope_lt45_func.assign(f_star[4])
     f6_upperHalf_downSlope_lt45_func.assign(f_star[8])
     
-    bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[5])
-    bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[2])
-    bc_f8_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[6])
-    bc_f1_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[3])
+    bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[7])
+    bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[4])
+    bc_f8_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[8])
+    bc_f1_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[1])
     
-    bc_f4_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[2])
-    bc_f8_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[6])
-    bc_f1_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[3])
-    bc_f5_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[7])
+    bc_f4_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[4])
+    bc_f8_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[8])
+    bc_f1_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[1])
+    bc_f5_lowerHalf_upSlope_gt45.apply(rhsVecStreaming[5])
     
-    bc_f6_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[8])
-    bc_f3_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[1])
-    bc_f7_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[5])
-    bc_f4_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[2])
+    bc_f6_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[6])
+    bc_f3_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[3])
+    bc_f7_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[7])
+    bc_f4_lowerHalf_downSlope_gt45.apply(rhsVecStreaming[4])
     
-    bc_f3_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[1])
-    bc_f7_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[5])
-    bc_f4_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[2])
-    bc_f8_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[6])
+    bc_f3_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[3])
+    bc_f7_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[7])
+    bc_f4_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[4])
+    bc_f8_lowerHalf_downSlope_lt45.apply(rhsVecStreaming[8])
     
-    bc_f5_upperHalf_upSlope_lt45.apply(rhsVecStreaming[7])
-    bc_f2_upperHalf_upSlope_lt45.apply(rhsVecStreaming[4])
-    bc_f6_upperHalf_upSlope_lt45.apply(rhsVecStreaming[8])
-    bc_f3_upperHalf_upSlope_lt45.apply(rhsVecStreaming[1])
+    bc_f5_upperHalf_upSlope_lt45.apply(rhsVecStreaming[5])
+    bc_f2_upperHalf_upSlope_lt45.apply(rhsVecStreaming[2])
+    bc_f6_upperHalf_upSlope_lt45.apply(rhsVecStreaming[6])
+    bc_f3_upperHalf_upSlope_lt45.apply(rhsVecStreaming[3])
     
-    bc_f2_upperHalf_upSlope_gt45.apply(rhsVecStreaming[4])
-    bc_f6_upperHalf_upSlope_gt45.apply(rhsVecStreaming[8])
-    bc_f3_upperHalf_upSlope_gt45.apply(rhsVecStreaming[1])
-    bc_f7_upperHalf_upSlope_gt45.apply(rhsVecStreaming[5])
+    bc_f2_upperHalf_upSlope_gt45.apply(rhsVecStreaming[2])
+    bc_f6_upperHalf_upSlope_gt45.apply(rhsVecStreaming[6])
+    bc_f3_upperHalf_upSlope_gt45.apply(rhsVecStreaming[3])
+    bc_f7_upperHalf_upSlope_gt45.apply(rhsVecStreaming[7])
     
-    bc_f8_upperHalf_downSlope_gt45.apply(rhsVecStreaming[6])
-    bc_f1_upperHalf_downSlope_gt45.apply(rhsVecStreaming[3])
-    bc_f5_upperHalf_downSlope_gt45.apply(rhsVecStreaming[7])
-    bc_f2_upperHalf_downSlope_gt45.apply(rhsVecStreaming[4])
+    bc_f8_upperHalf_downSlope_gt45.apply(rhsVecStreaming[8])
+    bc_f1_upperHalf_downSlope_gt45.apply(rhsVecStreaming[1])
+    bc_f5_upperHalf_downSlope_gt45.apply(rhsVecStreaming[5])
+    bc_f2_upperHalf_downSlope_gt45.apply(rhsVecStreaming[2])
     
-    bc_f1_upperHalf_downSlope_lt45.apply(rhsVecStreaming[3])
-    bc_f5_upperHalf_downSlope_lt45.apply(rhsVecStreaming[7])
-    bc_f2_upperHalf_downSlope_lt45.apply(rhsVecStreaming[4])
-    bc_f6_upperHalf_downSlope_lt45.apply(rhsVecStreaming[8])
+    bc_f1_upperHalf_downSlope_lt45.apply(rhsVecStreaming[1])
+    bc_f5_upperHalf_downSlope_lt45.apply(rhsVecStreaming[5])
+    bc_f2_upperHalf_downSlope_lt45.apply(rhsVecStreaming[2])
+    bc_f6_upperHalf_downSlope_lt45.apply(rhsVecStreaming[6])
     # # Apply BCs for distribution functions 5, 2, and 6
     # bc_f5.apply( rhsVecStreaming[5])
     # bc_f2.apply( rhsVecStreaming[2])
@@ -923,45 +950,45 @@ for n in range(num_steps):
         vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
         f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
         
-    bc_f7_lowerHalf_upSlope_lt45.apply(f_nP1[5].vector())
-    bc_f4_lowerHalf_upSlope_lt45.apply(f_nP1[2].vector())
-    bc_f8_lowerHalf_upSlope_lt45.apply(f_nP1[6].vector())
-    bc_f1_lowerHalf_upSlope_lt45.apply(f_nP1[3].vector())
+    bc_f7_lowerHalf_upSlope_lt45.apply(f_nP1[7].vector())
+    bc_f4_lowerHalf_upSlope_lt45.apply(f_nP1[4].vector())
+    bc_f8_lowerHalf_upSlope_lt45.apply(f_nP1[8].vector())
+    bc_f1_lowerHalf_upSlope_lt45.apply(f_nP1[1].vector())
     
-    bc_f4_lowerHalf_upSlope_gt45.apply(f_nP1[2].vector())
-    bc_f8_lowerHalf_upSlope_gt45.apply(f_nP1[6].vector())
-    bc_f1_lowerHalf_upSlope_gt45.apply(f_nP1[3].vector())
-    bc_f5_lowerHalf_upSlope_gt45.apply(f_nP1[7].vector())
+    bc_f4_lowerHalf_upSlope_gt45.apply(f_nP1[4].vector())
+    bc_f8_lowerHalf_upSlope_gt45.apply(f_nP1[8].vector())
+    bc_f1_lowerHalf_upSlope_gt45.apply(f_nP1[1].vector())
+    bc_f5_lowerHalf_upSlope_gt45.apply(f_nP1[5].vector())
     
-    bc_f6_lowerHalf_downSlope_gt45.apply(f_nP1[8].vector())
-    bc_f3_lowerHalf_downSlope_gt45.apply(f_nP1[1].vector())
-    bc_f7_lowerHalf_downSlope_gt45.apply(f_nP1[5].vector())
-    bc_f4_lowerHalf_downSlope_gt45.apply(f_nP1[2].vector())
+    bc_f6_lowerHalf_downSlope_gt45.apply(f_nP1[6].vector())
+    bc_f3_lowerHalf_downSlope_gt45.apply(f_nP1[3].vector())
+    bc_f7_lowerHalf_downSlope_gt45.apply(f_nP1[7].vector())
+    bc_f4_lowerHalf_downSlope_gt45.apply(f_nP1[4].vector())
     
-    bc_f3_lowerHalf_downSlope_lt45.apply(f_nP1[1].vector())
-    bc_f7_lowerHalf_downSlope_lt45.apply(f_nP1[5].vector())
-    bc_f4_lowerHalf_downSlope_lt45.apply(f_nP1[2].vector())
-    bc_f8_lowerHalf_downSlope_lt45.apply(f_nP1[6].vector())
+    bc_f3_lowerHalf_downSlope_lt45.apply(f_nP1[3].vector())
+    bc_f7_lowerHalf_downSlope_lt45.apply(f_nP1[7].vector())
+    bc_f4_lowerHalf_downSlope_lt45.apply(f_nP1[4].vector())
+    bc_f8_lowerHalf_downSlope_lt45.apply(f_nP1[8].vector())
     
-    bc_f5_upperHalf_upSlope_lt45.apply(f_nP1[7].vector())
-    bc_f2_upperHalf_upSlope_lt45.apply(f_nP1[4].vector())
-    bc_f6_upperHalf_upSlope_lt45.apply(f_nP1[8].vector())
-    bc_f3_upperHalf_upSlope_lt45.apply(f_nP1[1].vector())
+    bc_f5_upperHalf_upSlope_lt45.apply(f_nP1[5].vector())
+    bc_f2_upperHalf_upSlope_lt45.apply(f_nP1[2].vector())
+    bc_f6_upperHalf_upSlope_lt45.apply(f_nP1[6].vector())
+    bc_f3_upperHalf_upSlope_lt45.apply(f_nP1[3].vector())
     
-    bc_f2_upperHalf_upSlope_gt45.apply(f_nP1[4].vector())
-    bc_f6_upperHalf_upSlope_gt45.apply(f_nP1[8].vector())
-    bc_f3_upperHalf_upSlope_gt45.apply(f_nP1[1].vector())
-    bc_f7_upperHalf_upSlope_gt45.apply(f_nP1[5].vector())
+    bc_f2_upperHalf_upSlope_gt45.apply(f_nP1[2].vector())
+    bc_f6_upperHalf_upSlope_gt45.apply(f_nP1[6].vector())
+    bc_f3_upperHalf_upSlope_gt45.apply(f_nP1[3].vector())
+    bc_f7_upperHalf_upSlope_gt45.apply(f_nP1[7].vector())
     
-    bc_f8_upperHalf_downSlope_gt45.apply(f_nP1[6].vector())
-    bc_f1_upperHalf_downSlope_gt45.apply(f_nP1[3].vector())
-    bc_f5_upperHalf_downSlope_gt45.apply(f_nP1[7].vector())
-    bc_f2_upperHalf_downSlope_gt45.apply(f_nP1[4].vector())
+    bc_f8_upperHalf_downSlope_gt45.apply(f_nP1[8].vector())
+    bc_f1_upperHalf_downSlope_gt45.apply(f_nP1[1].vector())
+    bc_f5_upperHalf_downSlope_gt45.apply(f_nP1[5].vector())
+    bc_f2_upperHalf_downSlope_gt45.apply(f_nP1[2].vector())
     
-    bc_f1_upperHalf_downSlope_lt45.apply(f_nP1[3].vector())
-    bc_f5_upperHalf_downSlope_lt45.apply(f_nP1[7].vector())
-    bc_f2_upperHalf_downSlope_lt45.apply(f_nP1[4].vector())
-    bc_f6_upperHalf_downSlope_lt45.apply(f_nP1[8].vector())
+    bc_f1_upperHalf_downSlope_lt45.apply(f_nP1[1].vector())
+    bc_f5_upperHalf_downSlope_lt45.apply(f_nP1[5].vector())
+    bc_f2_upperHalf_downSlope_lt45.apply(f_nP1[2].vector())
+    bc_f6_upperHalf_downSlope_lt45.apply(f_nP1[6].vector())
         
     # Apply BCs for lower boundary
     bc_f5.apply( f_nP1[5].vector())
@@ -1008,7 +1035,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
             print("n = ", n)
             
             

@@ -62,7 +62,7 @@ initDropDiam = 2*R0
 L_x = 15*R0
 L_y = 1*R0
 nx = 150
-ny = 20
+ny = 30
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -88,7 +88,7 @@ if os.path.exists(outDirName):
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/4, R0 - 0.6*R0
+xc, yc = L_x/3, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -123,7 +123,8 @@ beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
-
+periodicBdyXLeft = L_x/5 
+periodicBdyXRight = 4*L_x/5
 class PeriodicBoundary(fe.SubDomain):
 
     def inside(self, x, on_boundary):
@@ -132,7 +133,7 @@ class PeriodicBoundary(fe.SubDomain):
 
         bottom_periodic = (
             fe.near(x[1], 0.0)
-            and (x[0] < L_x/5 or x[0] > 4*L_x/5)
+            and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)
         )
 
         return bool((left or bottom_periodic)
@@ -147,7 +148,7 @@ class PeriodicBoundary(fe.SubDomain):
 
         # y-periodicity on selected intervals
         elif (fe.near(x[1], L_y)
-              and (x[0] < L_x/5 or x[0] > 4*L_x/5)):
+              and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)):
             y[0] = x[0]
             y[1] = x[1] - L_y
 
@@ -265,7 +266,7 @@ class InitialConditions(fe.UserExpression):
     def eval(self, values, x):
         if x[0] <= xc:
             values[0] = 1
-        elif x[0] > L_x - L_x/7:
+        elif x[0] > L_x - L_x/8:
             values[0] = 1
         else:
             values[0] = -1
@@ -285,7 +286,7 @@ forceDensity_n = fe.project(force_density, V_dis)
 
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 0, tol):
+        if fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
             return True
         else:
             return False
@@ -321,7 +322,7 @@ tol = 1e-8
 
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], L_y, tol):
+        if fe.near(x[1], L_y) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
             return True
         else:
             return False
@@ -363,12 +364,12 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0) and x[0] > L_x/10 and x[0] < 4*L_x/5
+        return on_boundary and fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight
     
 # Subdomain for bottom wall
 class Top(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], L_y) and x[0] > L_x/10 and x[0] < 4*L_x/5
+        return on_boundary and fe.near(x[1], L_y) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight
 
 bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary

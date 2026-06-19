@@ -898,7 +898,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
     
-        if n % 10000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
             
             vel_expr = getVel(f_n, force_density)
             fe.project(vel_expr, Vvec, function=vel_n)
