@@ -94,7 +94,7 @@ circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
 domain = rectangle - circle
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 70)
+mesh = mshr.generate_mesh(domain, 100)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
@@ -118,7 +118,7 @@ for facet in fe.facets(mesh):
             boundary_markers[facet] = 1
             ctr_bdy_marker+=1
             
-        if n.y() < 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
+        if n.y() < 0 and n.x() < 0 and abs(n.x()) > abs(n.y()):
             print("boundary marker 2 upperHalf_downSlope_gt45")
             boundary_markers[facet] = 2
             ctr_bdy_marker+=1
@@ -279,7 +279,7 @@ def f_equil_init(vel_idx, force_density):
                                  + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
     
     
-    return f_eq + f_neq
+    return f_eq #+ f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
@@ -601,9 +601,13 @@ lin_form_AC = - dt*v*fe.dot(getVel(f_n, force_density), fe.grad(phi_n))*fe.dx\
     - dt*M_tilde*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, force_density), fe.grad(v)) * fe.dot(getVel(f_n, force_density), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  A*phi_n**3*v*fe.dx\
+# lin_form_mu =  A*phi_n**3*v*fe.dx\
+#     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
+#        + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
+       
+lin_form_mu =  A* phi_n*(phi_n**2 - 1)*v*fe.dx\
     + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-       + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
+        + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
        
 advection_forms = []
 double_advection_forms = []
@@ -758,10 +762,11 @@ for n in range(num_steps):
     fe.assemble(lin_form_AC, tensor=rhsVecACTemp)
     rhs_AC = prevTimeAcVec + rhsVecACTemp
     
-    prevTimeMuVec.zero()
-    fe.as_backend_type(prevTimeMuVec).vec().pointwiseMult(-A*phi_n.vector().vec(), sysMatLumped[0])
-    fe.assemble(lin_form_mu, tensor=rhsVecMuTemp)
-    rhs_mu = prevTimeMuVec + rhsVecMuTemp
+    # prevTimeMuVec.zero()
+    # fe.as_backend_type(prevTimeMuVec).vec().pointwiseMult(-A*phi_n.vector().vec(), sysMatLumped[0])
+    # fe.assemble(lin_form_mu, tensor=rhsVecMuTemp)
+    # rhs_mu = prevTimeMuVec + rhsVecMuTemp
+    rhs_mu = fe.assemble(lin_form_mu)
     
     pre_coll_time_lb = time.time()
     # We will try to do collision locally, since it is a pure
@@ -1003,9 +1008,9 @@ for n in range(num_steps):
     #phi_solver.solve(phi_nP1.vector(), rhs_AC)
     rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
     phi_nP1.vector().vec().pointwiseDivide(rhsPhiVec, sysMatLumped[0])
-    rhsMuVec = fe.as_backend_type(rhs_mu).vec()
-    #mu_solver.solve(mu_nP1.vector(), rhs_mu)
-    mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
+    #rhsMuVec = fe.as_backend_type(rhs_mu).vec()
+    mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    #mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
 
     solveTimeEnd = time.time()
     #print("solve time = ", solveTimeEnd - solveTimeStart)
