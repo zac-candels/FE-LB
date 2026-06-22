@@ -82,7 +82,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion_theta{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"capIntrusion_cylinder")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -114,6 +114,9 @@ w = np.array([
 # Set up domain. For simplicity, do unit square mesh.
 
 mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
+
+# domain = mshr.Rectangle(fe.Point(0,0), fe.Point(L_x, L_y))
+# mesh = mshr.generate_mesh(domain, 80)
 
 
 h = mesh.hmin()

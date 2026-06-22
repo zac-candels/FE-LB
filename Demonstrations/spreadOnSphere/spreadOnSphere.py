@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"spreadOnSphere")
+outDirName = os.path.join(WORKDIR, f"spreadOnSphere2")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -94,7 +94,7 @@ circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
 domain = rectangle - circle
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 100)
+mesh = mshr.generate_mesh(domain, 125)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
@@ -1040,7 +1040,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 10000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
