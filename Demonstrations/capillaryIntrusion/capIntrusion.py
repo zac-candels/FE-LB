@@ -49,6 +49,11 @@ def trackMeniscus(phi_n, mesh):
         for coord, value in nodal_dict.items() 
         if -0.5 < value < 0.5}
     
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items()
+        if coord[0] > L_x/4}
+    
 
     # Determine left-most interfacial point
     min_x = min(coord[0] for coord in nodal_dict.keys())
@@ -59,18 +64,18 @@ def trackMeniscus(phi_n, mesh):
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 15*R0
+L_x = 25*R0
 L_y = 4*R0
-nx = 150
+nx = 2000
 ny = 30
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
 kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
-tau = 0.1
+tau = 1
 M_tilde = 10
-theta_deg = 30
+theta_deg = 60
 
 
 # Lattice speed of sound
@@ -82,13 +87,13 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion_Ibeam")
+outDirName = os.path.join(WORKDIR, f"capIntrusion_Ibeam_tau{tau}_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/3, R0 - 0.6*R0
+xc, yc = L_x/4 + L_x/8, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -126,7 +131,7 @@ rectUpper=  mshr.Rectangle(fe.Point(capTubeLeft, L_y),\
 domain = fullDom - rectLower - rectUpper
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 100)
+mesh = mshr.generate_mesh(domain, 90)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
@@ -258,7 +263,7 @@ class InitialConditions(fe.UserExpression):
     def eval(self, values, x):
         if x[0] <= capTubeLeft - L_x/5:
             values[0] = -1
-        elif x[0] > capTubeLeft - L_x/5 and x[0] < capTubeLeft + L_x/6:
+        elif x[0] > capTubeLeft - L_x/5 and x[0] < capTubeLeft + L_x/15:
             values[0] = 1
         else:
             values[0] = -1
@@ -904,7 +909,7 @@ for n in range(num_steps):
             theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
             theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
             
-            meniscusPosition = 1#trackMeniscus(phi_n, mesh)
+            meniscusPosition = trackMeniscus(phi_n, mesh)
             
             # print("x_{meniscus} = ", meniscusPosition)
                 
