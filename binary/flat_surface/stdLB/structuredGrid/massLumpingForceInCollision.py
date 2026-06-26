@@ -108,7 +108,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.0025*h**2
+dt = 0.01*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))

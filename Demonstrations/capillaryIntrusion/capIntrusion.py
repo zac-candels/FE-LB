@@ -64,7 +64,7 @@ def trackMeniscus(phi_n, mesh):
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 25*R0
+L_x = 20*R0
 L_y = 4*R0
 nx = 2000
 ny = 30
@@ -73,9 +73,9 @@ h = min(L_x/nx, L_y/ ny)
 A = 0.5
 kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
-tau = 1
+tau = 2
 M_tilde = 10
-theta_deg = 60
+theta_deg = 80
 
 
 # Lattice speed of sound
@@ -131,7 +131,7 @@ rectUpper=  mshr.Rectangle(fe.Point(capTubeLeft, L_y),\
 domain = fullDom - rectLower - rectUpper
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 90)
+mesh = mshr.generate_mesh(domain, 80)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 

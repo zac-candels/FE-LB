@@ -31,8 +31,8 @@ R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
 L_y = 2*R0
-nx = 88
-ny = 22
+nx = 80
+ny = 20
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"testNewforce")
+outDirName = os.path.join(WORKDIR, f"LFIS")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -658,7 +658,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 5000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
