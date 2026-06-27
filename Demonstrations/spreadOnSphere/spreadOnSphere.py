@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, "/home/zcandels/FE-LB")
+#sys.path.insert(0, "/home/zcandels/FE-LB")
 import fenics as fe
 import os
 import numpy as np
@@ -11,7 +11,7 @@ import time
 import mshr
 import shutil
 from scipy      import optimize
-import src.postProcessing.computeContactAngle as cca 
+#import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -163,18 +163,8 @@ num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
 
-class PeriodicBoundary(fe.SubDomain):
-    def inside(self, x, on_boundary):
-        return bool(x[0] < fe.DOLFIN_EPS and x[0] > -fe.DOLFIN_EPS and on_boundary)
-    def map(self, x, y):
-        y[0] = x[0] - L_x
-        y[1] = x[1]
 
-
-pbc = PeriodicBoundary()
-
-
-V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
+V = fe.FunctionSpace(mesh, "Lagrange", 1)
 dofCoords = V.tabulate_dof_coordinates()
 dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
 
@@ -189,8 +179,8 @@ f_n = []
 for idx in range(Q):
     f_n.append(fe.Function(V))
 phi_n = fe.Function(V)
-V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
-V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
+V_cont = fe.VectorFunctionSpace(mesh, "P", 1)
+V_dis = fe.VectorFunctionSpace(mesh, "DG", 0)
 
 vel_star = fe.Function(V_cont)
 vel_cont = fe.Function(V_cont)
@@ -314,6 +304,63 @@ forceDensity_n = fe.project(force_density, V_dis)
 
 # Define boundary conditions.
 
+def Bdy_Left(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[0], 0, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+rho_expr = sum(fk for fk in f_n)
+
+f8_left = f_n[6]  # rho_expr
+f1_left = f_n[3]  # rho_expr
+f5_left = f_n[7]  # rho_expr
+
+f8_left_func = fe.Function(V)
+f1_left_func = fe.Function(V)
+f5_left_func = fe.Function(V)
+
+fe.project(f8_left, V, function=f8_left_func)
+fe.project(f1_left, V, function=f1_left_func)
+fe.project(f5_left, V, function=f5_left_func)
+
+bc_f8_left = fe.DirichletBC(V, f8_left_func, Bdy_Left)
+bc_f1_left = fe.DirichletBC(V, f1_left_func, Bdy_Left)
+bc_f5_left = fe.DirichletBC(V, f5_left_func, Bdy_Left)
+
+
+def Bdy_Right(x, on_boundary):
+    if on_boundary:
+        if fe.near(x[0], L_x, tol):
+            return True
+        else:
+            return False
+    else:
+        return False
+
+
+rho_expr = sum(fk for fk in f_n)
+
+f6_right = f_n[8]  # rho_expr
+f3_right = f_n[1]  # rho_expr
+f7_right = f_n[5]  # rho_expr
+
+f6_right_func = fe.Function(V)
+f3_right_func = fe.Function(V)
+f7_right_func = fe.Function(V)
+
+fe.project(f6_right, V, function=f6_right_func)
+fe.project(f3_right, V, function=f3_right_func)
+fe.project(f7_right, V, function=f7_right_func)
+
+bc_f6_right = fe.DirichletBC(V, f6_right_func, Bdy_Right)
+bc_f3_right = fe.DirichletBC(V, f3_right_func, Bdy_Right)
+bc_f7_right = fe.DirichletBC(V, f7_right_func, Bdy_Right)
+
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
         if fe.near(x[1], 0, tol):
@@ -338,9 +385,9 @@ fe.project(f5_lower, V, function=f5_lower_func)
 fe.project(f2_lower, V, function=f2_lower_func)
 fe.project(f6_lower, V, function=f6_lower_func)
 
-bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
+bc_f5_lower = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
+bc_f2_lower = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
+bc_f6_lower = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -374,9 +421,9 @@ fe.project(f7_upper, V, function=f7_upper_func)
 fe.project(f4_upper, V, function=f4_upper_func)
 fe.project(f8_upper, V, function=f8_upper_func)
 
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_f7_upper = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
+bc_f4_upper = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
+bc_f8_upper = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
 # Boundary conditions for lowerHalf_upSlope_lt45 boundary marker 4
 f7_lowerHalf_upSlope_lt45 = f_n[5] 
@@ -850,6 +897,14 @@ for n in range(num_steps):
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
+    f8_left_func.assign(f_star[6])
+    f1_left_func.assign(f_star[3])
+    f5_left_func.assign(f_star[7])
+    
+    f6_right_func.assign(f_star[8])
+    f3_right_func.assign(f_star[1])
+    f7_right_func.assign(f_star[5])
+
     f7_upper_func.assign(f_star[5] )
     f4_upper_func.assign(f_star[2] )
     f8_upper_func.assign(f_star[6] )
@@ -899,6 +954,14 @@ for n in range(num_steps):
     f2_upperHalf_downSlope_lt45_func.assign(f_star[4])
     f6_upperHalf_downSlope_lt45_func.assign(f_star[8])
     
+    bc_f8_left.apply(rhsVecStreaming[8])
+    bc_f1_left.apply(rhsVecStreaming[1])
+    bc_f5_left.apply(rhsVecStreaming[5])
+    
+    bc_f6_right.apply(rhsVecStreaming[6])
+    bc_f3_right.apply(rhsVecStreaming[3])
+    bc_f7_right.apply(rhsVecStreaming[7])
+    
     bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[7])
     bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[4])
     bc_f8_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[8])
@@ -938,15 +1001,16 @@ for n in range(num_steps):
     bc_f5_upperHalf_downSlope_lt45.apply(rhsVecStreaming[5])
     bc_f2_upperHalf_downSlope_lt45.apply(rhsVecStreaming[2])
     bc_f6_upperHalf_downSlope_lt45.apply(rhsVecStreaming[6])
+    
     # # Apply BCs for distribution functions 5, 2, and 6
-    # bc_f5.apply( rhsVecStreaming[5])
-    # bc_f2.apply( rhsVecStreaming[2])
-    # bc_f6.apply( rhsVecStreaming[6])
+    bc_f5_lower.apply( rhsVecStreaming[5])
+    bc_f2_lower.apply( rhsVecStreaming[2])
+    bc_f6_lower.apply( rhsVecStreaming[6])
 
-    # # # Apply BCs for distribution functions 7, 4, 8
-    # bc_f7.apply( rhsVecStreaming[7])
-    # bc_f4.apply(rhsVecStreaming[4])
-    # bc_f8.apply(rhsVecStreaming[8])
+    # # Apply BCs for distribution functions 7, 4, 8
+    bc_f7_upper.apply( rhsVecStreaming[7])
+    bc_f4_upper.apply(rhsVecStreaming[4])
+    bc_f8_upper.apply(rhsVecStreaming[8])
 
     solveTimeStart = time.time()
     # # Solve linear system in each timestep, get f^{n+1}
@@ -954,6 +1018,15 @@ for n in range(num_steps):
         #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
         vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
         f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+        
+    
+    bc_f8_left.apply(f_nP1[8].vector())
+    bc_f1_left.apply(f_nP1[1].vector())
+    bc_f5_left.apply(f_nP1[5].vector())
+    
+    bc_f6_right.apply(f_nP1[6].vector())
+    bc_f3_right.apply(f_nP1[3].vector())
+    bc_f7_right.apply(f_nP1[7].vector())
         
     bc_f7_lowerHalf_upSlope_lt45.apply(f_nP1[7].vector())
     bc_f4_lowerHalf_upSlope_lt45.apply(f_nP1[4].vector())
@@ -996,14 +1069,14 @@ for n in range(num_steps):
     bc_f6_upperHalf_downSlope_lt45.apply(f_nP1[6].vector())
         
     # Apply BCs for lower boundary
-    bc_f5.apply( f_nP1[5].vector())
-    bc_f2.apply(f_nP1[2].vector())
-    bc_f6.apply( f_nP1[6].vector())
+    bc_f5_lower.apply( f_nP1[5].vector())
+    bc_f2_lower.apply(f_nP1[2].vector())
+    bc_f6_lower.apply( f_nP1[6].vector())
     
     # Apply BCs for top boundary
-    bc_f7.apply( f_nP1[7].vector())
-    bc_f4.apply( f_nP1[4].vector())
-    bc_f8.apply( f_nP1[8].vector())
+    bc_f7_upper.apply( f_nP1[7].vector())
+    bc_f4_upper.apply( f_nP1[4].vector())
+    bc_f8_upper.apply( f_nP1[8].vector())
         
     #phi_solver.solve(phi_nP1.vector(), rhs_AC)
     rhsPhiVec = fe.as_backend_type(rhs_AC).vec()

@@ -70,12 +70,13 @@ nx = 2000
 ny = 30
 h = min(L_x/nx, L_y/ ny)
 
-A = 0.5
-kappa = 0.02
+A = 0.25
+kappa = 0.01
 interfaceThickness = np.sqrt(kappa/A)
 tau = 2
 M_tilde = 10
 theta_deg = 80
+gamma = np.sqrt(8*kappa*A/9)
 
 
 # Lattice speed of sound
@@ -87,7 +88,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion_Ibeam_tau{tau}_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"capIntrusion_Ibeam_tau{tau}_CA{theta_deg}_gamma{gamma:2g}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
