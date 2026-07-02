@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, "/home/zcandels/FE-LB")
+#sys.path.insert(0, "/home/zcandels/FE-LB")
 import fenics as fe
 import os
 import numpy as np
@@ -12,7 +12,7 @@ import mshr
 import shutil
 import random
 from scipy      import optimize
-import src.postProcessing.computeContactAngle as cca 
+#import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -61,7 +61,7 @@ def trackMeniscus(phi_n, mesh):
     return min_x
 
 
-T = 300
+T = 1200
 R0 = 2
 initDropDiam = 2*R0
 L_x = 20*R0
@@ -70,12 +70,13 @@ nx = 2000
 ny = 30
 h = min(L_x/nx, L_y/ ny)
 
-A = 0.5
-kappa = 0.02
+A = 0.125
+kappa = 0.005
 interfaceThickness = np.sqrt(kappa/A)
 tau = 2
 M_tilde = 10
-theta_deg = 80
+theta_deg = 60
+gamma = np.sqrt(8*kappa*A/9)
 
 
 # Lattice speed of sound
@@ -87,7 +88,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion_Ibeam_tau{tau}_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"tau{tau}_CA{theta_deg}_gamma{gamma:2g}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -119,7 +120,7 @@ w = np.array([
 capTubeLeft = L_x/4
 capTubeRight = 3*L_x/4
 capTubeElevation = L_y/2
-capTubeHeight = L_y/10
+capTubeHeight = L_y/5
 
 fullDom = mshr.Rectangle(fe.Point(0.0, 0.0), fe.Point(L_x, L_y))
 rectLower = mshr.Rectangle(fe.Point(capTubeLeft, 0),\
@@ -131,7 +132,7 @@ rectUpper=  mshr.Rectangle(fe.Point(capTubeLeft, L_y),\
 domain = fullDom - rectLower - rectUpper
 
 # Generate mesh
-mesh = mshr.generate_mesh(domain, 80)
+mesh = mshr.generate_mesh(domain, 100)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
@@ -370,7 +371,7 @@ bc_f8fullDom = fe.DirichletBC(V, f8_fullDomUpper_func, fullDomUpper)
 
 def capTubeLower(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], capTubeElevation-capTubeHeight):
+        if abs(x[1] - (capTubeElevation-capTubeHeight) ) < 1e-4:
             return True
         else:
             return False
@@ -398,7 +399,7 @@ bc_f6capTube = fe.DirichletBC(V, f6_capTubeLower_func, capTubeLower)
 
 def capTubeUpper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], capTubeElevation + capTubeHeight):
+        if abs(x[1] - (capTubeElevation + capTubeHeight) ) < 1e-4:
             return True
         else:
             return False

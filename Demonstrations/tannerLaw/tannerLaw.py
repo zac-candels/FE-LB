@@ -107,7 +107,7 @@ def trackCL(phi_n, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if -0.5 < value < 0.5}
+        if -0.1 < value < 0.1}
 
 
     # Determine left-most interfacial point
@@ -119,9 +119,9 @@ def trackCL(phi_n, mesh):
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 24*R0
+L_x = 15*R0
 L_y = 2*R0
-nx = 240
+nx = 150
 ny = 20
 h = min(L_x/nx, L_y/ ny)
 
@@ -130,7 +130,7 @@ kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
-theta_deg = 5
+theta_deg = 2.5
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -672,7 +672,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 2000 == 0:  # plot every 10 steps
+        if n % 1000 == 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n, flush=True)
@@ -729,17 +729,21 @@ for n in range(num_steps):
             theta_avg = computeContactAngle(phi_n, h, interfaceThickness, mesh)
                 
             r_cl = trackCL(phi_n, mesh)
-            print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
-                           f"{r_cl:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+            if rank == 0:
+                print("r_cl = ", r_cl, flush=True)
+                print("theta = ", theta_avg, "\n\n", flush=True)
+                
+
+                log_file.write(f"{n:15d}"
+                            f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.8g}"
+                            f"{theta_avg:15.2f}"
+                            f"{r_cl:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
 
             # coords = mesh.coordinates()
             # x = coords[:, 0]   # x-coordinates
