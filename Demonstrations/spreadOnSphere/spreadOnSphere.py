@@ -1,8 +1,7 @@
-import sys
-#sys.path.insert(0, "/home/zcandels/FE-LB")
+import gmsh
+import numpy as np
 import fenics as fe
 import os
-import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -11,36 +10,175 @@ import time
 import mshr
 import shutil
 from scipy      import optimize
-#import src.postProcessing.computeContactAngle as cca 
- 
+
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
 
-start_time = time.time() 
+gmsh.initialize()
+gmsh.model.add("periodic_domain_with_circle")
 
-plt.close('all')
+R0 = 3
+L_x, L_y = 4*R0, 6*R0   # match your existing values
+radius = R0
+cx, cy = L_x/2, L_y/2
 
-# Where to save the plots
-fe.set_log_active(False)
-fe.parameters["form_compiler"]["optimize"] = True
-fe.parameters["form_compiler"]["cpp_optimize"] = True
-      
+if rank == 0:
+    # --- Rectangle corners ---
+    p1 = gmsh.model.geo.addPoint(0,   0,   0)
+    p2 = gmsh.model.geo.addPoint(L_x, 0,   0)
+    p3 = gmsh.model.geo.addPoint(L_x, L_y, 0)
+    p4 = gmsh.model.geo.addPoint(0,   L_y, 0)
+    
+    l_bottom = gmsh.model.geo.addLine(p1, p2)
+    l_right  = gmsh.model.geo.addLine(p2, p3)
+    l_top    = gmsh.model.geo.addLine(p3, p4)
+    l_left   = gmsh.model.geo.addLine(p4, p1)
+    
+    # --- Circle (hole) ---
+    pc  = gmsh.model.geo.addPoint(cx, cy, 0)
+    pc1 = gmsh.model.geo.addPoint(cx+radius, cy, 0)
+    pc2 = gmsh.model.geo.addPoint(cx, cy+radius, 0)
+    pc3 = gmsh.model.geo.addPoint(cx-radius, cy, 0)
+    pc4 = gmsh.model.geo.addPoint(cx, cy-radius, 0)
+    
+    arc1 = gmsh.model.geo.addCircleArc(pc1, pc, pc2)
+    arc2 = gmsh.model.geo.addCircleArc(pc2, pc, pc3)
+    arc3 = gmsh.model.geo.addCircleArc(pc3, pc, pc4)
+    arc4 = gmsh.model.geo.addCircleArc(pc4, pc, pc1)
+    
+    outer_loop  = gmsh.model.geo.addCurveLoop([l_bottom, l_right, l_top, l_left])
+    circle_loop = gmsh.model.geo.addCurveLoop([arc1, arc2, arc3, arc4])
+    surf = gmsh.model.geo.addPlaneSurface([outer_loop, circle_loop])
+    
+    gmsh.model.geo.synchronize()
+    
+    # --- Physical groups (needed so meshio/FEniCS can read tagged boundaries) ---
+    gmsh.model.addPhysicalGroup(2, [surf], tag=1)          # domain
+    gmsh.model.addPhysicalGroup(1, [l_bottom], tag=2)      # bottom
+    gmsh.model.addPhysicalGroup(1, [l_top], tag=3)         # top
+    gmsh.model.addPhysicalGroup(1, [l_left], tag=4)        # left
+    gmsh.model.addPhysicalGroup(1, [l_right], tag=5)       # right
+    gmsh.model.addPhysicalGroup(1, [arc1, arc2, arc3, arc4], tag=6)  # circle
+    
+    # --- Structured (transfinite) discretization on the four OUTER edges ---
+    # Equal node counts on opposing edges is what makes periodicity exact.
+    n_x = 60   # nodes along bottom/top
+    n_y = 90   # nodes along left/right
+    gmsh.model.geo.mesh.setTransfiniteCurve(l_bottom, n_x)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l_top,    n_x)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l_left,   n_y)
+    gmsh.model.geo.mesh.setTransfiniteCurve(l_right,  n_y)
+    
+    # --- Enforce exact periodicity: right edge is a translated copy of left edge ---
+    # Affine transform: identity + shift by L_x in x
+    translation = [1,0,0,L_x,  0,1,0,0,  0,0,1,0,  0,0,0,1]
+    gmsh.model.mesh.setPeriodic(1, [l_right], [l_left], translation)
+    
+    # --- Unstructured refinement near the circle only ---
+    # Distance field from the circle arcs, then threshold field to set element size
+    dist_field = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(dist_field, "CurvesList", [arc1, arc2, arc3, arc4])
+    gmsh.model.mesh.field.setNumber(dist_field, "Sampling", 200)
+    
+    thresh_field = gmsh.model.mesh.field.add("Threshold")
+    gmsh.model.mesh.field.setNumber(thresh_field, "InField", dist_field)
+    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin", 0.01*radius)   # fine near circle
+    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 0.025*radius)    # coarser away
+    gmsh.model.mesh.field.setNumber(thresh_field, "DistMin", 0.5*radius)
+    gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 2.0*radius)
+    
+    gmsh.model.mesh.field.setAsBackgroundMesh(thresh_field)
+    gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+    
+    gmsh.model.mesh.generate(2)
+    gmsh.write("periodic_circle.msh")
+    gmsh.finalize()
+    
+    
+    import meshio
+    
+    msh = meshio.read("periodic_circle.msh")
+    
+    # Triangle cells (2D domain)
+    triangle_cells = msh.get_cells_type("triangle")
+    triangle_data = msh.get_cell_data("gmsh:physical", "triangle")
+    triangle_mesh = meshio.Mesh(
+        points=msh.points[:, :2],
+        cells=[("triangle", triangle_cells)],
+        cell_data={"domain_marker": [triangle_data]}
+    )
+    meshio.write("mesh.xdmf", triangle_mesh)
+    
+    # Line cells (boundary facets: left/right/top/bottom/circle)
+    line_cells = msh.get_cells_type("line")
+    line_data = msh.get_cell_data("gmsh:physical", "line")
+    line_mesh = meshio.Mesh(
+        points=msh.points[:, :2],
+        cells=[("line", line_cells)],
+        cell_data={"facet_marker": [line_data]}
+    )
+    meshio.write("mesh_boundaries.xdmf", line_mesh)
+    
+    mesh = fe.Mesh()
+    with fe.XDMFFile(comm, "mesh.xdmf") as xdmf:
+        xdmf.read(mesh)
+
+# # Domain-marker MeshFunction (cell-based, e.g. for material subdomains)
+# domain_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim(), 0)
+# with fe.XDMFFile(comm, "mesh.xdmf") as xdmf:
+#     xdmf.read(domain_markers, "domain_marker")
+
+# # Facet-marker MeshFunction (boundary tags: left=4, right=5, top=3, bottom=2, circle=6)
+# boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
+# with fe.XDMFFile(comm, "mesh_boundaries.xdmf") as xdmf:
+#     xdmf.read(boundary_markers, "facet_marker")
+    
+    
+    
+###############################################################################
+
+def trackDropletTop(phi_n, mesh):
+   
+    barycenters = []
+    barycenter_vals = []
+    for cell in fe.cells(mesh):
+        
+        midpt = cell.midpoint().array()
+        midpt = tuple( (midpt[0], midpt[1]) )
+        barycenters.append( midpt )
+        barycenter_vals.append( phi_n(midpt) )
+    
+    # Build dictionary
+    nodal_dict = {
+    tuple(coord): val
+    for coord, val in zip(barycenters, barycenter_vals)
+    }
+
+    # Filter by order parameter value
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if -0.1 < value < 0.1}
+    
+    
+
+    # Determine left-most interfacial point
+    max_y = min(coord[1] for coord in nodal_dict.keys())
+    
+    return max_y      
 
 T = 300
-R0 = 1
 initDropDiam = 2*R0
-L_x = 4*R0
-L_y = 6*R0
-nx = 50
-ny = 70
-h = min(L_x/nx, L_y/ ny)
+
 
 A = 0.5
-kappa = 0.02
+kappa = 0.01
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
-theta_deg = 80
+theta_deg = 50
 
 
 # Lattice speed of sound
@@ -81,24 +219,10 @@ w = np.array([
     1/36, 1/36, 1/36, 1/36
 ])
 
-# Set up domain. For simplicity, do unit square mesh.
-
-rectangle = mshr.Rectangle(fe.Point(0.0, 0.0), fe.Point(L_x, L_y))
-
-# Circular hole in the center
-radius = R0
-center = fe.Point(L_x/2, L_y/2)
-circle = mshr.Circle(fe.Point(L_x/2, L_y/2), radius)
-
-# Subtract circle from rectangle
-domain = rectangle - circle
-
-# Generate mesh
-mesh = mshr.generate_mesh(domain, 125)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
-tol = mesh.hmin()/10
+tol = mesh.hmin()/5
 ctr_circle_facet = 0
 ctr_bdy_marker = 0 
 for facet in fe.facets(mesh):
@@ -107,7 +231,7 @@ for facet in fe.facets(mesh):
     
     x = facet.midpoint()
     
-    r = np.sqrt((x.x() - center.x())**2 + (x.y() - center.y())**2)
+    r = np.sqrt((x.x() - cx)**2 + (x.y() - cy)**2)
 
     if abs(r - radius) < tol:
         print("circle boundary facet")
@@ -176,7 +300,7 @@ for facet in fe.facets(mesh):
 print("total number of circle facets is", ctr_circle_facet )
 print("total number of boundary markers is ", ctr_bdy_marker)
 h = mesh.hmin()
-dt = 0.005*h**2
+dt = 0.5*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -184,7 +308,40 @@ num_steps = int(np.ceil(T/dt))
 
 
 
-V = fe.FunctionSpace(mesh, "Lagrange", 1)
+class PeriodicBoundary(fe.SubDomain):
+    # Master edges: bottom (y=0) and left (x=0), excluding the two "far" corners
+    # that would otherwise be claimed by both mappings simultaneously.
+    def inside(self, point, on_boundary):
+        # left edge, but not the top-left corner
+        on_left   = fe.near(point[0], 0.0) and not fe.near(point[1], L_y)
+        # bottom edge, but not the bottom-right corner
+        on_bottom = fe.near(point[1], 0.0) and not fe.near(point[0], L_x)
+        return on_boundary and (on_left or on_bottom)
+
+    def map(self, target_pt, mapped_pt):
+        # target_pt: point on the right/top boundary (the "slave")
+        # mapped_pt: corresponding point on the left/bottom boundary (the "master")
+        if fe.near(target_pt[0], L_x) and fe.near(target_pt[1], L_y):
+            # top-right corner maps to origin
+            mapped_pt[0] = target_pt[0] - L_x
+            mapped_pt[1] = target_pt[1] - L_y
+        elif fe.near(target_pt[0], L_x):
+            # right edge maps to left edge
+            mapped_pt[0] = target_pt[0] - L_x
+            mapped_pt[1] = target_pt[1]
+        elif fe.near(target_pt[1], L_y):
+            # top edge maps to bottom edge
+            mapped_pt[0] = target_pt[0]
+            mapped_pt[1] = target_pt[1] - L_y
+        else:
+            # shouldn't happen, but keep it defined
+            mapped_pt[0] = target_pt[0]
+            mapped_pt[1] = target_pt[1]
+
+pbc = PeriodicBoundary()
+
+
+V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
 dofCoords = V.tabulate_dof_coordinates()
 dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
 
@@ -307,10 +464,10 @@ for idx in range(Q):
     
 # Initialize \phi
 c_init_expr = fe.Expression(
-    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
+    "-tanh( (sqrt(pow(x[0]-cx,2) + pow(x[1]-cy,2)) - R) / (sqrt(2)*eps) )",
     degree=2,  # polynomial degree used for interpolation
-    xc=xc,
-    yc=yc,
+    cx=cx,
+    cy=cy + L_y/4,
     R=initDropDiam/2,
     eps=interfaceThickness
 )
@@ -324,90 +481,7 @@ forceDensity_n = fe.project(force_density, V_dis)
 
 # Define boundary conditions.
 
-def Bdy_Left(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[0], 0, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
 
-
-rho_expr = sum(fk for fk in f_n)
-
-f8_left = f_n[6]  # rho_expr
-f1_left = f_n[3]  # rho_expr
-f5_left = f_n[7]  # rho_expr
-
-f8_left_func = fe.Function(V)
-f1_left_func = fe.Function(V)
-f5_left_func = fe.Function(V)
-
-fe.project(f8_left, V, function=f8_left_func)
-fe.project(f1_left, V, function=f1_left_func)
-fe.project(f5_left, V, function=f5_left_func)
-
-bc_f8_left = fe.DirichletBC(V, f8_left_func, Bdy_Left)
-bc_f1_left = fe.DirichletBC(V, f1_left_func, Bdy_Left)
-bc_f5_left = fe.DirichletBC(V, f5_left_func, Bdy_Left)
-
-
-def Bdy_Right(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[0], L_x, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f6_right = f_n[8]  # rho_expr
-f3_right = f_n[1]  # rho_expr
-f7_right = f_n[5]  # rho_expr
-
-f6_right_func = fe.Function(V)
-f3_right_func = fe.Function(V)
-f7_right_func = fe.Function(V)
-
-fe.project(f6_right, V, function=f6_right_func)
-fe.project(f3_right, V, function=f3_right_func)
-fe.project(f7_right, V, function=f7_right_func)
-
-bc_f6_right = fe.DirichletBC(V, f6_right_func, Bdy_Right)
-bc_f3_right = fe.DirichletBC(V, f3_right_func, Bdy_Right)
-bc_f7_right = fe.DirichletBC(V, f7_right_func, Bdy_Right)
-
-def Bdy_Lower(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], 0, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f5_lower = f_n[7]  # rho_expr
-f2_lower = f_n[4]  # rho_expr
-f6_lower = f_n[8]  # rho_expr
-
-f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
-
-fe.project(f5_lower, V, function=f5_lower_func)
-fe.project(f2_lower, V, function=f2_lower_func)
-fe.project(f6_lower, V, function=f6_lower_func)
-
-bc_f5_lower = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2_lower = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6_lower = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -417,51 +491,23 @@ bc_f6_lower = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 tol = 1e-8
 
 
-def Bdy_Upper(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[1], L_y, tol):
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f7_upper = f_n[5]  # rho_expr
-f4_upper = f_n[2]  # rho_expr
-f8_upper = f_n[6]  # rho_expr
-
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
-
-fe.project(f7_upper, V, function=f7_upper_func)
-fe.project(f4_upper, V, function=f4_upper_func)
-fe.project(f8_upper, V, function=f8_upper_func)
-
-bc_f7_upper = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4_upper = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8_upper = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
-
 
 # Boundary conditions for leftHalf_midPoint boundary marker 9 
-f8_leftHalf_midPoint = f_n[6]  # rho_expr
-f1_leftHalf_midPoint = f_n[3]  # rho_expr
-f5_leftHalf_midPoint = f_n[7]  # rho_expr
+f6_leftHalf_midPoint = f_n[8]  # rho_expr
+f3_leftHalf_midPoint = f_n[1]  # rho_expr
+f7_leftHalf_midPoint = f_n[5]  # rho_expr
 
-f8_leftHalf_midPoint_func = fe.Function(V)
-f1_leftHalf_midPoint_func = fe.Function(V)
-f5_leftHalf_midPoint_func = fe.Function(V)
+f6_leftHalf_midPoint_func = fe.Function(V)
+f3_leftHalf_midPoint_func = fe.Function(V)
+f7_leftHalf_midPoint_func = fe.Function(V)
 
-fe.project(f8_leftHalf_midPoint, V, function=f8_left_func)
-fe.project(f1_leftHalf_midPoint, V, function=f1_left_func)
-fe.project(f5_leftHalf_midPoint, V, function=f5_left_func)
+fe.project(f6_leftHalf_midPoint, V, function=f6_leftHalf_midPoint_func)
+fe.project(f3_leftHalf_midPoint, V, function=f3_leftHalf_midPoint_func)
+fe.project(f7_leftHalf_midPoint, V, function=f7_leftHalf_midPoint_func)
 
-bc_f8_leftHalf_midPoint = fe.DirichletBC(V, f8_leftHalf_midPoint_func, boundary_markers, 9)
-bc_f1_leftHalf_midPoint = fe.DirichletBC(V, f1_leftHalf_midPoint_func, boundary_markers, 9)
-bc_f5_leftHalf_midPoint = fe.DirichletBC(V, f5_leftHalf_midPoint_func, boundary_markers, 9)
+bc_f6_leftHalf_midPoint = fe.DirichletBC(V, f6_leftHalf_midPoint_func, boundary_markers, 9)
+bc_f3_leftHalf_midPoint = fe.DirichletBC(V, f3_leftHalf_midPoint_func, boundary_markers, 9)
+bc_f7_leftHalf_midPoint = fe.DirichletBC(V, f7_leftHalf_midPoint_func, boundary_markers, 9)
 
 # Boundary conditions for lowerHalf_upSlope_lt45 boundary marker 4
 f7_lowerHalf_upSlope_lt45 = f_n[5] 
@@ -763,7 +809,7 @@ if 1==1:
     log_file.write(f"{'n' :>15}"
                    f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
-                   f"{'theta':>15}"
+                   f"{'dropletTop':>15}"
                    f"{'smallest f':>15}"
                    f"{'smallest f x':>15}"
                    f"{'smallest f y':>15}"
@@ -935,25 +981,11 @@ for n in range(num_steps):
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
-    f8_left_func.assign(f_star[6])
-    f1_left_func.assign(f_star[3])
-    f5_left_func.assign(f_star[7])
-    
-    f6_right_func.assign(f_star[8])
-    f3_right_func.assign(f_star[1])
-    f7_right_func.assign(f_star[5])
 
-    f7_upper_func.assign(f_star[5] )
-    f4_upper_func.assign(f_star[2] )
-    f8_upper_func.assign(f_star[6] )
     
-    f5_lower_func.assign(f_star[7])
-    f2_lower_func.assign(f_star[4])
-    f6_lower_func.assign(f_star[8])
-    
-    f8_leftHalf_midPoint.assign(f_star[6])
-    f1_leftHalf_midPoint.assign(f_star[3])
-    f5_leftHalf_midPoint.assign(f_star[7])
+    f6_leftHalf_midPoint.assign(f_star[8])
+    f3_leftHalf_midPoint.assign(f_star[1])
+    f7_leftHalf_midPoint.assign(f_star[5])
     
     assignApplyTimeStart = time.time()
     f7_lowerHalf_upSlope_lt45_func.assign(f_star[5])
@@ -996,17 +1028,10 @@ for n in range(num_steps):
     f2_upperHalf_downSlope_lt45_func.assign(f_star[4])
     f6_upperHalf_downSlope_lt45_func.assign(f_star[8])
     
-    bc_f8_left.apply(rhsVecStreaming[8])
-    bc_f1_left.apply(rhsVecStreaming[1])
-    bc_f5_left.apply(rhsVecStreaming[5])
     
-    bc_f6_right.apply(rhsVecStreaming[6])
-    bc_f3_right.apply(rhsVecStreaming[3])
-    bc_f7_right.apply(rhsVecStreaming[7])
-    
-    bc_f8_leftHalf_midPoint.apply(rhsVecStreaming[8])
-    bc_f1_leftHalf_midPoint.apply(rhsVecStreaming[1])
-    bc_f5_leftHalf_midPoint.apply(rhsVecStreaming[5])
+    #bc_f6_leftHalf_midPoint.apply(rhsVecStreaming[6])
+    #bc_f3_leftHalf_midPoint.apply(rhsVecStreaming[3])
+    #bc_f7_leftHalf_midPoint.apply(rhsVecStreaming[7])
     
     bc_f7_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[7])
     bc_f4_lowerHalf_upSlope_lt45.apply(rhsVecStreaming[4])
@@ -1048,15 +1073,6 @@ for n in range(num_steps):
     bc_f2_upperHalf_downSlope_lt45.apply(rhsVecStreaming[2])
     bc_f6_upperHalf_downSlope_lt45.apply(rhsVecStreaming[6])
     
-    # # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5_lower.apply( rhsVecStreaming[5])
-    bc_f2_lower.apply( rhsVecStreaming[2])
-    bc_f6_lower.apply( rhsVecStreaming[6])
-
-    # # Apply BCs for distribution functions 7, 4, 8
-    bc_f7_upper.apply( rhsVecStreaming[7])
-    bc_f4_upper.apply(rhsVecStreaming[4])
-    bc_f8_upper.apply(rhsVecStreaming[8])
 
     solveTimeStart = time.time()
     # # Solve linear system in each timestep, get f^{n+1}
@@ -1066,17 +1082,10 @@ for n in range(num_steps):
         f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
         
     
-    bc_f8_left.apply(f_nP1[8].vector())
-    bc_f1_left.apply(f_nP1[1].vector())
-    bc_f5_left.apply(f_nP1[5].vector())
     
-    bc_f6_right.apply(f_nP1[6].vector())
-    bc_f3_right.apply(f_nP1[3].vector())
-    bc_f7_right.apply(f_nP1[7].vector())
-    
-    bc_f8_leftHalf_midPoint.apply(f_nP1[8].vector())
-    bc_f1_leftHalf_midPoint.apply(f_nP1[1].vector())
-    bc_f5_leftHalf_midPoint.apply(f_nP1[5].vector())
+    # bc_f6_leftHalf_midPoint.apply(f_nP1[6].vector())
+    # bc_f3_leftHalf_midPoint.apply(f_nP1[3].vector())
+    # bc_f7_leftHalf_midPoint.apply(f_nP1[7].vector())
         
     bc_f7_lowerHalf_upSlope_lt45.apply(f_nP1[7].vector())
     bc_f4_lowerHalf_upSlope_lt45.apply(f_nP1[4].vector())
@@ -1118,15 +1127,6 @@ for n in range(num_steps):
     bc_f2_upperHalf_downSlope_lt45.apply(f_nP1[2].vector())
     bc_f6_upperHalf_downSlope_lt45.apply(f_nP1[6].vector())
         
-    # Apply BCs for lower boundary
-    bc_f5_lower.apply( f_nP1[5].vector())
-    bc_f2_lower.apply(f_nP1[2].vector())
-    bc_f6_lower.apply( f_nP1[6].vector())
-    
-    # Apply BCs for top boundary
-    bc_f7_upper.apply( f_nP1[7].vector())
-    bc_f4_upper.apply( f_nP1[4].vector())
-    bc_f8_upper.apply( f_nP1[8].vector())
         
     #phi_solver.solve(phi_nP1.vector(), rhs_AC)
     rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
@@ -1163,7 +1163,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 10000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -1174,8 +1174,6 @@ for n in range(num_steps):
             #fe.project(vel_expr, V_dis, function=vel_dis)
             fe.project(vel_expr, V_cont, function=vel_cont)
             #div_u = fe.project(fe.div(vel_cont), V)
-            iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
@@ -1225,16 +1223,12 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
-                
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
+            dropletTop = 1#trackDropletTop(phi_n, mesh)
 
             log_file.write(f"{n:15d}"
                            f"{percent_mass_change:15.3f}"
                            f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
+                           f"{dropletTop:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
                            f"{min_coord[1]:15.2f}"

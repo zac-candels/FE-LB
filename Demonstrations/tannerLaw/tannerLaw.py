@@ -88,12 +88,14 @@ def computeContactAngle(c_n, h, Cn, mesh):
         
 def trackCL(phi_n, mesh):
    
+    fnSpace = phi_n.function_space()
+    dof_coordinates = fnSpace.tabulate_dof_coordinates()
     barycenters = []
     barycenter_vals = []
-    for cell in fe.cells(mesh):
+    for dof in range(fnSpace.dim()):
         
-        midpt = cell.midpoint().array()
-        midpt = tuple( (midpt[0], midpt[1]) )
+        x, y = dof_coordinates[dof]
+        midpt = (x, y)
         barycenters.append( midpt )
         barycenter_vals.append( phi_n(midpt) )
     
@@ -103,34 +105,62 @@ def trackCL(phi_n, mesh):
     for coord, val in zip(barycenters, barycenter_vals)
     }
 
+        # Filter by y-coordinate
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if coord[1] < 2*h}
+
     # Filter by order parameter value
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
         if -0.1 < value < 0.1}
 
-
     # Determine left-most interfacial point
     min_x = min(coord[0] for coord in nodal_dict.keys())
+
+        # Filter points so we get rid of points near left CL
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items() 
+        if coord[0] > min_x + 5*h}
+
+
+    # Get the left-most interfacial point and the value of phi there
+    left_coord = min(nodal_dict.keys(), key=lambda coord: coord[0])
+    left_x = left_coord[0]
+    left_phi = phi_n(left_coord)
+
+    # Get the right-most interfacial point and the value of phi there
+        # Get the left-most interfacial point and the value of phi there
+    right_coord = max(nodal_dict.keys(), key=lambda coord: coord[0])
+    right_x = right_coord[0]
+    right_phi = phi_n(right_coord)
+
+    slope = (right_phi - left_phi)/(right_x - left_x)
+
+    clPos = left_x - left_phi/slope
     
-    return min_x   
+    return clPos   
 
 
-T = 300
+T = 1800
 R0 = 2
 initDropDiam = 2*R0
 L_x = 15*R0
 L_y = 2*R0
-nx = 150
-ny = 20
-h = min(L_x/nx, L_y/ ny)
+nx = 300
+ny = 80
 
-A = 0.5
-kappa = 0.02
+A = 0.25
+kappa = 0.01
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
-theta_deg = 2.5
+theta_deg = 1.25
+gamma = np.sqrt(8*kappa*A/9)
+
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -140,9 +170,7 @@ c_s2 = 1/3
 
 theta = theta_deg * np.pi / 180
 
-WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "tannerLaw") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
-os.makedirs(outDirName, exist_ok=True)
+
 
 
 xc, yc = L_x/2, R0 - 0.6*R0
@@ -177,6 +205,10 @@ dt = 0.01*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
+
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, f"tau{tau}_surfTen{gamma:.2g}_h{h:.2g}") #f"theta{theta_deg}_tau{tau}_A{A}_kappa{kappa}_M{M_tilde}") #f"figures_CA{theta_deg}")
+os.makedirs(outDirName, exist_ok=True)
 
 # Set periodic boundary conditions at left and right endpoints
 
