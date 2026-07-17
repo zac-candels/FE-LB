@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"forceInCollision")
+outDirName = os.path.join(WORKDIR, f"LFIS")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -144,7 +144,7 @@ phi_n = fe.Function(V)
 V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(V_dis)
+vel_star = fe.Function(V_cont)
 vel_cont = fe.Function(V_cont)
 vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
@@ -175,17 +175,20 @@ force_fn = fe.Function(V_dis)
 
 # Define dynamic pressure
 def getDens(f_list):
-    return sum(f_list)
+    return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
+        + f_list[5] + f_list[6] + f_list[7] + f_list[8]
 
 
 # Define velocity
 
 def getVel(f_list, force_density):
-    momentumDensity = sum(f_list[i] * xi[i] for i in range(len(xi)))
+    distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
+        + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
+        + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
 
     density = getDens(f_list)
 
-    vel_term1 = momentumDensity/density
+    vel_term1 = distr_fn_sum/density
 
     vel_term2 = force_density * dt / (2 * density)
 
@@ -198,15 +201,37 @@ def f_equil_init(vel_idx, force_density):
     rho_expr = fe.Constant(1.0)
 
     vel_0 = - (dt/2)*force_density/rho_init
+    
+    vel_grad = fe.grad(vel_0)
 
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_0)
-    return w[vel_idx] * rho_expr * (
+    
+    
+    f_eq  = w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
+    
+    c_c_outer = fe.outer(ci, ci)
+    
+    I = fe.Identity(2)
+    
+    Q = c_c_outer - c_s2 * I
+    
+    F_u_outer1 = fe.outer( force_density, vel_0 )
+    u_F_outer2 = fe.outer(vel_0, force_density) 
+    force_vel_outer = F_u_outer1 + u_F_outer2
+    c_dot_F = fe.inner( ci, force_density)
+    
+    f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
+        - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\
+                                 + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
+    
+    
+    return f_eq + f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
@@ -401,9 +426,10 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
-if rank == 0:
+if 1==1:
     log_file = open(outDirName + "/simulation_log.txt", "w")
-    log_file.write(f"{'% mass change':>15}"
+    log_file.write(f"{'n' :>15}"
+                   f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
                    f"{'smallest f':>15}"
@@ -467,6 +493,8 @@ wall_dofs = np.where(
 t = 0.0
 forceVals_x = []
 forceVals_y = []
+inverse_cs2 = 1 / c_s**2
+inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
     t += dt
@@ -478,25 +506,19 @@ for n in range(num_steps):
     rhs_AC = prevTimeAcVec + rhsVecTemp
     fe.assemble(lin_form_mu, tensor=rhs_mu)
     
-    
-    projectForceTimeStart = time.time()
-    fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
-    fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
-    
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    # petscForce_x = fe.as_backend_type(forceVec_x)
-    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
-    # petscForce_y = fe.as_backend_type(forceVec_y)
-    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
-    projectForceTimeEnd = time.time()
-    #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
-    
     pre_coll_time_lb = time.time()
     # We will try to do collision locally, since it is a pure
     # time-dependnet ODE
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+    
+    
+    fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
     
     forceVals_x = forceDensity_x.vector().get_local()
     #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
@@ -515,33 +537,39 @@ for n in range(num_steps):
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
-    # Now for the foce term
-    u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
-    ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
-    
-    ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
 
-    force_term = w[:, None] * (
-          ck_dot_F / c_s**2
-        + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
-        - u_dot_F[None, :] / c_s**2        # ← minus sign
-    )
-    
-
-    f_star_np = f_vals - dt/(tau)*(f_vals - feq) + dt*force_term
+    f_star_np = f_vals - dt/(tau)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
-    # rho = f_star_np.sum(axis=0)
-    # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-    # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    # vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    rho = f_star_np.sum(axis=0)
+    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
 
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
-
+    u_dot_prod_F = fe.dot(vel_star, force_density)
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
+        
+        if idx == 0:
+            Force = -w[idx]*(inverse_cs2* u_dot_prod_F)
+
+        else:
+    
+            xi_dot_prod_F = fe.dot( xi[idx], force_density)
+    
+            xi_dot_u = fe.dot(xi[idx], vel_star)
+    
+            Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
+                           + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+        
+        advectionForceTerm = fe.assemble(
+            fe.dot(xi[idx], fe.grad(v))* Force * fe.dx)
+            
+        basicForceTerm = fe.assemble(v*Force*fe.dx)
+        
         M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
@@ -550,6 +578,9 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        
+        rhsVecStreaming[idx].axpy(dt, basicForceTerm)
+        rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
     stream_FE_end_time = time.time()
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
@@ -627,7 +658,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 2000== 0:  # plot every 10 steps
+        if n % 5000== 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -695,9 +726,10 @@ for n in range(num_steps):
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
+            log_file.write(f"{n:15d}"
+                           f"{percent_mass_change:15.3f}"
+                           f"{max_vel:15.8g}"
+                           f"{theta_avg:15.2f}"
                            f"{min_distr:15.3f}"
                            f"{min_coord[0]:15.2f}"
                            f"{min_coord[1]:15.2f}"
