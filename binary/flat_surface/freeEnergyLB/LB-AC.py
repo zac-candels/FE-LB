@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as tri
 import time
 import shutil
+import sys
+sys.path.insert(0, "/home/zcandels/FE-LB")
+import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -22,16 +25,16 @@ T = 300
 R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
-L_y = 4*R0
+L_y = 2*R0
 nx = 80
-ny = 40
+ny = 20
 
-Pe = 0.1275
-Re = 1
-Cn_param = 0.05
-We = 2
+A_param = 0.5
+kappa = 0.02
+interfaceThickness = np.sqrt(kappa/A_param)
+M_tilde = 10
+theta_deg = 30
 
-Cn = initDropDiam * Cn_param
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
 c_s2 = 1/3
@@ -41,14 +44,14 @@ rho_h = 1
 rho_l = 1
 
 # Relaxation times for heavier and lighter phases
-tau_h = 1
-tau_l = 1
+tau_h = 0.1
+tau_l = 0.1
 
 theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "test1") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"tauH{tau_h}_tauL{tau_l}_rhoH{rho_h}_rhoL{rho_l}") #f"figures_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -85,7 +88,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # Set periodic boundary conditions at left and right endpoints
 
 h = mesh.hmin()
-dt = 0.1*Cn_param*Pe*h**2
+dt = 0.005*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -137,10 +140,10 @@ for idx in range(Q):
 
 # Define density
 def getDens(phi):
-    return rho_h*phi + rho_l*(1 - phi)
+    return (1+phi)/2 * rho_h + (1 - phi)/2 * rho_l
 
 def getTau(phi):
-    inv_tau = phi/tau_h + (1 - phi)/tau_l
+    inv_tau = (phi+1)/(2*tau_h) + (1 - phi)/(2*tau_l)
     return 1.0 / inv_tau
 
 # Define dynamic pressure
@@ -172,8 +175,8 @@ xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
 dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
 wall_dofs = np.where(
-    (np.abs(dof_coords[:, 1]) < 1e-10) |
-    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+    (np.abs(dof_coords[:, 1]) < 1e-8) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-8)
 )[0]
 def f_equil(f_list, phi, idx):
     """
@@ -259,7 +262,7 @@ c_init_expr = fe.Expression(
     xc=xc,
     yc=yc,
     R=initDropDiam/2,
-    eps=Cn
+    eps=interfaceThickness
 )
 
 phi_n = fe.interpolate(c_init_expr, V)
@@ -274,7 +277,7 @@ mass_diff = fe.Constant(0.0)
 # and assuming no slip on solid walls, f_i^{eq} reduces to
 # \rho * w_i
 
-tol = 1e-8
+tol = 1e-4
 
 
 def Bdy_Lower(x, on_boundary):
@@ -310,7 +313,7 @@ bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 # to \rho * w_i
 
 
-tol = 1e-8
+tol = 1e-4
 
 
 def Bdy_Upper(x, on_boundary):
@@ -369,12 +372,12 @@ bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
 lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, phi_n), fe.grad(phi_n))*fe.dx\
-    - dt*(1/Pe)*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
+    - dt*M_tilde*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, phi_n), fe.grad(v)) * fe.dot(getVel(f_n, phi_n), fe.grad(phi_n)) *fe.dx
 
-lin_form_mu =  (1/Cn)*( phi_n*(phi_n**2 - 1)*v*fe.dx\
-    + Cn**2*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
-        + (1/np.sqrt(2)*Cn)*np.cos(theta)*(phi_n**2 -1)*v*ds_bottom  )
+lin_form_mu = A_param*phi_n*(phi_n**2 - 1)*v*fe.dx\
+    + kappa*fe.dot(fe.grad(phi_n),fe.grad(v))*fe.dx\
+        + kappa/(np.sqrt(2)*interfaceThickness)*np.cos(theta)*(phi_n**2-1)*v*ds_bottom
 
 for idx in range(Q):
 
@@ -489,7 +492,7 @@ for n in range(num_steps):
         #f_eq_vec = f_eq.vector().get_local()
         f_n_vec = f_n[idx].vector().get_local()
         
-        f_new = f_n_vec - dt/(tau_vec) * (f_n_vec - f_eq_vec)
+        f_new = f_n_vec - dt/(tau_vec + 0.5) * (f_n_vec - f_eq_vec)
     
         # f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
@@ -549,7 +552,7 @@ for n in range(num_steps):
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 10 == 0:  # plot every 10 steps
+        if n % 200 == 0:  # plot every 10 steps
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             print("n = ", n)
@@ -583,23 +586,9 @@ for n in range(num_steps):
             print("Smallest f val: ", np.min((f_stack)), flush=True )
             print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
-            coords = mesh.coordinates()
-            phi_vals = phi_n.compute_vertex_values(mesh)
-            triangles = mesh.cells()  # get mesh connectivity
-            triang = tri.Triangulation(coords[:, 0], coords[:, 1], triangles)
-        
-            plt.figure(figsize=(6,5))
-            plt.tricontourf(triang, phi_vals, levels=50, cmap="RdBu_r")
-            plt.colorbar(label=r"$\phi$")
-            plt.title(f"phi at t = {t:.2f}")
-            plt.xlabel("x")
-            plt.ylabel("y")
-            plt.gca().set_aspect('equal', adjustable='box')
-            plt.tight_layout()
-            
-            # Save the figure to your output folder
-            out_file = os.path.join(outDirName, f"phi_t{n:05d}.png")
-            plt.savefig(out_file, dpi=200)
-            #plt.show()
-            plt.close()
+            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+                
+            print("theta avg = ", theta_avg, flush=True)
+            print("theta geom = ", theta_geom, "\n\n", flush=True)
                 
