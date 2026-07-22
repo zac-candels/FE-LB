@@ -1,9 +1,10 @@
 import sys
-sys.path.insert(0, "/home/zcandels/refactor")
+sys.path.insert(0, "/home/zcandels/refactor/src")
 import lattice
 import moments
 import meshAndFnSpaces
 import initialize
+import streamingModule
 from postProcessing import writeData
 import finiteElementFunctions
 import distrBoundaryConditions
@@ -91,114 +92,19 @@ def main():
             idx, Force_density, dt, xi, w, c_s), V))
 
 
-    # Define boundary conditions. Here we will use bounceback BCs
+    bouncebackBCs = distrBoundaryConditions.BounceBackBoundary( V,
+                                                               simState.f_n,
+                                                               L_y,
+                                                               tol=1e-8)
+    
+    bouncebackBCs._create_bcs(L_y, tol=1e-8)
 
-    # For distributions 5, 2, and 6, the conjugate distributions 
-    # are 7, 4, and 8, respectively.
-    tol = 1e-8
-    def Bdy_Lower(x, on_boundary):
-        if on_boundary:
-            if fe.near(x[1], 0, tol):
-                return True
-            else:
-                return False
-        else:
-            return False
+    streaming = streamingModule.StreamingOperator(V, simState,
+                                                  latticeClass, dt)
 
-    f5_lower = simState.f_n[7]  
-    f2_lower = simState.f_n[4] 
-    f6_lower = simState.f_n[8] 
-
-    f5_lower_func = fe.Function(V)
-    f2_lower_func = fe.Function(V)
-    f6_lower_func = fe.Function(V)
-
-    fe.project(f5_lower, V, function=f5_lower_func)
-    fe.project(f2_lower, V, function=f2_lower_func)
-    fe.project(f6_lower, V, function=f6_lower_func)
-
-    bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-    bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-    bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
-
-
-
-    # Similarly, we will define boundary conditions for f_7, f_4, and f_8
-    # at the upper wall. Here, the conjugate distributions are 
-    # 5, 2, and 6. 
-    tol = 1e-8
-    def Bdy_Upper(x, on_boundary):
-        if on_boundary:
-            if fe.near(x[1], L_y, tol):
-                return True
-            else:
-                return False
-        else:
-            return False
-
-    f7_upper = simState.f_n[5]  
-    f4_upper = simState.f_n[2]  
-    f8_upper = simState.f_n[6]  
-
-    f7_upper_func = fe.Function(V)
-    f4_upper_func = fe.Function(V)
-    f8_upper_func = fe.Function(V)
-
-    fe.project(f7_upper, V, function=f7_upper_func)
-    fe.project(f4_upper, V, function=f4_upper_func)
-    fe.project(f8_upper, V, function=f8_upper_func)
-
-    bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-    bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-    bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
-
-    # Define variational problems
-    bilinear_forms_stream = []
-    linear_forms_stream = []
-
-    advection_forms = []
-    double_advection_forms = []
-
-    # Define linear and bilinear forms for the collision and streaming steps
-    for idx in range(Q):
-
-        bilinear_forms_stream.append(simState.f_trial * simState.v * fe.dx)
-        
-        advection_forms.append( simState.v*fe.dot(xi[idx], fe.grad(simState.f_trial))*fe.dx )
-        double_advection_forms.append( fe.dot(xi[idx],fe.grad(simState.v))\
-                                      *fe.dot(xi[idx],fe.grad(simState.f_trial))*fe.dx )
-
-
-    massForm = simState.f_trial*simState.v*fe.dx
-    massMat = fe.assemble(massForm)
-    mass_action_form = fe.action(massForm, fe.Constant(1))
-    M_lumped = fe.assemble(massForm)
-    M_lumped.zero()
-    M_lumped.set_diagonal(fe.assemble(mass_action_form))
-    M_vect = fe.assemble(mass_action_form)
-    M_petsc = fe.as_backend_type(M_vect).vec()
-
-    # Assemble matrices for first step
-    sysMatStream = []
-    sysMatLumped = []
-    solverListStream = []
-    rhsVecStreaming = []
-    advectionMats = []
-    advectionTransposeMats = []
-    doubleAdvectionMats = []
-    for idx in range(Q):
-        sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
-        sysMatLumped.append(M_petsc.copy())
-        advectionMats.append(fe.assemble(advection_forms[idx]))
-        A_T = advectionMats[idx].copy()
-        advectionTransposeMats.append(A_T)
-        doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
-
-    for idx in range(Q):
-        A = sysMatStream[idx]
-        solver = fe.LUSolver(A)
-        solverListStream.append(solver)
-
+    sysMatStream = streaming.sysMatStream
+    advectionMats = streaming.advectionMats
+    doubleAdvectionMats = streaming.doubleAdvectionMats
 
     vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
     vel_file.parameters["flush_output"] = True
@@ -207,36 +113,36 @@ def main():
 
 
     # Apply BCs to matrices for distribution functions 5, 2, and 6
-    bc_f5.apply(sysMatStream[5])
+    bouncebackBCs.lower["f5"].apply(sysMatStream[5])
     #bc_f5.apply(fe.PETScVector(sysMatLumped[5]))
-    bc_f5.apply(advectionMats[5])
-    bc_f5.apply(doubleAdvectionMats[5])
+    bouncebackBCs.lower["f5"].apply(advectionMats[5])
+    bouncebackBCs.lower["f5"].apply(doubleAdvectionMats[5])
 
-    bc_f2.apply(sysMatStream[2])
+    bouncebackBCs.lower["f2"].apply(sysMatStream[2])
     #bc_f2.apply(fe.PETScVector(sysMatLumped[2]))
-    bc_f2.apply(advectionMats[2])
-    bc_f2.apply(doubleAdvectionMats[2])
+    bouncebackBCs.lower["f2"].apply(advectionMats[2])
+    bouncebackBCs.lower["f2"].apply(doubleAdvectionMats[2])
 
-    bc_f6.apply(sysMatStream[6])
+    bouncebackBCs.lower["f6"].apply(sysMatStream[6])
     #bc_f6.apply(fe.PETScVector(sysMatLumped[6]))
-    bc_f6.apply(advectionMats[6])
-    bc_f6.apply(doubleAdvectionMats[6])
+    bouncebackBCs.lower["f6"].apply(advectionMats[6])
+    bouncebackBCs.lower["f6"].apply(doubleAdvectionMats[6])
 
     # Apply BCs to matrices for distribution functions 7, 4, 8
-    bc_f7.apply(sysMatStream[7])
+    bouncebackBCs.upper["f7"].apply(sysMatStream[7])
     #bc_f7.apply(fe.PETScVector(sysMatLumped[7]))
-    bc_f7.apply(advectionMats[7])
-    bc_f7.apply(doubleAdvectionMats[7])
+    bouncebackBCs.upper["f7"].apply(advectionMats[7])
+    bouncebackBCs.upper["f7"].apply(doubleAdvectionMats[7])
 
-    bc_f4.apply(sysMatStream[4])
+    bouncebackBCs.upper["f4"].apply(sysMatStream[4])
     #bc_f4.apply(fe.PETScVector(sysMatLumped[4]))
-    bc_f4.apply(advectionMats[4])
-    bc_f4.apply(doubleAdvectionMats[4])
+    bouncebackBCs.upper["f4"].apply(advectionMats[4])
+    bouncebackBCs.upper["f4"].apply(doubleAdvectionMats[4])
 
-    bc_f8.apply(sysMatStream[8])
+    bouncebackBCs.upper["f8"].apply(sysMatStream[8])
     #bc_f8.apply(fe.PETScVector(sysMatLumped[8]))
-    bc_f8.apply(advectionMats[8])
-    bc_f8.apply(doubleAdvectionMats[8])
+    bouncebackBCs.upper["f8"].apply(advectionMats[8])
+    bouncebackBCs.upper["f8"].apply(doubleAdvectionMats[8])
 
 
     streamingPrevTimeVecs= [simState.f_star_coll[0].vector().copy() for _ in range(Q)]
@@ -251,7 +157,7 @@ def main():
 
     for i in range(Q):
 
-        M = fe.as_backend_type(M_lumped).mat()
+        M = fe.as_backend_type(streaming.M_lumped).mat()
 
         K = fe.as_backend_type(advectionMats[i]).mat()
         D = fe.as_backend_type(doubleAdvectionMats[i]).mat()
@@ -294,10 +200,10 @@ def main():
         fe.assemble(simState.v*fe.dx, tensor=forceVec_y)
         forceVec_y.vec().scale(0)
         
-        fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+        fe.solve(streaming.mass_mat, forceDensity_x.vector(), forceVec_x)
         # petscForce_x = fe.as_backend_type(forceVec_x)
         # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-        fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+        fe.solve(streaming.mass_mat, forceDensity_y.vector(), forceVec_y)
         # petscForce_y = fe.as_backend_type(forceVec_y)
         # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
         projectForceTimeEnd = time.time()
@@ -346,9 +252,13 @@ def main():
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
         for idx in range(Q):
-            M_lumped.mult(simState.f_star_coll[idx].vector(), streamingPrevTimeVecs[idx])
-            advectionMats[idx].mult(simState.f_star_coll[idx].vector(), advectionVecs[idx])
-            doubleAdvectionMats[idx].mult(simState.f_star_coll[idx].vector(), doubleAdvectionVecs[idx])
+            streaming.M_lumped.mult(
+                simState.f_star_coll[idx].vector(),
+                streamingPrevTimeVecs[idx])
+            advectionMats[idx].mult(simState.f_star_coll[idx].vector(),
+                                    advectionVecs[idx])
+            doubleAdvectionMats[idx].mult(simState.f_star_coll[idx].vector(),
+                                          doubleAdvectionVecs[idx])
 
             rhsVecStreaming[idx].zero()
             rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
@@ -359,26 +269,19 @@ def main():
         
 
 
-        pre_assign_time = time.time()
-        f5_lower_func.assign(simState.f_star_coll[7] )
-        f2_lower_func.assign(simState.f_star_coll[4] )
-        f6_lower_func.assign(simState.f_star_coll[8] )
-        f7_upper_func.assign(simState.f_star_coll[5] )
-        f4_upper_func.assign(simState.f_star_coll[2] )
-        f8_upper_func.assign(simState.f_star_coll[6] )
+        bouncebackBCs.update(simState.f_star_coll)
         post_assign_time = time.time()
         #print("assign time = ", post_assign_time - pre_assign_time)
 
         pre_apply_time = time.time()
         # Apply BCs for distribution functions 5, 2, and 6
-        bc_f5.apply(rhsVecStreaming[5])
-        bc_f2.apply(rhsVecStreaming[2])
-        bc_f6.apply(rhsVecStreaming[6])
-
-        # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(rhsVecStreaming[7])
-        bc_f4.apply(rhsVecStreaming[4])
-        bc_f8.apply(rhsVecStreaming[8])
+        bouncebackBCs.lower["f5"].apply(rhsVecStreaming[5])
+        bouncebackBCs.lower["f2"].apply(rhsVecStreaming[2])
+        bouncebackBCs.lower["f6"].apply(rhsVecStreaming[6])
+        
+        bouncebackBCs.upper["f7"].apply(rhsVecStreaming[7])
+        bouncebackBCs.upper["f4"].apply(rhsVecStreaming[4])
+        bouncebackBCs.upper["f8"].apply(rhsVecStreaming[8])
         post_apply_time = time.time()
         #print("time to apply BCs ", post_apply_time - pre_apply_time)
 
@@ -388,16 +291,17 @@ def main():
         for idx in range(Q):
             #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
             vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-            simState.f_star_stream[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+            simState.f_star_stream[idx].vector().vec().pointwiseDivide(
+                vi, 
+                streaming.sysMatLumped[idx])
        
-        bc_f5.apply(simState.f_star_stream[5].vector())
-        bc_f2.apply(simState.f_star_stream[2].vector())
-        bc_f6.apply(simState.f_star_stream[6].vector())
-
-        # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(simState.f_star_stream[7].vector())
-        bc_f4.apply(simState.f_star_stream[4].vector())
-        bc_f8.apply(simState.f_star_stream[8].vector())
+        bouncebackBCs.lower["f5"].apply(simState.f_star_stream[5].vector())
+        bouncebackBCs.lower["f2"].apply(simState.f_star_stream[2].vector())
+        bouncebackBCs.lower["f6"].apply(simState.f_star_stream[6].vector())
+        
+        bouncebackBCs.upper["f7"].apply(simState.f_star_stream[7].vector())
+        bouncebackBCs.upper["f4"].apply(simState.f_star_stream[4].vector())
+        bouncebackBCs.upper["f8"].apply(simState.f_star_stream[8].vector())
         post_stream_time = time.time()
         #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
         
