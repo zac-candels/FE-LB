@@ -26,10 +26,10 @@ class SimulationState:
         for i in range(Q):
             self.f_star_coll.append(fe.Function(V))
 
-        self.f_star_stream = []
+        self.f_star = []
 
         for i in range(Q):
-            self.f_star_stream.append(fe.Function(V))
+            self.f_star.append(fe.Function(V))
 
         # density
         self.rho_n = fe.Function(V)

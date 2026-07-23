@@ -3,6 +3,7 @@ sys.path.insert(0, "/home/zcandels/refactor/src")
 import lattice
 import meshAndFnSpaces
 from postProcessing import writeData
+import finiteElementFunctions
 import fenics as fe
 import os
 import numpy as np
@@ -55,39 +56,13 @@ def main():
 
 
     h = mesh.hmin()
-    dt = 0.005*h/np.sqrt(2)
+    dt = 0.0025*h/np.sqrt(2)
     num_steps = int(np.ceil(T/dt))
-
 
     outDirName = writeData.create_output_directory(dt, h, name="refactor")
     
-    h = mesh.hmin()
-    dt = 0.005*h/np.sqrt(2)
-    
-    num_steps = int(np.ceil(T/dt))
-    
  
-    vel_n = fe.Function(Vvec)
-
-    
-    
-    # Define trial and test functions, as well as
-    # finite element functions at previous timesteps
-    f_trial = fe.TrialFunction(V)
-    f_n = []
-    for idx in range(Q):
-        f_n.append(fe.Function(V))
-    v = fe.TestFunction(V)
-    
-    # Define FE functions to hold post-streaming solution at nP1 timesteps
-    f_nP1 = []
-    for idx in range(Q):
-        f_nP1.append(fe.Function(V))
-    
-    # Define FE functions to hold post-collision distributions
-    f_star = []
-    for idx in range(Q):
-        f_star.append(fe.Function(V))
+    simState = finiteElementFunctions.SimulationState(V, Vvec, Q)
     
     # Define density
     def getDens(f_list):
@@ -140,7 +115,7 @@ def main():
     # where \bar{u}_0 = u_0 - F\Delta t/( 2 \rho_0 ).
     # Here we will take u_0 = 0.
     for idx in range(Q):
-        f_n[idx] = (fe.project(f_equil_init(idx, Force_density), V))
+        simState.f_n[idx] = (fe.project(f_equil_init(idx, Force_density), V))
     
     
     # Define boundary conditions. Here we will use bounceback BCs
@@ -157,9 +132,9 @@ def main():
         else:
             return False
     
-    f5_lower = f_n[7]  
-    f2_lower = f_n[4] 
-    f6_lower = f_n[8] 
+    f5_lower = simState.f_n[7]  
+    f2_lower = simState.f_n[4] 
+    f6_lower = simState.f_n[8] 
     
     f5_lower_func = fe.Function(V)
     f2_lower_func = fe.Function(V)
@@ -188,9 +163,9 @@ def main():
         else:
             return False
     
-    f7_upper = f_n[5]  
-    f4_upper = f_n[2]  
-    f8_upper = f_n[6]  
+    f7_upper = simState.f_n[5]  
+    f4_upper = simState.f_n[2]  
+    f8_upper = simState.f_n[6]  
     
     f7_upper_func = fe.Function(V)
     f4_upper_func = fe.Function(V)
@@ -214,14 +189,14 @@ def main():
     # Define linear and bilinear forms for the collision and streaming steps
     for idx in range(Q):
     
-        bilinear_forms_stream.append(f_trial * v * fe.dx)
+        bilinear_forms_stream.append(simState.f_trial * simState.v * fe.dx)
         
-        advection_forms.append( v*fe.dot(xi[idx], fe.grad(f_trial))*fe.dx )
-        double_advection_forms.append( fe.dot(xi[idx],fe.grad(v))\
-                                      *fe.dot(xi[idx],fe.grad(f_trial))*fe.dx )
+        advection_forms.append( simState.v*fe.dot(xi[idx], fe.grad(simState.f_trial))*fe.dx )
+        double_advection_forms.append( fe.dot(xi[idx],fe.grad(simState.v))\
+                                      *fe.dot(xi[idx],fe.grad(simState.f_trial))*fe.dx )
     
     
-    massForm = f_trial*v*fe.dx
+    massForm = simState.f_trial*simState.v*fe.dx
     massMat = fe.assemble(massForm)
     mass_action_form = fe.action(massForm, fe.Constant(1))
     M_lumped = fe.assemble(massForm)
@@ -286,13 +261,13 @@ def main():
     bc_f8.apply(doubleAdvectionMats[8])
     
     
-    streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
-    advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
-    doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
-    rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+    streamingPrevTimeVecs= [simState.f_star[0].vector().copy() for _ in range(Q)]
+    advectionVecs = [simState.f_star[0].vector().copy() for _ in range(Q)]
+    doubleAdvectionVecs =[simState.f_star[0].vector().copy() for _ in range(Q)]
+    rhsVecStreaming = [simState.f_star[0].vector().copy() for _ in range(Q)]
     
-    forceVec_x = f_star[0].vector().copy()
-    forceVec_y = f_star[0].vector().copy()
+    forceVec_x = simState.f_star[0].vector().copy()
+    forceVec_y = simState.f_star[0].vector().copy()
         
     
     xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
@@ -311,8 +286,8 @@ def main():
         # We will try to do collision locally, since it is a pure
         # time-dependnet ODE
         
-        fe.assemble(Force_density.values()[0]*v*fe.dx, tensor=forceVec_x )
-        fe.assemble(v*fe.dx, tensor=forceVec_y)
+        fe.assemble(Force_density.values()[0]*simState.v*fe.dx, tensor=forceVec_x )
+        fe.assemble(simState.v*fe.dx, tensor=forceVec_y)
         forceVec_y.vec().scale(0)
         
         fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
@@ -328,7 +303,7 @@ def main():
         # We will try to do collision locally, since it is a pure
         # time-dependnet ODE
         
-        f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+        f_vals = np.array([simState.f_n[idx].vector().get_local() for idx in range(Q)])
         
         forceVals_x = forceDensity_x.vector().get_local()
         #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
@@ -359,7 +334,7 @@ def main():
         
     
         f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
-        [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+        [simState.f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
         rho = f_star_np.sum(axis=0)
         ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
         uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -370,9 +345,9 @@ def main():
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
         for idx in range(Q):
-            M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
-            advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
-            doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
+            M_lumped.mult(simState.f_star[idx].vector(), streamingPrevTimeVecs[idx])
+            advectionMats[idx].mult(simState.f_star[idx].vector(), advectionVecs[idx])
+            doubleAdvectionMats[idx].mult(simState.f_star[idx].vector(), doubleAdvectionVecs[idx])
     
             rhsVecStreaming[idx].zero()
             rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
@@ -384,12 +359,12 @@ def main():
     
     
         pre_assign_time = time.time()
-        f5_lower_func.assign(f_star[7] )
-        f2_lower_func.assign(f_star[4] )
-        f6_lower_func.assign(f_star[8] )
-        f7_upper_func.assign(f_star[5] )
-        f4_upper_func.assign(f_star[2] )
-        f8_upper_func.assign(f_star[6] )
+        f5_lower_func.assign(simState.f_star[7] )
+        f2_lower_func.assign(simState.f_star[4] )
+        f6_lower_func.assign(simState.f_star[8] )
+        f7_upper_func.assign(simState.f_star[5] )
+        f4_upper_func.assign(simState.f_star[2] )
+        f8_upper_func.assign(simState.f_star[6] )
         post_assign_time = time.time()
         #print("assign time = ", post_assign_time - pre_assign_time)
     
@@ -409,18 +384,18 @@ def main():
         pre_stream_time = time.time()
         # Solve linear system for streaming step
         for idx in range(Q):
-            #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
+            #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
             vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-            f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+            simState.f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
        
-        bc_f5.apply(f_nP1[5].vector())
-        bc_f2.apply(f_nP1[2].vector())
-        bc_f6.apply(f_nP1[6].vector())
+        bc_f5.apply(simState.f_nP1[5].vector())
+        bc_f2.apply(simState.f_nP1[2].vector())
+        bc_f6.apply(simState.f_nP1[6].vector())
     
         # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(f_nP1[7].vector())
-        bc_f4.apply(f_nP1[4].vector())
-        bc_f8.apply(f_nP1[8].vector())
+        bc_f7.apply(simState.f_nP1[7].vector())
+        bc_f4.apply(simState.f_nP1[4].vector())
+        bc_f8.apply(simState.f_nP1[8].vector())
         post_stream_time = time.time()
         #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
     
@@ -428,21 +403,21 @@ def main():
         # Update previous solutions
     
         for idx in range(Q):
-            f_n[idx].assign(f_nP1[idx])
+            simState.f_n[idx].assign(simState.f_nP1[idx])
             
 
     
         if n % 10000 == 0:
             print("n = ", n)
-            vel_expr = getVel(f_n)
-            fe.project(vel_expr, Vvec, function=vel_n)
+            vel_expr = getVel(simState.f_n)
+            fe.project(vel_expr, Vvec, function=simState.vel_n)
             
             u_new, v_new = 0, 0
             
             for i in range(Q):
                 xi_new = xi[i].values()
-                u_new += f_n[i].vector().get_local()*xi_new[0]
-                v_new += f_n[i].vector().get_local()*xi_new[1]
+                u_new += simState.f_n[i].vector().get_local()*xi_new[0]
+                v_new += simState.f_n[i].vector().get_local()*xi_new[1]
     
             u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                                 degree=2, u_max=u_max, L_y=L_y)
@@ -467,7 +442,7 @@ def main():
                 u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
     
             for point in points:
-                u_at_point = vel_n(point)
+                u_at_point = simState.vel_n(point)
                 u_x_values.append(u_at_point[0] / u_max)
     
     
