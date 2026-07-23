@@ -4,6 +4,7 @@ import lattice
 import meshAndFnSpaces
 from postProcessing import writeData
 import finiteElementFunctions
+import moments
 import fenics as fe
 import os
 import numpy as np
@@ -51,6 +52,7 @@ def main():
     latticeClass = lattice.D2Q9()
     xi = latticeClass.xi
     w = latticeClass.weights
+    xi_arr = latticeClass.xi_arr
     
     mesh, V, Vvec = meshAndFnSpaces.create_mesh(dim, L_x, L_y, nx, ny)
 
@@ -64,30 +66,12 @@ def main():
  
     simState = finiteElementFunctions.SimulationState(V, Vvec, Q)
     
-    # Define density
-    def getDens(f_list):
-        return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
-            + f_list[5] + f_list[6] + f_list[7] + f_list[8]
-    
     forceDensity_x = fe.Function(V)
     forceDensity_y = fe.Function(V)
     
     # Define velocity
     
-    
-    def getVel(f_list):
-        distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
-            + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
-            + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
-    
-        density = getDens(f_list)
-    
-        vel_term1 = distr_fn_sum/density
-    
-        vel_term2 = Force_density * dt / (2 * density)
-    
-        return vel_term1 + vel_term2
-    
+
     
     # Define initial equilibrium distributions
     def f_equil_init(vel_idx, Force_density):
@@ -270,10 +254,7 @@ def main():
     forceVec_y = simState.f_star[0].vector().copy()
         
     
-    xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
-                       [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
-    
-    
+
         
     # Timestepping
     t = 0.0
@@ -409,9 +390,9 @@ def main():
     
         if n % 10000 == 0:
             print("n = ", n)
-            vel_expr = getVel(simState.f_n)
+            vel_expr = moments.getVel(simState.f_n, xi_arr, forceDensityTuple, dt)
             fe.project(vel_expr, Vvec, function=simState.vel_n)
-            
+            vel_file.write(simState.vel_n, t)
             u_new, v_new = 0, 0
             
             for i in range(Q):

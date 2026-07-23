@@ -12,10 +12,10 @@ def getDens(f_list):
 
 def getVel(f_list, xi_arr, forceDensityTuple, dt):
 
-    momentum = f_list[0]*xi_arr[0]
+    momentum = f_list[0]*fe.Constant(xi_arr[0])
 
     for i in range(1, len(f_list)):
-        momentum += f_list[i]*xi_arr[i]
+        momentum += f_list[i]*fe.Constant(xi_arr[i])
 
     rho = getDens(f_list)
 

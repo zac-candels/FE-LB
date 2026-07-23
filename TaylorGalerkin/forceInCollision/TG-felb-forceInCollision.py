@@ -297,7 +297,7 @@ def main():
             print("n = ", n)
             vel_expr = moments.getVel(simState.f_n, xi, forceDensityTuple, dt)
             fe.project(vel_expr, Vvec, function=simState.vel_n)
-            #vel_file.write(vel_n, t)
+            #vel_file.write(simState.vel_n, t)
             
             # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
             # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
