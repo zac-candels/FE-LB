@@ -5,6 +5,7 @@ import meshAndFnSpaces
 from postProcessing import writeData
 import finiteElementFunctions
 import moments
+import streamingModule
 import fenics as fe
 import os
 import numpy as np
@@ -58,7 +59,7 @@ def main():
 
 
     h = mesh.hmin()
-    dt = 0.0025*h/np.sqrt(2)
+    dt = 0.005*h/np.sqrt(2)
     num_steps = int(np.ceil(T/dt))
 
     outDirName = writeData.create_output_directory(dt, h, name="refactor")
@@ -163,48 +164,52 @@ def main():
     bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
     bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
     
-    # Define variational problems
-    bilinear_forms_stream = []
-    linear_forms_stream = []
+    # # Define variational problems
+    # bilinear_forms_stream = []
+    # linear_forms_stream = []
     
-    advection_forms = []
-    double_advection_forms = []
+    # advection_forms = []
+    # double_advection_forms = []
     
-    # Define linear and bilinear forms for the collision and streaming steps
-    for idx in range(Q):
+    # # Define linear and bilinear forms for the collision and streaming steps
+    # for idx in range(Q):
     
-        bilinear_forms_stream.append(simState.f_trial * simState.v * fe.dx)
+    #     bilinear_forms_stream.append(simState.f_trial * simState.v * fe.dx)
         
-        advection_forms.append( simState.v*fe.dot(xi[idx], fe.grad(simState.f_trial))*fe.dx )
-        double_advection_forms.append( fe.dot(xi[idx],fe.grad(simState.v))\
-                                      *fe.dot(xi[idx],fe.grad(simState.f_trial))*fe.dx )
+    #     advection_forms.append( simState.v*fe.dot(xi[idx], fe.grad(simState.f_trial))*fe.dx )
+    #     double_advection_forms.append( fe.dot(xi[idx],fe.grad(simState.v))\
+    #                                   *fe.dot(xi[idx],fe.grad(simState.f_trial))*fe.dx )
     
     
-    massForm = simState.f_trial*simState.v*fe.dx
-    massMat = fe.assemble(massForm)
-    mass_action_form = fe.action(massForm, fe.Constant(1))
-    M_lumped = fe.assemble(massForm)
-    M_lumped.zero()
-    M_lumped.set_diagonal(fe.assemble(mass_action_form))
-    M_vect = fe.assemble(mass_action_form)
-    M_petsc = fe.as_backend_type(M_vect).vec()
+    # massForm = simState.f_trial*simState.v*fe.dx
+    # massMat = fe.assemble(massForm)
+    # mass_action_form = fe.action(massForm, fe.Constant(1))
+    # M_lumped = fe.assemble(massForm)
+    # M_lumped.zero()
+    # M_lumped.set_diagonal(fe.assemble(mass_action_form))
+    # M_vect = fe.assemble(mass_action_form)
+    # M_petsc = fe.as_backend_type(M_vect).vec()
     
-    # Assemble matrices for first step
-    sysMatStream = []
-    sysMatLumped = []
-    solverListStream = []
-    rhsVecStreaming = []
-    advectionMats = []
-    advectionTransposeMats = []
-    doubleAdvectionMats = []
-    for idx in range(Q):
-        sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
-        sysMatLumped.append(M_petsc.copy())
-        advectionMats.append(fe.assemble(advection_forms[idx]))
-        A_T = advectionMats[idx].copy()
-        advectionTransposeMats.append(A_T)
-        doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
+    # # Assemble matrices for first step
+    # sysMatStream = []
+    # sysMatLumped = []
+    # rhsVecStreaming = []
+    # advectionMats = []
+    # advectionTransposeMats = []
+    # doubleAdvectionMats = []
+    # for idx in range(Q):
+    #     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
+    #     sysMatLumped.append(M_petsc.copy())
+    #     advectionMats.append(fe.assemble(advection_forms[idx]))
+    #     A_T = advectionMats[idx].copy()
+    #     advectionTransposeMats.append(A_T)
+    #     doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
     
+    
+    streamer = streamingModule.StreamingOperator(V,
+                                                 simState,
+                                                 latticeClass,
+                                                 dt)
     
     vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
     vel_file.parameters["flush_output"] = True
@@ -213,36 +218,36 @@ def main():
     
     
     # Apply BCs to matrices for distribution functions 5, 2, and 6
-    bc_f5.apply(sysMatStream[5])
+    bc_f5.apply(streamer.sysMatStream[5])
     #bc_f5.apply(fe.PETScVector(sysMatLumped[5]))
-    bc_f5.apply(advectionMats[5])
-    bc_f5.apply(doubleAdvectionMats[5])
+    bc_f5.apply(streamer.advectionMats[5])
+    bc_f5.apply(streamer.doubleAdvectionMats[5])
     
-    bc_f2.apply(sysMatStream[2])
+    bc_f2.apply(streamer.sysMatStream[2])
     #bc_f2.apply(fe.PETScVector(sysMatLumped[2]))
-    bc_f2.apply(advectionMats[2])
-    bc_f2.apply(doubleAdvectionMats[2])
+    bc_f2.apply(streamer.advectionMats[2])
+    bc_f2.apply(streamer.doubleAdvectionMats[2])
     
-    bc_f6.apply(sysMatStream[6])
+    bc_f6.apply(streamer.sysMatStream[6])
     #bc_f6.apply(fe.PETScVector(sysMatLumped[6]))
-    bc_f6.apply(advectionMats[6])
-    bc_f6.apply(doubleAdvectionMats[6])
+    bc_f6.apply(streamer.advectionMats[6])
+    bc_f6.apply(streamer.doubleAdvectionMats[6])
     
     # Apply BCs to matrices for distribution functions 7, 4, 8
-    bc_f7.apply(sysMatStream[7])
+    bc_f7.apply(streamer.sysMatStream[7])
     #bc_f7.apply(fe.PETScVector(sysMatLumped[7]))
-    bc_f7.apply(advectionMats[7])
-    bc_f7.apply(doubleAdvectionMats[7])
+    bc_f7.apply(streamer.advectionMats[7])
+    bc_f7.apply(streamer.doubleAdvectionMats[7])
     
-    bc_f4.apply(sysMatStream[4])
+    bc_f4.apply(streamer.sysMatStream[4])
     #bc_f4.apply(fe.PETScVector(sysMatLumped[4]))
-    bc_f4.apply(advectionMats[4])
-    bc_f4.apply(doubleAdvectionMats[4])
+    bc_f4.apply(streamer.advectionMats[4])
+    bc_f4.apply(streamer.doubleAdvectionMats[4])
     
-    bc_f8.apply(sysMatStream[8])
+    bc_f8.apply(streamer.sysMatStream[8])
     #bc_f8.apply(fe.PETScVector(sysMatLumped[8]))
-    bc_f8.apply(advectionMats[8])
-    bc_f8.apply(doubleAdvectionMats[8])
+    bc_f8.apply(streamer.advectionMats[8])
+    bc_f8.apply(streamer.doubleAdvectionMats[8])
     
     
     streamingPrevTimeVecs= [simState.f_star[0].vector().copy() for _ in range(Q)]
@@ -271,10 +276,10 @@ def main():
         fe.assemble(simState.v*fe.dx, tensor=forceVec_y)
         forceVec_y.vec().scale(0)
         
-        fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+        fe.solve(streamer.massMat, forceDensity_x.vector(), forceVec_x)
         # petscForce_x = fe.as_backend_type(forceVec_x)
         # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-        fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+        fe.solve(streamer.massMat, forceDensity_y.vector(), forceVec_y)
         # petscForce_y = fe.as_backend_type(forceVec_y)
         # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
         projectForceTimeEnd = time.time()
@@ -326,9 +331,9 @@ def main():
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
         for idx in range(Q):
-            M_lumped.mult(simState.f_star[idx].vector(), streamingPrevTimeVecs[idx])
-            advectionMats[idx].mult(simState.f_star[idx].vector(), advectionVecs[idx])
-            doubleAdvectionMats[idx].mult(simState.f_star[idx].vector(), doubleAdvectionVecs[idx])
+            streamer.M_lumped.mult(simState.f_star[idx].vector(), streamingPrevTimeVecs[idx])
+            streamer.advectionMats[idx].mult(simState.f_star[idx].vector(), advectionVecs[idx])
+            streamer.doubleAdvectionMats[idx].mult(simState.f_star[idx].vector(), doubleAdvectionVecs[idx])
     
             rhsVecStreaming[idx].zero()
             rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
@@ -367,7 +372,9 @@ def main():
         for idx in range(Q):
             #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
             vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-            simState.f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+            simState.f_nP1[idx].vector().vec().pointwiseDivide(
+                vi,
+                streamer.sysMatLumped[idx])
        
         bc_f5.apply(simState.f_nP1[5].vector())
         bc_f2.apply(simState.f_nP1[2].vector())

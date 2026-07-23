@@ -1,5 +1,6 @@
 import fenics as fe
 
+
 def f_equil_init(vel_idx, Force_density, dt, xi, w, c_s):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
@@ -17,3 +18,10 @@ def f_equil_init(vel_idx, Force_density, dt, xi, w, c_s):
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
+
+def initializeDistributions(f_n, Force_density, V):
+    
+    for idx in range(len(f_n)):
+        f_n[idx] = (fe.project(f_equil_init(idx, Force_density), V))
+        
+    return f_n

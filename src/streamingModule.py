@@ -15,23 +15,18 @@ class StreamingOperator:
         self.advectionMats = []
         self.doubleAdvectionMats = []
         
-        self.streamingPrevTimeVecs = [state.f_star_coll[0].vector().copy()\
+        self.streamingPrevTimeVecs = [state.f_star[0].vector().copy()\
                                       for _ in range(self.Q)]
-        self.advectionVecs = [state.f_star_coll[0].vector().copy()\
+        self.advectionVecs = [state.f_star[0].vector().copy()\
                               for _ in range(self.Q)]
-        self.doubleAdvectionVecs =[state.f_star_coll[0].vector().copy()\
+        self.doubleAdvectionVecs =[state.f_star[0].vector().copy()\
                                    for _ in range(self.Q)]
-        self.rhsVecStreaming = [state.f_star_coll[0].vector().copy()\
+        self.rhsVecStreaming = [state.f_star[0].vector().copy()\
                                 for _ in range(self.Q)]
-            
-        self.rhsVecStreamingPetsc = [fe.as_backend_type(
-            self.rhsVecStreaming[i]).vec() for i in range(self.Q)]
-        self.blockRhsVecStreaming = PETSc.Vec().createNest(self.rhsVecStreamingPetsc)
-
 
         self.solverList = []
         
-        self.mass_mat = None
+        self.massMat = None
         
         self.M_lumped = None
 
@@ -72,7 +67,7 @@ class StreamingOperator:
         )
 
 
-        self.mass_mat = fe.assemble(mass_form)
+        self.massMat = fe.assemble(mass_form)
 
 
         mass_action = fe.action(
@@ -154,8 +149,7 @@ class StreamingOperator:
         return None
     
     def solveSysLumping(self, f_star_stream):
-        subvecs = self.blockRhsVecStreaming.getNestSubVecs()
-       
+
         # Solve linear system for streaming step
         for idx in range(self.Q):
             #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
