@@ -148,14 +148,14 @@ class StreamingOperator:
                                                 self.doubleAdvectionVecs[idx])
         return None
     
-    def solveSysLumping(self, f_star_stream):
+    def solveSysLumping(self, f_nP1):
 
         # Solve linear system for streaming step
         for idx in range(self.Q):
             #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
             vi = fe.as_backend_type(self.rhsVecStreaming[idx]).vec()
-            f_star_stream[idx].vector().vec().pointwiseDivide(
+            f_nP1[idx].vector().vec().pointwiseDivide(
                 vi, 
                 self.sysMatLumped[idx])
             
-        return f_star_stream
+        return f_nP1

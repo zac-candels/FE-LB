@@ -320,12 +320,15 @@ def main():
     
         pre_stream_time = time.time()
         # Solve linear system for streaming step
-        for idx in range(Q):
-            #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
-            vi = fe.as_backend_type(streamer.rhsVecStreaming[idx]).vec()
-            simState.f_nP1[idx].vector().vec().pointwiseDivide(
-                vi,
-                streamer.sysMatLumped[idx])
+        
+        simState.f_nP1 = streamer.solveSysLumping(simState.f_nP1)
+        
+        # for idx in range(Q):
+        #     #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
+        #     vi = fe.as_backend_type(streamer.rhsVecStreaming[idx]).vec()
+        #     simState.f_nP1[idx].vector().vec().pointwiseDivide(
+        #         vi,
+        #         streamer.sysMatLumped[idx])
        
         bc_f5.apply(simState.f_nP1[5].vector())
         bc_f2.apply(simState.f_nP1[2].vector())
