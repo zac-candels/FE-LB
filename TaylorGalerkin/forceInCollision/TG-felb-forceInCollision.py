@@ -144,12 +144,6 @@ def main():
     bouncebackBCs.upper["f8"].apply(advectionMats[8])
     bouncebackBCs.upper["f8"].apply(doubleAdvectionMats[8])
 
-
-    streamingPrevTimeVecs= [simState.f_star_coll[0].vector().copy() for _ in range(Q)]
-    advectionVecs = [simState.f_star_coll[0].vector().copy() for _ in range(Q)]
-    doubleAdvectionVecs =[simState.f_star_coll[0].vector().copy() for _ in range(Q)]
-    rhsVecStreaming = [simState.f_star_coll[0].vector().copy() for _ in range(Q)]
-
     forceVec_x = simState.f_star_coll[0].vector().copy()
     forceVec_y = simState.f_star_coll[0].vector().copy()
 
@@ -174,8 +168,8 @@ def main():
     blockStreamingAssemblyMatrix = PETSc.Mat().createNest(A_blocks)
     blockStreamingAssemblyMatrix.assemble()
         
-    rhsVecsStreaming = [fe.as_backend_type(rhsVecStreaming[i]).vec() for i in range(Q)]
-    blockRhsVecsStreaming = PETSc.Vec().createNest(rhsVecsStreaming)
+    #rhsVecsStreaming = [fe.as_backend_type(streaming.rhsVecStreaming[i]).vec() for i in range(Q)]
+    
     f_starVec = simState.f_star_coll[0].vector().copy()
     FstarVecs = [fe.as_backend_type(f_starVec).vec() for i in range(Q)]
     blockFstarVecs = PETSc.Vec().createNest(FstarVecs)
@@ -251,19 +245,7 @@ def main():
 
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
-        for idx in range(Q):
-            streaming.M_lumped.mult(
-                simState.f_star_coll[idx].vector(),
-                streamingPrevTimeVecs[idx])
-            advectionMats[idx].mult(simState.f_star_coll[idx].vector(),
-                                    advectionVecs[idx])
-            doubleAdvectionMats[idx].mult(simState.f_star_coll[idx].vector(),
-                                          doubleAdvectionVecs[idx])
-
-            rhsVecStreaming[idx].zero()
-            rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
-            rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-            rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        streaming.assembleRhsLumping(simState.f_star_coll, dt)
         #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
         
         
@@ -275,25 +257,20 @@ def main():
 
         pre_apply_time = time.time()
         # Apply BCs for distribution functions 5, 2, and 6
-        bouncebackBCs.lower["f5"].apply(rhsVecStreaming[5])
-        bouncebackBCs.lower["f2"].apply(rhsVecStreaming[2])
-        bouncebackBCs.lower["f6"].apply(rhsVecStreaming[6])
+        bouncebackBCs.lower["f5"].apply(streaming.rhsVecStreaming[5])
+        bouncebackBCs.lower["f2"].apply(streaming.rhsVecStreaming[2])
+        bouncebackBCs.lower["f6"].apply(streaming.rhsVecStreaming[6])
         
-        bouncebackBCs.upper["f7"].apply(rhsVecStreaming[7])
-        bouncebackBCs.upper["f4"].apply(rhsVecStreaming[4])
-        bouncebackBCs.upper["f8"].apply(rhsVecStreaming[8])
+        bouncebackBCs.upper["f7"].apply(streaming.rhsVecStreaming[7])
+        bouncebackBCs.upper["f4"].apply(streaming.rhsVecStreaming[4])
+        bouncebackBCs.upper["f8"].apply(streaming.rhsVecStreaming[8])
         post_apply_time = time.time()
         #print("time to apply BCs ", post_apply_time - pre_apply_time)
 
-        subvecs = blockRhsVecsStreaming.getNestSubVecs()
+        
         pre_stream_time = time.time()
         # Solve linear system for streaming step
-        for idx in range(Q):
-            #solver_list[idx].solve(f_nP1[idx].vector(), rhsVecStreaming[idx])
-            vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
-            simState.f_star_stream[idx].vector().vec().pointwiseDivide(
-                vi, 
-                streaming.sysMatLumped[idx])
+        simState.f_star_stream = streaming.solveSysLumping(simState.f_star_stream)
        
         bouncebackBCs.lower["f5"].apply(simState.f_star_stream[5].vector())
         bouncebackBCs.lower["f2"].apply(simState.f_star_stream[2].vector())
@@ -304,40 +281,6 @@ def main():
         bouncebackBCs.upper["f8"].apply(simState.f_star_stream[8].vector())
         post_stream_time = time.time()
         #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
-        
-        
-        f_vals = np.array([simState.f_star_stream[idx].vector().get_local() for idx in range(Q)])
-        
-        forceVals_x = forceDensity_x.vector().get_local()
-        #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
-        
-        forceVals_y = forceDensity_y.vector().get_local()
-        #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
-
-        # Compute rho and u as numpy arrays over all DOFs
-        rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-        ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*(dt/2)/(2*rho)
-        uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*(dt/2)/(2*rho)
-        vel = np.stack([ux, uy])
-        cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-        u2 = ux**2 + uy**2                                    # (n_dofs,)
-        feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-        
-        # Now for the foce term
-        u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
-        ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
-        
-        ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
-
-        force_term = w[:, None] * (
-              ck_dot_F / c_s**2
-            + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
-            - u_dot_F[None, :] / c_s**2        # ← minus sign
-        )
-        
-
-        f_new = f_vals - dt/tau*(f_vals - feq) + dt*force_term
-        [simState.f_nP1[idx].vector().set_local(f_new[idx,:]) for idx in range(Q)]
 
 
         # Update previous solutions
@@ -345,7 +288,6 @@ def main():
         for idx in range(Q):
             simState.f_n[idx].assign(simState.f_nP1[idx])
             
-        a=1
             
         #fe.project(getVel(f_n), Vvec, function=vel_n)
         #fe.project(getDens(f_n), V, function=rho_n)
