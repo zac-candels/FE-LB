@@ -126,17 +126,17 @@ class StreamingOperator:
                 )
             )
         
-    def assembleRhsLumping(self, f_star_coll, dt):
+    def assembleRhsLumping(self, f_star, dt):
         
         for idx in range(self.Q):
             self.M_lumped.mult(
-                f_star_coll[idx].vector(),
+                f_star[idx].vector(),
                 self.streamingPrevTimeVecs[idx])
             
-            self.advectionMats[idx].mult(f_star_coll[idx].vector(),
+            self.advectionMats[idx].mult(f_star[idx].vector(),
                                     self.advectionVecs[idx])
             
-            self.doubleAdvectionMats[idx].mult(f_star_coll[idx].vector(),
+            self.doubleAdvectionMats[idx].mult(f_star[idx].vector(),
                                           self.doubleAdvectionVecs[idx])
     
             self.rhsVecStreaming[idx].zero()

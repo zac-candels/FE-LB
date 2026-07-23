@@ -164,48 +164,6 @@ def main():
     bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
     bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
     
-    # # Define variational problems
-    # bilinear_forms_stream = []
-    # linear_forms_stream = []
-    
-    # advection_forms = []
-    # double_advection_forms = []
-    
-    # # Define linear and bilinear forms for the collision and streaming steps
-    # for idx in range(Q):
-    
-    #     bilinear_forms_stream.append(simState.f_trial * simState.v * fe.dx)
-        
-    #     advection_forms.append( simState.v*fe.dot(xi[idx], fe.grad(simState.f_trial))*fe.dx )
-    #     double_advection_forms.append( fe.dot(xi[idx],fe.grad(simState.v))\
-    #                                   *fe.dot(xi[idx],fe.grad(simState.f_trial))*fe.dx )
-    
-    
-    # massForm = simState.f_trial*simState.v*fe.dx
-    # massMat = fe.assemble(massForm)
-    # mass_action_form = fe.action(massForm, fe.Constant(1))
-    # M_lumped = fe.assemble(massForm)
-    # M_lumped.zero()
-    # M_lumped.set_diagonal(fe.assemble(mass_action_form))
-    # M_vect = fe.assemble(mass_action_form)
-    # M_petsc = fe.as_backend_type(M_vect).vec()
-    
-    # # Assemble matrices for first step
-    # sysMatStream = []
-    # sysMatLumped = []
-    # rhsVecStreaming = []
-    # advectionMats = []
-    # advectionTransposeMats = []
-    # doubleAdvectionMats = []
-    # for idx in range(Q):
-    #     sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
-    #     sysMatLumped.append(M_petsc.copy())
-    #     advectionMats.append(fe.assemble(advection_forms[idx]))
-    #     A_T = advectionMats[idx].copy()
-    #     advectionTransposeMats.append(A_T)
-    #     doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
-    
-    
     streamer = streamingModule.StreamingOperator(V,
                                                  simState,
                                                  latticeClass,
@@ -253,7 +211,7 @@ def main():
     streamingPrevTimeVecs= [simState.f_star[0].vector().copy() for _ in range(Q)]
     advectionVecs = [simState.f_star[0].vector().copy() for _ in range(Q)]
     doubleAdvectionVecs =[simState.f_star[0].vector().copy() for _ in range(Q)]
-    rhsVecStreaming = [simState.f_star[0].vector().copy() for _ in range(Q)]
+    #rhsVecStreaming = [simState.f_star[0].vector().copy() for _ in range(Q)]
     
     forceVec_x = simState.f_star[0].vector().copy()
     forceVec_y = simState.f_star[0].vector().copy()
@@ -330,15 +288,8 @@ def main():
     
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
-        for idx in range(Q):
-            streamer.M_lumped.mult(simState.f_star[idx].vector(), streamingPrevTimeVecs[idx])
-            streamer.advectionMats[idx].mult(simState.f_star[idx].vector(), advectionVecs[idx])
-            streamer.doubleAdvectionMats[idx].mult(simState.f_star[idx].vector(), doubleAdvectionVecs[idx])
-    
-            rhsVecStreaming[idx].zero()
-            rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
-            rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-            rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        
+        streamer.assembleRhsLumping(simState.f_star, dt)
         #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
         
         
@@ -356,14 +307,14 @@ def main():
     
         pre_apply_time = time.time()
         # Apply BCs for distribution functions 5, 2, and 6
-        bc_f5.apply(rhsVecStreaming[5])
-        bc_f2.apply(rhsVecStreaming[2])
-        bc_f6.apply(rhsVecStreaming[6])
+        bc_f5.apply(streamer.rhsVecStreaming[5])
+        bc_f2.apply(streamer.rhsVecStreaming[2])
+        bc_f6.apply(streamer.rhsVecStreaming[6])
     
         # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(rhsVecStreaming[7])
-        bc_f4.apply(rhsVecStreaming[4])
-        bc_f8.apply(rhsVecStreaming[8])
+        bc_f7.apply(streamer.rhsVecStreaming[7])
+        bc_f4.apply(streamer.rhsVecStreaming[4])
+        bc_f8.apply(streamer.rhsVecStreaming[8])
         post_apply_time = time.time()
         #print("time to apply BCs ", post_apply_time - pre_apply_time)
     
@@ -371,7 +322,7 @@ def main():
         # Solve linear system for streaming step
         for idx in range(Q):
             #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
-            vi = fe.as_backend_type(rhsVecStreaming[idx]).vec()
+            vi = fe.as_backend_type(streamer.rhsVecStreaming[idx]).vec()
             simState.f_nP1[idx].vector().vec().pointwiseDivide(
                 vi,
                 streamer.sysMatLumped[idx])
