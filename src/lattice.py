@@ -7,6 +7,8 @@ class D2Q9:
     def __init__(self):
 
         self.Q = 9
+        
+        self.c_s = np.sqrt(1/3)
 
         self.xi = [
             fe.Constant((0,0)),

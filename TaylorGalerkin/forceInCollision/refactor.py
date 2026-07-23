@@ -6,6 +6,7 @@ from postProcessing import writeData
 import finiteElementFunctions
 import moments
 import streamingModule
+import collision
 import fenics as fe
 import os
 import numpy as np
@@ -247,41 +248,18 @@ def main():
         # We will try to do collision locally, since it is a pure
         # time-dependnet ODE
         
-        f_vals = np.array([simState.f_n[idx].vector().get_local() for idx in range(Q)])
-        
         forceVals_x = forceDensity_x.vector().get_local()
         #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
         
         forceVals_y = forceDensity_y.vector().get_local()
         #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
     
-        # Compute rho and u as numpy arrays over all DOFs
-        rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-        ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-        uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-        vel = np.stack([ux, uy])
-        cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-        u2 = ux**2 + uy**2                                    # (n_dofs,)
-        feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
-        
-        # Now for the foce term
-        u_dot_F = ux * forceVals_x + uy * forceVals_y   # (n_dofs,)
-        ck_dot_F = xi_arr @ np.column_stack((forceVals_x,forceVals_y)).T   # shape (Q, n_dofs)
-        
-        ck_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy   # (9, n_dofs) -- same as your 'cu'
-    
-        force_term = w[:, None] * (
-              ck_dot_F / c_s**2
-            + (ck_dot_u * ck_dot_F) / c_s**4   # ← ck_dot_u, not u_dot_F
-            - u_dot_F[None, :] / c_s**2        # ← minus sign
-        )
-        
-    
-        f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
-        [simState.f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
-        rho = f_star_np.sum(axis=0)
-        ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-        uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+        simState.f_star = collision.collideLocal(simState.f_n, 
+                                       simState.f_star, 
+                                       latticeClass,
+                                       (forceVals_x, forceVals_y),
+                                       tau,
+                                       dt)
     
         #print("collision_time =", post_coll_time - pre_coll_time)
         
@@ -322,13 +300,6 @@ def main():
         # Solve linear system for streaming step
         
         simState.f_nP1 = streamer.solveSysLumping(simState.f_nP1)
-        
-        # for idx in range(Q):
-        #     #solver_list[idx].solve(simState.f_nP1[idx].vector(), rhsVecStreaming[idx])
-        #     vi = fe.as_backend_type(streamer.rhsVecStreaming[idx]).vec()
-        #     simState.f_nP1[idx].vector().vec().pointwiseDivide(
-        #         vi,
-        #         streamer.sysMatLumped[idx])
        
         bc_f5.apply(simState.f_nP1[5].vector())
         bc_f2.apply(simState.f_nP1[2].vector())
