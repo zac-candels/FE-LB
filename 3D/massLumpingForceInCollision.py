@@ -38,9 +38,9 @@ nz = 20
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
-kappa = 0.04
-interfaceThickness = 0.8#np.sqrt(kappa/A)
-tau = 0.6
+kappa = 0.02
+interfaceThickness = np.sqrt(kappa/A)
+tau = 0.1
 M_tilde = 10
 theta_deg = 30
 
@@ -54,9 +54,10 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"forceInCollision")
-if os.path.exists(outDirName):
-    shutil.rmtree(outDirName)
+outDirName = os.path.join(WORKDIR, f"forceInCollision2")
+if rank == 0:
+    if os.path.exists(outDirName):
+        shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
@@ -112,37 +113,34 @@ mesh = fe.BoxMesh(
 )
 
 h = mesh.hmin()
-dt = 0.1*h**3
+dt = 5.1e-4#0.1*h**2 
 #dt = 0.0001
-beta_mass_diff =  0.1*dt
+beta_mass_diff =  0.001*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
 
 class PeriodicBoundary(fe.SubDomain):
+
     def inside(self, x, on_boundary):
         return bool(
             on_boundary and
             (
-                (x[0] < fe.DOLFIN_EPS) or   # x = 0
-                (x[1] < fe.DOLFIN_EPS)      # y = 0
+                (x[0] < fe.DOLFIN_EPS and x[0] != 0) or
+                (x[1] < fe.DOLFIN_EPS and x[1] != 0)
             )
         )
 
     def map(self, x, y):
-        # Initialize all coordinates
         y[0] = x[0]
         y[1] = x[1]
         y[2] = x[2]
 
-        # Periodic in x
         if x[0] > L_x - fe.DOLFIN_EPS:
             y[0] = x[0] - L_x
 
-        # Periodic in y
         if x[1] > L_y - fe.DOLFIN_EPS:
             y[1] = x[1] - L_y
-
 
 pbc = PeriodicBoundary()
 
@@ -425,11 +423,11 @@ rhsVecTemp = f_star[0].vector().copy()
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
-phi_solver = fe.KrylovSolver("cg", "hypre_amg")
-phi_solver.set_operator(phi_mat)
+#phi_solver = fe.KrylovSolver("cg", "hypre_amg")
+#phi_solver.set_operator(phi_mat)
 
-mu_solver = fe.KrylovSolver("cg", "hypre_amg")
-mu_solver.set_operator(mu_mat)
+#mu_solver = fe.KrylovSolver("cg", "hypre_amg")
+#mu_solver.set_operator(mu_mat)
 
 rhs_AC = fe.assemble(lin_form_AC)
 rhs_mu = fe.assemble(lin_form_mu)
@@ -438,8 +436,9 @@ forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 forceVec_z = rhs_mu.copy()
 
+log_file = open(outDirName + "/simulation_log.txt", "w")
 if rank == 0:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
+    
     log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
@@ -474,6 +473,35 @@ pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
 pres_file.parameters["flush_output"] = True 
 pres_file.parameters["functions_share_mesh"] = True 
 pres_file.parameters["rewrite_function_mesh"] = False
+
+dofCoords = V.tabulate_dof_coordinates()
+dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
+
+# Extract bottom boundary mesh
+bottom_mesh = fe.BoundaryMesh(mesh, "exterior")
+
+# Mark facets belonging to z = 0
+bottom_file = fe.File(outDirName + "/BottomWall.pvd")
+
+V0 = fe.FunctionSpace(bottom_mesh, "DG", 0)
+wall = fe.Function(V0)
+wall.vector()[:] = 0.0
+
+coords = bottom_mesh.coordinates()
+values = wall.vector().get_local()
+
+cells = bottom_mesh.cells()
+
+for cell in range(len(cells)):
+    verts = cells[cell]
+    z = np.mean(coords[verts, 2])
+    if abs(z) < 1e-10:
+        values[cell] = 1.0
+
+wall.vector().set_local(values)
+wall.vector().apply("insert")
+
+bottom_file << wall
 
 # # Apply BCs for upSlope boundary
 # bc_f5_upSlope.apply(sys_mat[5])
@@ -545,14 +573,17 @@ for n in range(num_steps):
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     fe.assemble(-phi_n * fe.grad(mu_n)[2]*v*fe.dx, tensor=forceVec_z)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    # petscForce_x = fe.as_backend_type(forceVec_x)
-    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    #fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
     
     fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
-    # petscForce_y = fe.as_backend_type(forceVec_y)
-    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+
+    petscForce_z = fe.as_backend_type(forceVec_z)
+    forceDensity_z.vector().vec().pointwiseDivide(petscForce_z.vec(), M_petsc)
     projectForceTimeEnd = time.time()
     #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
     
@@ -600,7 +631,9 @@ for n in range(num_steps):
     
 
     f_star_np = f_vals - dt/(tau)*(f_vals - feq) + dt*force_term
-    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx])
+        f_star[idx].vector().apply("insert")
     # rho = f_star_np.sum(axis=0)
     # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -613,7 +646,10 @@ for n in range(num_steps):
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
-        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        streamingPrevTimeVecs[idx].vec().pointwiseMult(
+                M_petsc,
+                f_star[idx].vector().vec())
+
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
@@ -698,8 +734,10 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1== 0:  # plot every 10 steps
-            print("n = ", n)
+        if n % 10== 0:  # plot every 10 steps
+
+            if rank == 0:
+                print("n = ", n, flush=True)
             
             
             rho_expr = getDens(f_n)
@@ -710,7 +748,9 @@ for n in range(num_steps):
             fe.project(vel_expr, V_cont, function=vel_cont)
             #div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
+
+            if rank == 0:
+                print("time elapsed ", iteration_time - start_time, "\n", flush=True)
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
@@ -721,12 +761,14 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
+            if rank == 0:
+                print("phi max = ", np.max(phi_n.vector().get_local()), flush=True)
+                print("phi min = ", np.min(phi_n.vector().get_local()), flush=True)
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             percent_mass_change = 100*float(mass_diff)/mass_init
-            print("mass change = ", percent_mass_change, "%")
+            if rank == 0:
+                print("mass change = ", percent_mass_change, "%", flush=True)
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -740,7 +782,8 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-            print("umax = ", max_vel)
+            if rank == 0:
+                print("umax = ", max_vel, flush=True)
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
                 min_index = np.argmin(f_vec)
@@ -755,25 +798,27 @@ for n in range(num_steps):
             min_distr = distr_dict[min_coord]
             
             rho_vals = rho_n.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
+            if rank == 0:
+                print("max density is", np.max(rho_vals), flush=True)
+                print("min density is", np.min(rho_vals), flush=True)
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
             theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
             theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
-                
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+            if rank == 0:    
+                print("theta avg = ", theta_avg, flush=True)
+                print("theta geom = ", theta_geom, "\n\n", flush=True)
+
+                log_file.write(f"{percent_mass_change:15.3f}"
+                                f"{max_vel:15.6e}"
+                                f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
             
 
 if rank == 0:
