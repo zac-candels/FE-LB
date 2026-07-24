@@ -108,7 +108,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # mesh = fe.Mesh("mesh.xml")  # load on all ranks
 
 h = mesh.hmin()
-dt = 0.01*h**2
+dt = 0.0025*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -463,8 +463,8 @@ xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
 
 dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
 wall_dofs = np.where(
-    (np.abs(dof_coords[:, 1]) < 1e-10) |
-    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+    (np.abs(dof_coords[:, 1]) < 1e-5) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-5)
 )[0]
 # Timestepping
 t = 0.0
@@ -486,12 +486,12 @@ for n in range(num_steps):
     fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-    # petscForce_x = fe.as_backend_type(forceVec_x)
-    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
-    # petscForce_y = fe.as_backend_type(forceVec_y)
-    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
     projectForceTimeEnd = time.time()
     #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
     
@@ -511,8 +511,8 @@ for n in range(num_steps):
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    # ux[wall_dofs] = 0.0
-    # uy[wall_dofs] = 0.0
+    ux[wall_dofs] = 0.0
+    uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
@@ -563,8 +563,8 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     stream_FE_end_time = time.time()
-    if rank == 0:
-        print("stream FE time = ", stream_FE_end_time - stream_FE_start_time, flush=True)
+    #if rank == 0:
+        #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time, flush=True)
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
@@ -640,7 +640,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 10 == 0:  # plot every 10 steps
+        if n % 10000 == 0:  # plot every 10 steps
             print("n = ", n)
             
             
