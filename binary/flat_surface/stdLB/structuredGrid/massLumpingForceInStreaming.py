@@ -11,7 +11,7 @@ import time
 import mshr
 import shutil
 from scipy      import optimize
-import src.postProcessing.computeContactAngle as cca 
+#import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -658,8 +658,10 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 5000== 0:  # plot every 10 steps
-            print("n = ", n)
+        if n % 5== 0:  # plot every 10 steps
+
+            if rank == 0:
+                print("n = ", n)
             
             
             rho_expr = getDens(f_n)
@@ -669,8 +671,10 @@ for n in range(num_steps):
             #fe.project(vel_expr, V_dis, function=vel_dis)
             fe.project(vel_expr, V_cont, function=vel_cont)
             #div_u = fe.project(fe.div(vel_cont), V)
-            iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
+
+            if rank == 0:
+                iteration_time = time.time()
+                print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
@@ -681,12 +685,14 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
-            
-            #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
-            percent_mass_change = 100*float(mass_diff)/mass_init
-            print("mass change = ", percent_mass_change, "%")
+
+            if rank == 0:
+                print("phi max = ", np.max(phi_n.vector().get_local()))
+                print("phi min = ", np.min(phi_n.vector().get_local()))
+                
+                #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
+                percent_mass_change = 100*float(mass_diff)/mass_init
+                print("mass change = ", percent_mass_change, "%")
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -715,27 +721,30 @@ for n in range(num_steps):
             min_distr = distr_dict[min_coord]
             
             rho_vals = rho_n.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
+
+            if rank == 0:
+                print("max density is", np.max(rho_vals))
+                print("min density is", np.min(rho_vals))
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
-                
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
+            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
-            
+            if rank == 0:
+                print("theta avg = ", theta_avg, flush=True)
+                print("theta geom = ", theta_geom, "\n\n", flush=True)
+
+                log_file.write(f"{n:15d}"
+                            f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.8g}"
+                            f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
+                
 
 if rank == 0:
     log_file.close()

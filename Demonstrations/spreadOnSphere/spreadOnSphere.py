@@ -121,9 +121,9 @@ if rank == 0:
     )
     meshio.write("mesh_boundaries.xdmf", line_mesh)
     
-    mesh = fe.Mesh()
-    with fe.XDMFFile(comm, "mesh.xdmf") as xdmf:
-        xdmf.read(mesh)
+mesh = fe.Mesh()
+with fe.XDMFFile(comm, "mesh.xdmf") as xdmf:
+    xdmf.read(mesh)
 
 # # Domain-marker MeshFunction (cell-based, e.g. for material subdomains)
 # domain_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim(), 0)
@@ -140,34 +140,25 @@ if rank == 0:
 ###############################################################################
 
 def trackDropletTop(phi_n, mesh):
-   
-    barycenters = []
-    barycenter_vals = []
+
+    local_min_y = np.inf
+
     for cell in fe.cells(mesh):
         
         midpt = cell.midpoint().array()
-        midpt = tuple( (midpt[0], midpt[1]) )
-        barycenters.append( midpt )
-        barycenter_vals.append( phi_n(midpt) )
-    
-    # Build dictionary
-    nodal_dict = {
-    tuple(coord): val
-    for coord, val in zip(barycenters, barycenter_vals)
-    }
+        coord = (midpt[0], midpt[1])
 
-    # Filter by order parameter value
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if -0.1 < value < 0.1}
-    
-    
+        phi_val = phi_n(coord)
 
-    # Determine left-most interfacial point
-    max_y = min(coord[1] for coord in nodal_dict.keys())
-    
-    return max_y      
+        # Keep only interface cells
+        if -0.1 < phi_val < 0.1:
+            local_min_y = min(local_min_y, coord[1])
+
+    # Global minimum over all MPI ranks
+    comm = mesh.mpi_comm()
+    max_y = fe.MPI.min(comm, local_min_y)
+
+    return max_y
 
 T = 300
 initDropDiam = 2*R0
@@ -190,7 +181,8 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"spreadOnSphere_CA{theta_deg}")
+#outDirName = os.path.join(WORKDIR, f"spreadOnSphere_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, "parallelExecution")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -234,71 +226,82 @@ for facet in fe.facets(mesh):
     r = np.sqrt((x.x() - cx)**2 + (x.y() - cy)**2)
 
     if abs(r - radius) < tol:
-        print("circle boundary facet")
+        if rank == 0:
+            print("circle boundary facet", flush=True)
         ctr_circle_facet +=1
         n = facet.normal()
         
         # Bottom boundary → normal has negative y component
         if n.y() < 0 and n.x() < 0 and abs(n.x()) < abs(n.y()):
-            print("boundary marker 1 upperHalf_downSlope_lt45")
+            if rank == 0:
+                print("boundary marker 1 upperHalf_downSlope_lt45", flush=True)
             boundary_markers[facet] = 1
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() < 0 and n.x() < 0 and abs(n.x()) > abs(n.y()):
-            print("boundary marker 2 upperHalf_downSlope_gt45")
+            if rank == 0:
+                print("boundary marker 2 upperHalf_downSlope_gt45", flush=True)
             boundary_markers[facet] = 2
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() > 0 and n.x() < 0 and abs(n.x()) > abs(n.y()):
-            print("boundary marker 3 lowerHalf_upSlope_gt45")
+            if rank == 0:
+                print("boundary marker 3 lowerHalf_upSlope_gt45", flush=True)
             boundary_markers[facet] = 3
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() > 0 and n.x() < 0 and abs(n.x()) < abs(n.y()):
-            print("boundary marker 4 lowerHalf_upSlope_lt45")
+            if rank == 0:
+                print("boundary marker 4 lowerHalf_upSlope_lt45", flush=True)
             boundary_markers[facet] = 4
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() > 0 and n.x() > 0 and abs(n.x()) < abs(n.y()):
-            print("boundary marker 5 lowerHalf_downSlope_lt45")
+            if rank == 0:
+                print("boundary marker 5 lowerHalf_downSlope_lt45", flush=True)
             boundary_markers[facet] = 5
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() > 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
-            print("boundary marker 6 lowerHalf_downSlope_gt45")
+            if rank == 0:
+                print("boundary marker 6 lowerHalf_downSlope_gt45", flush=True)
             boundary_markers[facet] = 6
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() < 0 and n.x() > 0 and abs(n.x()) > abs(n.y()):
-            print("boundary marker 7 upperHalf_upSlope_gt45")
+            if rank == 0:
+                print("boundary marker 7 upperHalf_upSlope_gt45", flush=True)
             boundary_markers[facet] = 7
             ctr_bdy_marker+=1
             switch = "on"
             
         if n.y() < 0 and n.x() > 0 and abs(n.x()) < abs(n.y()):
-            print("boundary marker 8 upperHalf_upSlope_lt45")
+            if rank == 0:
+                print("boundary marker 8 upperHalf_upSlope_lt45", flush=True)
             boundary_markers[facet] = 8
             ctr_bdy_marker+=1
             switch = "on"
             
         if abs(n.y()) < 1e-4 and n.x() > 0:
-            print("boundary marker 9 leftHalf_midPoint")
+            if rank == 0:
+                print("boundary marker 9 leftHalf_midPoint", flush=True)
             boundary_markers[facet] = 9
             ctr_bdy_marker+=1
             switch = "on"
             
         if switch == "off":
-            print("unmarked facet")
+            print("unmarked facet", flush=True)
             print("facet at (", x.x(), ", ", x.y(), ")" )
 
-print("total number of circle facets is", ctr_circle_facet )
-print("total number of boundary markers is ", ctr_bdy_marker)
+if rank == 0:
+    print("total number of circle facets is", ctr_circle_facet, flush=True )
+    print("total number of boundary markers is ", ctr_bdy_marker, flush=True)
 h = mesh.hmin()
 dt = 0.5*h**2
 #dt = 0.0001
@@ -699,7 +702,7 @@ for cell in fe.cells(mesh):
             break   # avoid printing the same cell multiple times
 
 
-print("Number of cells:", len(cells_with_marker1))
+print("Number of cells:", len(cells_with_marker1), flush=True)
 
 # for x, y in cells_with_marker1:
 #     print(f"({x:.6f}, {y:.6f})")
@@ -804,8 +807,8 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
-if 1==1:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
+log_file = open(outDirName + "/simulation_log.txt", "w")
+if rank == 0:
     log_file.write(f"{'n' :>15}"
                    f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
@@ -884,6 +887,8 @@ for facet in fe.facets(mesh):
 fe.File("bottom_facets.pvd") << facet_vis
 
 phi_file.write(phi_n, t)
+
+print("About to enter time loop", flush=True)
 for n in range(num_steps):
     t += dt
     
@@ -932,7 +937,9 @@ for n in range(num_steps):
     
 
     f_star_np = f_vals - dt/(tau)*(f_vals - feq)
-    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx])
+        f_star[idx].vector().apply("insert")
     rho = f_star_np.sum(axis=0)
     ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -1163,8 +1170,10 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
-            print("n = ", n)
+        if n % 1== 0:  # plot every 10 steps
+
+            if rank == 0:
+                print("n = ", n, flush=True)
             
             
             rho_expr = getDens(f_n)
@@ -1184,12 +1193,12 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
+            print("phi max = ", np.max(phi_n.vector().get_local()), flush=True)
+            print("phi min = ", np.min(phi_n.vector().get_local()), flush=True)
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             percent_mass_change = 100*float(mass_diff)/mass_init
-            print("mass change = ", percent_mass_change, "%")
+            print("mass change = ", percent_mass_change, "%", flush=True)
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -1203,7 +1212,9 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-            print("umax = ", max_vel)
+
+            if rank == 0:
+                print("umax = ", max_vel, flush=True)
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
                 min_index = np.argmin(f_vec)
@@ -1218,23 +1229,26 @@ for n in range(num_steps):
             min_distr = distr_dict[min_coord]
             
             rho_vals = rho_n.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
+
+            if rank == 0:
+                print("max density is", np.max(rho_vals), flush=True)
+                print("min density is", np.min(rho_vals), flush=True)
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            dropletTop = 1#trackDropletTop(phi_n, mesh)
+            dropletTop = trackDropletTop(phi_n, mesh)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{dropletTop:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
-            
+            if rank == 0:
+                log_file.write(f"{n:15d}"
+                            f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.8g}"
+                            f"{dropletTop:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
+                
 
 if rank == 0:
     log_file.close()

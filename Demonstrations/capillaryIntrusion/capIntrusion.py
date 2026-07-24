@@ -56,9 +56,19 @@ def trackMeniscus(phi_n, mesh):
     
 
     # Determine left-most interfacial point
-    min_x = min(coord[0] for coord in nodal_dict.keys())
+    if len(nodal_dict) > 0:
+        local_min_x = min(coord[0] for coord in nodal_dict.keys())
+    else:
+        local_min_x = np.inf
+
+    global_min_x = fe.MPI.min(
+        fe.MPI.comm_world,
+        local_min_x
+    )
+
+    return global_min_x
     
-    return min_x
+
 
 
 T = 1200
@@ -581,8 +591,9 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
+log_file = open(outDirName + "/simulation_log.txt", "w")
 if rank == 0:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
+
     log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'x_{meniscus}':>15}"
@@ -692,7 +703,9 @@ for n in range(num_steps):
     
 
     f_star_np = f_vals - dt/(tau)*(f_vals - feq)
-    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx])
+        f_star[idx].vector().apply("insert")
     rho = f_star_np.sum(axis=0)
     ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -843,10 +856,10 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 1== 0:  # plot every 10 steps
         
             if rank == 0:
-                print("n = ", n)
+                print("n = ", n, flush = True)
             
             
             rho_expr = getDens(f_n)
@@ -909,23 +922,30 @@ for n in range(num_steps):
             
             theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
             theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+
+            print("About to compute meniscus position", flush=True)
             
             meniscusPosition = trackMeniscus(phi_n, mesh)
+
+            print("Computed meniscus position", flush=True)
             
             # print("x_{meniscus} = ", meniscusPosition)
                 
             # print("theta avg = ", theta_avg, flush=True)
             # print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{meniscusPosition:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
-            
+            print("About to write to file", flush = True)
+            if rank == 0:
+                log_file.write(f"{percent_mass_change:15.3f}"
+                                f"{max_vel:15.6e}"
+                                f"{meniscusPosition:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
+            print("Wrote to simulation log", flush=True)
+                
 
 if rank == 0:
     log_file.close()

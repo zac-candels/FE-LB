@@ -23,3 +23,5 @@
 **/data*
 **newBC*/
 **.h5
+**.pvtu
+**.msh

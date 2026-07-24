@@ -645,7 +645,7 @@ for n in range(num_steps):
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     #if rank == 0:
     if 1 == 1:
-        if n % 2000 == 0:  # plot every 10 steps
+        if n % 5 == 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n, flush=True)
@@ -703,15 +703,16 @@ for n in range(num_steps):
                 
             #print("theta = ", theta_avg, "\n\n", flush=True)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+            if rank == 0:
+                log_file.write(f"{n:15d}"
+                            f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.8g}"
+                            f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
 
             # coords = mesh.coordinates()
             # x = coords[:, 0]   # x-coordinates

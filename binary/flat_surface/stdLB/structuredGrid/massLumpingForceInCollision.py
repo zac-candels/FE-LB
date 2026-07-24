@@ -404,8 +404,8 @@ rhs_mu = fe.assemble(lin_form_mu)
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
 
+log_file = open(outDirName + "/simulation_log.txt", "w")
 if rank == 0:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
     log_file.write(f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
                    f"{'theta':>15}"
@@ -533,6 +533,10 @@ for n in range(num_steps):
 
     f_star_np = f_vals - dt/(tau)*(f_vals - feq) + dt*force_term
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx])
+        f_star[idx].vector().apply("insert")
     # rho = f_star_np.sum(axis=0)
     # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -545,7 +549,12 @@ for n in range(num_steps):
     
     stream_FE_start_time = time.time()
     for idx in range(Q):
-        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        #M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+
+        streamingPrevTimeVecs[idx].vec().pointwiseMult(
+                M_petsc,
+                f_star[idx].vector().vec())
+        
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
@@ -554,7 +563,8 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
         rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
     stream_FE_end_time = time.time()
-    #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
+    if rank == 0:
+        print("stream FE time = ", stream_FE_end_time - stream_FE_start_time, flush=True)
     
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
@@ -630,7 +640,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 2000== 0:  # plot every 10 steps
+        if n % 10 == 0:  # plot every 10 steps
             print("n = ", n)
             
             
@@ -692,20 +702,21 @@ for n in range(num_steps):
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
+            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
                 
             print("theta avg = ", theta_avg, flush=True)
             print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{percent_mass_change:15.3f}"
-                            f"{max_vel:15.6e}"
-                            f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+            if rank == 0:
+                log_file.write(f"{percent_mass_change:15.3f}"
+                                f"{max_vel:15.6e}"
+                                f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
             
 
 if rank == 0:
