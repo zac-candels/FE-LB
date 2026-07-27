@@ -1,13 +1,14 @@
 import fenics as fe
-from petsc4py import PETSc
 
 class StreamingOperator:
 
-    def __init__(self, V, state, lattice, dt):
+    def __init__(self, V, state, lattice, dt, lumping, forceInCollisionStreaming):
 
         self.Q = lattice.Q
         self.xi = lattice.xi
         self.dt = dt
+        self.lumping = lumping
+        self.forceInCollisionStreaming = forceInCollisionStreaming
 
         self.sysMatStream = []
         self.sysMatLumped = []
@@ -41,23 +42,23 @@ class StreamingOperator:
         advection_forms = []
         double_advection_forms = []
 
-
-        for i in range(self.Q):
-
-            bilinear_forms.append(state.f_trial * state.v * fe.dx)
-
-            advection_forms.append(
-                state.v
-                * fe.dot(self.xi[i], fe.grad(state.f_trial))
-                * fe.dx
-            )
-
-            double_advection_forms.append(
-                fe.dot(self.xi[i], fe.grad(state.v))
-                *
-                fe.dot(self.xi[i], fe.grad(state.f_trial))
-                * fe.dx
-            )
+        if self.forceInCollisionStreaming == "collision":
+            for i in range(self.Q):
+    
+                bilinear_forms.append(state.f_trial * state.v * fe.dx)
+    
+                advection_forms.append(
+                    state.v
+                    * fe.dot(self.xi[i], fe.grad(state.f_trial))
+                    * fe.dx
+                )
+    
+                double_advection_forms.append(
+                    fe.dot(self.xi[i], fe.grad(state.v))
+                    *
+                    fe.dot(self.xi[i], fe.grad(state.f_trial))
+                    * fe.dx
+                )
 
 
         mass_form = (
@@ -128,24 +129,25 @@ class StreamingOperator:
         
     def assembleRhsLumping(self, f_star, dt):
         
-        for idx in range(self.Q):
-            self.M_lumped.mult(
-                f_star[idx].vector(),
-                self.streamingPrevTimeVecs[idx])
-            
-            self.advectionMats[idx].mult(f_star[idx].vector(),
-                                    self.advectionVecs[idx])
-            
-            self.doubleAdvectionMats[idx].mult(f_star[idx].vector(),
-                                          self.doubleAdvectionVecs[idx])
-    
-            self.rhsVecStreaming[idx].zero()
-            self.rhsVecStreaming[idx].axpy(1.0,
-                                                self.streamingPrevTimeVecs[idx])
-            self.rhsVecStreaming[idx].axpy(-dt,
-                                                self.advectionVecs[idx])
-            self.rhsVecStreaming[idx].axpy(0.5*dt**2,
-                                                self.doubleAdvectionVecs[idx])
+        if self.forceInCollisionStreaming == "collision":
+            for idx in range(self.Q):
+                self.M_lumped.mult(
+                    f_star[idx].vector(),
+                    self.streamingPrevTimeVecs[idx])
+                
+                self.advectionMats[idx].mult(f_star[idx].vector(),
+                                        self.advectionVecs[idx])
+                
+                self.doubleAdvectionMats[idx].mult(f_star[idx].vector(),
+                                              self.doubleAdvectionVecs[idx])
+        
+                self.rhsVecStreaming[idx].zero()
+                self.rhsVecStreaming[idx].axpy(1.0,
+                                                    self.streamingPrevTimeVecs[idx])
+                self.rhsVecStreaming[idx].axpy(-dt,
+                                                    self.advectionVecs[idx])
+                self.rhsVecStreaming[idx].axpy(0.5*dt**2,
+                                                    self.doubleAdvectionVecs[idx])
         return None
     
     def solveSysLumping(self, f_nP1):

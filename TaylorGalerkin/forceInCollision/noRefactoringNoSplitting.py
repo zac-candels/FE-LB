@@ -326,6 +326,11 @@ def main():
     advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
     doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
     rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+    rhsVecStreamingPetsc = []
+    streamPrevTimeVecsPetsc = []
+    for i in range(Q):
+        rhsVecStreamingPetsc.append( fe.as_backend_type(rhsVecStreaming[idx]).vec() )
+        streamPrevTimeVecsPetsc.append( fe.as_backend_type(streamingPrevTimeVecs[idx]).vec() )
     
     forceVec_x = f_star[0].vector().copy()
     forceVec_y = f_star[0].vector().copy()
@@ -376,7 +381,7 @@ def main():
         rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
         ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
         uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-        vel = np.stack([ux, uy])
+
         cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
         u2 = ux**2 + uy**2                                    # (n_dofs,)
         feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
@@ -395,7 +400,9 @@ def main():
         
     
         f_star_np = f_vals - dt/tau*(f_vals - feq) + dt*force_term
-        [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+        for idx in range(Q):
+            f_star[idx].vector().set_local(f_star_np[idx])
+            f_star[idx].vector().apply("insert")
         rho = f_star_np.sum(axis=0)
         ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
         uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
@@ -406,7 +413,13 @@ def main():
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
         for idx in range(Q):
-            M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+            
+            streamingPrevTimeVecs[idx].vec().pointwiseMult(
+                M_petsc,
+                f_star[idx].vector().vec())
+
+            #streamPrevTimeVecsPetsc[idx].pointwiseMult(M_petsc, f_star[idx].vector().vec())
+
             advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
             doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
     
@@ -466,13 +479,16 @@ def main():
         for idx in range(Q):
             f_n[idx].assign(f_nP1[idx])
             
-
     
-        if n % 10000 == 0:
-            print("n = ", n)
+        if n % 5000 == 0:
+
+            print("n = ", n, flush=True)
+
+
             vel_expr = getVel(f_n)
-            fe.project(vel_expr, Vvec, function=vel_n)
-            
+            fe.project(vel_expr, Vvec, function=vel_n   )
+
+
             u_new, v_new = 0, 0
             
             for i in range(Q):
@@ -483,12 +499,17 @@ def main():
             u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                                 degree=2, u_max=u_max, L_y=L_y)
             u_e = fe.interpolate(u_e, V)
-            error = np.linalg.norm(u_e.vector().get_local() - u_new)
-            time_elapsed = time.time() - start_time
-            print('t = %.4f: error = %.3g' % (t, error), flush=True)
-            print('max u:', u_new.max(), flush=True)
-            print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
-    
+
+            print("Interpolated error expression", flush=True)
+
+            if rank == 0:
+                error = np.linalg.norm(u_e.vector().get_local() - u_new)
+                time_elapsed = time.time() - start_time
+                print('t = %.4f: error = %.3g' % (t, error), flush=True)
+                print('max u:', u_new.max(), flush=True)
+                print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
+
+        
             num_points_analytical = 200
             num_points_numerical = 10
             y_values_analytical = np.linspace(0, L_y, num_points_analytical)
@@ -501,27 +522,27 @@ def main():
             u_max = Force_density.values()[0]*L_y**2/(8*rho_init*nu)
             for i in range(num_points_analytical):
                 u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
-    
+        
             for point in points:
                 u_at_point = vel_n(point)
                 u_x_values.append(u_at_point[0] / u_max)
     
-    
-    
-            fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
-            output = os.path.join(outDirName, fig_name)
-    
-            plt.figure()
-            plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-            plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-            plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-            plt.xlabel(r"$y/L_y$", fontsize=20)
-            plt.legend()
-            plt.tick_params(direction="in")
-    
-    
-            print("Saving figure to:", os.path.abspath(output))
-            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
-            
+        
+            if rank == 0:
+                fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+                output = os.path.join(outDirName, fig_name)
+        
+                plt.figure()
+                plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+                plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+                plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+                plt.xlabel(r"$y/L_y$", fontsize=20)
+                plt.legend()
+                plt.tick_params(direction="in")
+        
+        
+                print("Saving figure to:", os.path.abspath(output), flush=True)
+                plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+                
 
 main()

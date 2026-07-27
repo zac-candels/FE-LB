@@ -7,6 +7,7 @@ import finiteElementFunctions
 import moments
 import streamingModule
 import collision
+import testMod
 import fenics as fe
 import os
 import numpy as np
@@ -119,28 +120,12 @@ def main():
                 return False
         else:
             return False
-    
-    f5_lower = simState.f_n[7]  
-    f2_lower = simState.f_n[4] 
-    f6_lower = simState.f_n[8] 
-    
-    f5_lower_func = fe.Function(V)
-    f2_lower_func = fe.Function(V)
-    f6_lower_func = fe.Function(V)
-    
-    fe.project(f5_lower, V, function=f5_lower_func)
-    fe.project(f2_lower, V, function=f2_lower_func)
-    fe.project(f6_lower, V, function=f6_lower_func)
-    
-    bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-    bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-    bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
-    
-    
-    
-    # Similarly, we will define boundary conditions for f_7, f_4, and f_8
-    # at the upper wall. Here, the conjugate distributions are 
-    # 5, 2, and 6. 
+        
+
+
+    # # Similarly, we will define boundary conditions for f_7, f_4, and f_8
+    # # at the upper wall. Here, the conjugate distributions are 
+    # # 5, 2, and 6. 
     tol = 1e-8
     def Bdy_Upper(x, on_boundary):
         if on_boundary:
@@ -150,22 +135,7 @@ def main():
                 return False
         else:
             return False
-    
-    f7_upper = simState.f_n[5]  
-    f4_upper = simState.f_n[2]  
-    f8_upper = simState.f_n[6]  
-    
-    f7_upper_func = fe.Function(V)
-    f4_upper_func = fe.Function(V)
-    f8_upper_func = fe.Function(V)
-    
-    fe.project(f7_upper, V, function=f7_upper_func)
-    fe.project(f4_upper, V, function=f4_upper_func)
-    fe.project(f8_upper, V, function=f8_upper_func)
-    
-    bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-    bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-    bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+
     
     streamer = streamingModule.StreamingOperator(V,
                                                  simState,
@@ -174,43 +144,18 @@ def main():
                                                  lumping,
                                                  forceInCollisionStreaming)
     
+    lower_pairs = [(5,7), (2,4), (6,8)]
+    upper_pairs = [(7,5), (4,2), (8,6)]
+    upper_bcs = testMod.BounceBackBoundary(V, streamer, simState.f_n,
+                                              Bdy_Lower, upper_pairs)
+    lower_bcs = testMod.BounceBackBoundary(V, streamer, simState.f_n,
+                                              Bdy_Upper, lower_pairs)
+    
     vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
     vel_file.parameters["flush_output"] = True
     vel_file.parameters["functions_share_mesh"] = True
     vel_file.parameters["rewrite_function_mesh"] = False
     
-    
-    # Apply BCs to matrices for distribution functions 5, 2, and 6
-    bc_f5.apply(streamer.sysMatStream[5])
-    #bc_f5.apply(fe.PETScVector(sysMatLumped[5]))
-    bc_f5.apply(streamer.advectionMats[5])
-    bc_f5.apply(streamer.doubleAdvectionMats[5])
-    
-    bc_f2.apply(streamer.sysMatStream[2])
-    #bc_f2.apply(fe.PETScVector(sysMatLumped[2]))
-    bc_f2.apply(streamer.advectionMats[2])
-    bc_f2.apply(streamer.doubleAdvectionMats[2])
-    
-    bc_f6.apply(streamer.sysMatStream[6])
-    #bc_f6.apply(fe.PETScVector(sysMatLumped[6]))
-    bc_f6.apply(streamer.advectionMats[6])
-    bc_f6.apply(streamer.doubleAdvectionMats[6])
-    
-    # Apply BCs to matrices for distribution functions 7, 4, 8
-    bc_f7.apply(streamer.sysMatStream[7])
-    #bc_f7.apply(fe.PETScVector(sysMatLumped[7]))
-    bc_f7.apply(streamer.advectionMats[7])
-    bc_f7.apply(streamer.doubleAdvectionMats[7])
-    
-    bc_f4.apply(streamer.sysMatStream[4])
-    #bc_f4.apply(fe.PETScVector(sysMatLumped[4]))
-    bc_f4.apply(streamer.advectionMats[4])
-    bc_f4.apply(streamer.doubleAdvectionMats[4])
-    
-    bc_f8.apply(streamer.sysMatStream[8])
-    #bc_f8.apply(fe.PETScVector(sysMatLumped[8]))
-    bc_f8.apply(streamer.advectionMats[8])
-    bc_f8.apply(streamer.doubleAdvectionMats[8])
     
     
     forceVec_x = simState.f_star[0].vector().copy()
@@ -272,43 +217,20 @@ def main():
         
     
     
-        pre_assign_time = time.time()
-        f5_lower_func.assign(simState.f_star[7] )
-        f2_lower_func.assign(simState.f_star[4] )
-        f6_lower_func.assign(simState.f_star[8] )
-        f7_upper_func.assign(simState.f_star[5] )
-        f4_upper_func.assign(simState.f_star[2] )
-        f8_upper_func.assign(simState.f_star[6] )
-        post_assign_time = time.time()
-        #print("assign time = ", post_assign_time - pre_assign_time)
+        lower_bcs.update(simState.f_star)
+        upper_bcs.update(simState.f_star)
     
-        pre_apply_time = time.time()
-        # Apply BCs for distribution functions 5, 2, and 6
-        bc_f5.apply(streamer.rhsVecStreaming[5])
-        bc_f2.apply(streamer.rhsVecStreaming[2])
-        bc_f6.apply(streamer.rhsVecStreaming[6])
-    
-        # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(streamer.rhsVecStreaming[7])
-        bc_f4.apply(streamer.rhsVecStreaming[4])
-        bc_f8.apply(streamer.rhsVecStreaming[8])
-        post_apply_time = time.time()
-        #print("time to apply BCs ", post_apply_time - pre_apply_time)
+        lower_bcs.applyRhsVec(streamer.rhsVecStreaming)
+        upper_bcs.applyRhsVec(streamer.rhsVecStreaming)
     
         pre_stream_time = time.time()
         # Solve linear system for streaming step
         
         simState.f_nP1 = streamer.solveSysLumping(simState.f_nP1)
        
-        bc_f5.apply(simState.f_nP1[5].vector())
-        bc_f2.apply(simState.f_nP1[2].vector())
-        bc_f6.apply(simState.f_nP1[6].vector())
-    
-        # Apply BCs for distribution functions 7, 4, 8
-        bc_f7.apply(simState.f_nP1[7].vector())
-        bc_f4.apply(simState.f_nP1[4].vector())
-        bc_f8.apply(simState.f_nP1[8].vector())
-        post_stream_time = time.time()
+        lower_bcs.applyF_nP1(simState.f_nP1)
+        upper_bcs.applyF_nP1(simState.f_nP1)
+        
         #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
     
     
