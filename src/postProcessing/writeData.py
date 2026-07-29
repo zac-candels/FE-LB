@@ -24,7 +24,7 @@ def create_output_directory(dt, h, name="outputDir"):
     return out_dir
 
 
-def saveDataToFile_poiseuille(n, f_n, V, Vvec, vel_n, u_max, L_x, L_y,
+def saveDataToFile_poiseuille(n, f_n, V, Vvec, vel_n,  u_max, L_x, L_y,
                               tau, dt, forceDensityTuple, outDirName ):
 
     
@@ -48,9 +48,8 @@ def saveDataToFile_poiseuille(n, f_n, V, Vvec, vel_n, u_max, L_x, L_y,
         u_new, v_new = 0, 0
         
         for i in range(Q):
-            xi_new = xi_arr[i].values()
-            u_new += f_n[i].vector().get_local()*xi_new[0]
-            v_new += f_n[i].vector().get_local()*xi_new[1]
+            u_new += f_n[i].vector().get_local()*xi_arr[i][0]
+            v_new += f_n[i].vector().get_local()*xi_arr[i][1]
 
         u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                             degree=2, u_max=u_max, L_y=L_y)

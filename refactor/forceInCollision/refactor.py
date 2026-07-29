@@ -10,6 +10,7 @@ import collision
 import distrBoundaryConditions
 import initialize 
 import forceModule
+from postProcessing import testOutput
 import fenics as fe
 import os
 import numpy as np
@@ -61,7 +62,7 @@ def main():
 
 
     h = mesh.hmin()
-    dt = 0.001*h/np.sqrt(2)
+    dt = 0.005*h/np.sqrt(2)
     num_steps = int(np.ceil(T/dt))
 
     outDirName = writeData.create_output_directory(dt, h, name="forceModule")
@@ -117,17 +118,17 @@ def main():
                                                  lumping,
                                                  forceInCollisionStreaming)
     
-    lower_pairs = [(5,7), (2,4), (6,8)]
-    upper_pairs = [(7,5), (4,2), (8,6)]
+    lower_pairs = [(2,4), (5,7), (6,8)]
+    upper_pairs = [(4,2), (7,5), (8, 6)]
     upper_bcs = distrBoundaryConditions.BounceBackBoundary(V,
                                                            streamer,
                                                            simState.f_n,
-                                                           Bdy_Lower,
+                                                           Bdy_Upper,
                                                            upper_pairs)
     lower_bcs = distrBoundaryConditions.BounceBackBoundary(V,
                                                            streamer,
                                                            simState.f_n,
-                                                           Bdy_Upper,
+                                                           Bdy_Lower,
                                                            lower_pairs)
     
     vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
@@ -200,59 +201,18 @@ def main():
 
     
         if n % 10000 == 0:
-            print("n = ", n)
-            vel_expr = moments.getVel(simState.f_n, xi_arr, forceDensityTuple, dt)
-            fe.project(vel_expr, Vvec, function=simState.vel_n)
-            vel_file.write(simState.vel_n, t)
-            u_new, v_new = 0, 0
-            
-            for i in range(Q):
-                xi_new = xi[i].values()
-                u_new += simState.f_n[i].vector().get_local()*xi_new[0]
-                v_new += simState.f_n[i].vector().get_local()*xi_new[1]
-    
-            u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
-                                degree=2, u_max=u_max, L_y=L_y)
-            u_e = fe.interpolate(u_e, V)
-            error = np.linalg.norm(u_e.vector().get_local() - u_new)
-            time_elapsed = time.time() - start_time
-            print('t = %.4f: error = %.3g' % (t, error), flush=True)
-            print('max u:', u_new.max(), flush=True)
-            print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
-    
-            num_points_analytical = 200
-            num_points_numerical = 10
-            y_values_analytical = np.linspace(0, L_y, num_points_analytical)
-            y_values_numerical = np.linspace(0, L_y, num_points_numerical)
-            x_fixed = L_x/2
-            points = [(x_fixed, y) for y in y_values_numerical]
-            u_x_values = []
-            u_ex = np.linspace(0, L_y, num_points_analytical)
-            nu = tau/3
-            u_max = Force_density.values()[0]*L_y**2/(8*rho_init*nu)
-            for i in range(num_points_analytical):
-                u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
-    
-            for point in points:
-                u_at_point = simState.vel_n(point)
-                u_x_values.append(u_at_point[0] / u_max)
-    
-    
-    
-            fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
-            output = os.path.join(outDirName, fig_name)
-    
-            plt.figure()
-            plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-            plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-            plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-            plt.xlabel(r"$y/L_y$", fontsize=20)
-            plt.legend()
-            plt.tick_params(direction="in")
-    
-    
-            print("Saving figure to:", os.path.abspath(output))
-            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+            testOutput.writeOutput(n, 
+                                                simState.f_n,
+                                                V,
+                                                Vvec,
+                                                simState.vel_n,
+                                                u_max,
+                                                L_x,
+                                                L_y,
+                                                tau,
+                                                dt,
+                                                forceDensityTuple,
+                                                outDirName )
             
 
 main()
