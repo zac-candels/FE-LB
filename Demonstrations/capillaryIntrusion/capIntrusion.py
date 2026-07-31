@@ -12,6 +12,7 @@ import mshr
 import shutil
 import random
 from scipy      import optimize
+import gmsh
 #import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
@@ -83,6 +84,7 @@ h = min(L_x/nx, L_y/ ny)
 A = 0.125
 kappa = 0.005
 interfaceThickness = np.sqrt(kappa/A)
+print("interfaceThickness = ", interfaceThickness)
 tau = 2
 M_tilde = 10
 theta_deg = 60
@@ -98,7 +100,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"tau{tau}_CA{theta_deg}_gamma{gamma:2g}")
+outDirName = os.path.join(WORKDIR, f"capIntrusionStdLB")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -132,22 +134,65 @@ capTubeRight = 3*L_x/4
 capTubeElevation = L_y/2
 capTubeHeight = L_y/5
 
-fullDom = mshr.Rectangle(fe.Point(0.0, 0.0), fe.Point(L_x, L_y))
-rectLower = mshr.Rectangle(fe.Point(capTubeLeft, 0),\
-                           fe.Point(capTubeRight, capTubeElevation-capTubeHeight) )
-rectUpper=  mshr.Rectangle(fe.Point(capTubeLeft, L_y),\
-                           fe.Point(capTubeRight, capTubeElevation+capTubeHeight) )
+gmsh.initialize()
+occ = gmsh.model.occ
 
-# Subtract circle from rectangle
-domain = fullDom - rectLower - rectUpper
+# Main rectangle
+main = occ.addRectangle(0, 0, 0, L_x, L_y)
 
-# Generate mesh
-mesh = mshr.generate_mesh(domain, 100)
+# Lower notch
+lower = occ.addRectangle(
+    capTubeLeft,
+    0,
+    0,
+    capTubeRight-capTubeLeft,
+    capTubeElevation-capTubeHeight
+)
+
+# Upper notch
+upper = occ.addRectangle(
+    capTubeLeft,
+    capTubeElevation+capTubeHeight,
+    0,
+    capTubeRight-capTubeLeft,
+    L_y-(capTubeElevation+capTubeHeight)
+)
+
+occ.cut([(2, main)], [(2, lower), (2, upper)])
+occ.synchronize()
+
+gmsh.option.setNumber("Mesh.CharacteristicLengthMin", L_x/300)
+gmsh.option.setNumber("Mesh.CharacteristicLengthMax", L_x/200)
+
+gmsh.model.mesh.generate(2)
+gmsh.write("capillary.msh")
+
+gmsh.finalize()
+
+import meshio
+
+msh = meshio.read("capillary.msh")
+
+triangle_cells = msh.get_cells_type("triangle")
+
+triangle_data = meshio.Mesh(
+    points=msh.points[:, :2],
+    cells=[("triangle", triangle_cells)]
+)
+
+meshio.write("tube.xdmf", triangle_data)
+
+mesh = fe.Mesh()
+
+with fe.XDMFFile("tube.xdmf") as infile:
+    infile.read(mesh)
 
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
 h = mesh.hmin()
-dt = 0.01*h**2
+print("h = ", h)
+print("num cells = ", mesh.num_cells())
+dt = 0.005*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -856,7 +901,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n, flush = True)

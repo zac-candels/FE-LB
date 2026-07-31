@@ -76,8 +76,8 @@ L_y = 2*R0
 nx = 80
 ny = 20
 
-A_param = 0.5
-kappa = 0.02
+A_param = 0.125
+kappa = 0.005
 interfaceThickness = np.sqrt(kappa/A_param)
 M_tilde = 10
 theta_deg = 30
@@ -92,13 +92,13 @@ rho_l = 1
 
 # Relaxation times for heavier and lighter phases
 tau_h = 1
-tau_l = 0.525
+tau_l = 0.55
 
 theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"capIntrusion_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"CA{theta_deg}_tauH{tau_h}_tauL{tau_l}_coarseMesh")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -163,8 +163,8 @@ upper = occ.addRectangle(
 occ.cut([(2, main)], [(2, lower), (2, upper)])
 occ.synchronize()
 
-gmsh.option.setNumber("Mesh.CharacteristicLengthMin", L_x/300)
-gmsh.option.setNumber("Mesh.CharacteristicLengthMax", L_x/200)
+gmsh.option.setNumber("Mesh.CharacteristicLengthMin", L_x/200)
+gmsh.option.setNumber("Mesh.CharacteristicLengthMax", L_x/100)
 
 gmsh.model.mesh.generate(2)
 gmsh.write("capillary.msh")
@@ -192,9 +192,9 @@ with fe.XDMFFile("tube.xdmf") as infile:
 boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
 h = mesh.hmin()
-dt = 0.025*h**2
-#dt = 0.00001
-beta_mass_diff = 0.1*dt
+dt = 0.05*h**2
+#dt = 0.0001
+beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
 
 class PeriodicBoundary(fe.SubDomain):
@@ -278,8 +278,8 @@ xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
 
 dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
 wall_dofs = np.where(
-    (np.abs(dof_coords[:, 1]) < 1e-8) |
-    (np.abs(dof_coords[:, 1] - L_y) < 1e-8)
+    (np.abs(dof_coords[:, 1]) < 1e-4) |
+    (np.abs(dof_coords[:, 1] - L_y) < 1e-4)
 )[0]
 def f_equil(f_list, phi, idx):
     """
@@ -677,6 +677,15 @@ phi_solver.set_operator(phi_mat)
 mu_solver = fe.LUSolver("mumps")
 mu_solver.set_operator(mu_mat)
 
+log_file = open(outDirName + "/simulation_log.txt", "w")
+if rank == 0:
+
+    log_file.write(f"{'n':>15}"
+                   f"{'max ||u||':>15}"
+                   f"{'x_{meniscus}':>15}\n")
+    log_file.flush()
+
+
 
 phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
 phi_file.parameters["flush_output"] = True
@@ -812,7 +821,7 @@ for n in range(num_steps):
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 20 == 0:  # plot every 10 steps
+        if n % 1000 == 0:  # plot every 10 steps
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             print("n = ", n)
@@ -846,9 +855,16 @@ for n in range(num_steps):
             print("Smallest f val: ", np.min((f_stack)), flush=True )
             print("Smallest f val (in mag)", np.min(np.abs(f_stack)), "\n\n", flush=True)
 
-            theta_avg = 1#cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = 1#cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            meniscusPosition = trackMeniscus(phi_n, mesh)
+
+
+            
+            print("x_{meniscus} = ", meniscusPosition)
                 
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
-                
+            print("About to write to file", flush = True)
+            if rank == 0:
+                log_file.write(f"{n:15.3f}"
+                                f"{max_vel:15.6e}"
+                                f"{meniscusPosition:15.2f}\n")
+                log_file.flush()
+            print("Wrote to simulation log", flush=True)

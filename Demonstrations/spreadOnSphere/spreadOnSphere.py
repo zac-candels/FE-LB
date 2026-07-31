@@ -169,7 +169,7 @@ kappa = 0.01
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
-theta_deg = 50
+theta_deg = 75
 
 
 # Lattice speed of sound
@@ -181,8 +181,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-#outDirName = os.path.join(WORKDIR, f"spreadOnSphere_CA{theta_deg}")
-outDirName = os.path.join(WORKDIR, "parallelExecution")
+outDirName = os.path.join(WORKDIR, f"spreadOnSphere_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -303,7 +302,9 @@ if rank == 0:
     print("total number of circle facets is", ctr_circle_facet, flush=True )
     print("total number of boundary markers is ", ctr_bdy_marker, flush=True)
 h = mesh.hmin()
-dt = 0.5*h**2
+print("h = ", h)
+print()
+dt = 0.25*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -1170,7 +1171,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n, flush=True)
