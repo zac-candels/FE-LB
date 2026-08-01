@@ -167,12 +167,11 @@ def main():
     bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
     bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
     
-    streamer = streamingModule.StreamingOperator(V,
+    streamer = streamingModule.StreamingOperatorForceInCollision(V,
                                                  simState,
                                                  latticeClass,
                                                  dt,
-                                                 lumping,
-                                                 forceInCollisionStreaming)
+                                                 lumping)
     
     vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
     vel_file.parameters["flush_output"] = True
@@ -253,7 +252,7 @@ def main():
         forceVals_y = forceDensity_y.vector().get_local()
         #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
     
-        simState.f_star = collision.collideLocal(simState.f_n, 
+        simState.f_star = collision.collideLocalForceInCollision(simState.f_n, 
                                        simState.f_star, 
                                        latticeClass,
                                        (forceVals_x, forceVals_y),

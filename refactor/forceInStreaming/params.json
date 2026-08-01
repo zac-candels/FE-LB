@@ -1,0 +1,35 @@
+
+
+{
+    "dim": 2,
+    "Tfinal": 100000,
+
+
+    "Re": 0.96,
+    "L_x": 32,
+    "L_y": 32,
+    "nx": 10,
+    "ny": 10,
+
+    "Force_density": [2.6014e-5, 0.0],
+
+    "c_s": 0.5773502691896257,
+
+
+    "Q": 9,
+
+
+
+    "rho_wall": 1.0,
+    "rho_init": 1.0,
+    "u_wall": [0.0, 0.0],
+
+    "u_max": 0.01,
+
+    "tau": 1,
+    
+    "lumping": "yes",
+    
+    "forceInCollisionStreaming": "streaming"
+
+}

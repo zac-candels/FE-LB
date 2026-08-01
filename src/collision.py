@@ -1,8 +1,33 @@
 import fenics as fe 
 import numpy as np 
 
+def computeForce(Force_density, v, forceVec_x, forceVec_y,
+                 forceDensity_x, forceDensity_y, massMat):
+    
+    fe.assemble(Force_density.values()[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(v*fe.dx, tensor=forceVec_y)
+    forceVec_y.vec().scale(0)
+    
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    # petscForce_x = fe.as_backend_type(forceVec_x)
+    # forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    # petscForce_y = fe.as_backend_type(forceVec_y)
+    # forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+    #print("project force time = ", projectForceTimeEnd - projectForceTimeStart)
+    
+    # We will try to do collision locally, since it is a pure
+    # time-dependnet ODE
+    
+    forceVals_x = forceDensity_x.vector().get_local()
+    #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
+    
+    forceVals_y = forceDensity_y.vector().get_local()
+    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
+    
+    return forceVals_x, forceVals_y
 
-def collideLocal(f_n, f_star, latticeClass, Force, tau, dt):
+def collideLocalForceInCollision(f_n, f_star, latticeClass, Force, tau, dt):
     
     xi_arr = latticeClass.xi_arr
     Q = latticeClass.Q
@@ -16,7 +41,6 @@ def collideLocal(f_n, f_star, latticeClass, Force, tau, dt):
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
@@ -40,3 +64,26 @@ def collideLocal(f_n, f_star, latticeClass, Force, tau, dt):
     return f_star
         
         
+def collideLocalForceInStreaming(f_n, f_star, latticeClass, Force, tau, dt):
+    
+    xi_arr = latticeClass.xi_arr
+    Q = latticeClass.Q
+    w = latticeClass.weights
+    
+    forceVals_x, forceVals_y = Force[0], Force[1]
+    
+    f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+    
+    rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
+    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    
+    
+
+    f_star_np = f_vals - dt/tau*(f_vals - feq)
+    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    
+    return f_star

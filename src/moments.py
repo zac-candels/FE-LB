@@ -10,18 +10,18 @@ def getDens(f_list):
     return rho
 
 
-def getVel(f_list, xi_arr, forceDensityTuple, dt):
+def getVel(f_list, xi, forceDensityTuple, dt):
 
-    momentum = f_list[0]*fe.Constant(xi_arr[0])
+    momentum = f_list[0]*(xi[0])
 
     for i in range(1, len(f_list)):
-        momentum += f_list[i]*fe.Constant(xi_arr[i])
+        momentum += f_list[i]*(xi[i])
 
     rho = getDens(f_list)
 
     u_raw = momentum/rho
 
-    force_correction = fe.Constant(forceDensityTuple )* dt / (2*rho)
+    force_correction = forceDensityTuple* dt / (2*rho)
     
 
     return u_raw + force_correction

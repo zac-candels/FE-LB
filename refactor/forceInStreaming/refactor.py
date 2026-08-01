@@ -23,8 +23,8 @@ from petsc4py import PETSc
 import shutil
 import json
 
-
 def main():
+    
 
     start_time = time.time()
     comm = fe.MPI.comm_world
@@ -59,15 +59,15 @@ def main():
     xi_arr = latticeClass.xi_arr
     
     mesh, V, Vvec = meshAndFnSpaces.create_mesh(dim, L_x, L_y, nx, ny)
-
-
+    
+    
     h = mesh.hmin()
     dt = 0.005*h/np.sqrt(2)
     num_steps = int(np.ceil(T/dt))
-
-    outDirName = writeData.create_output_directory(dt, h, name="aaa")
     
- 
+    outDirName = writeData.create_output_directory(dt, h, name="forceModule")
+    
+    
     simState = finiteElementFunctions.SimulationState(V, Vvec, Q)
     
     forceDensity_x = fe.Function(V)
@@ -79,7 +79,6 @@ def main():
                                                                V,
                                                                latticeClass,
                                                                c_s, dt)
-    
     
     # Define boundary conditions. Here we will use bounceback BCs
     
@@ -118,6 +117,10 @@ def main():
                                                  lumping,
                                                  forceInCollisionStreaming)
     
+    #streamer.createLinearformsForceInStreaming(simState,
+    #                                           dt,
+    #                                           forceDensityTuple)
+    
     lower_pairs = [(2,4), (5,7), (6,8)]
     upper_pairs = [(4,2), (7,5), (8, 6)]
     upper_bcs = distrBoundaryConditions.BounceBackBoundary(V,
@@ -140,8 +143,9 @@ def main():
     
     forceVec_x = simState.f_star[0].vector().copy()
     forceVec_y = simState.f_star[0].vector().copy()
-        
-        
+    
+
+    
     # Timestepping
     t = 0.0
     forceVals_x = []
@@ -160,8 +164,9 @@ def main():
                                                             forceDensity_x,
                                                             forceDensity_y,
                                                             streamer.massMat)
+        
     
-        simState.f_star = collision.collideLocalForceInCollision(simState.f_n, 
+        simState.f_star = collision.collideLocalForceInStreaming(simState.f_n, 
                                        simState.f_star, 
                                        latticeClass,
                                        (forceVals_x, forceVals_y),
@@ -213,6 +218,6 @@ def main():
                                                 dt,
                                                 Force_density,
                                                 outDirName )
-            
-
+        
 main()
+            
