@@ -12,26 +12,36 @@ def f_2(c):
     Ri = calc_R(*c)
     return Ri - Ri.mean()
 
-def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
+def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
    
+    if rank == 0:
+        print("in compute angle fn", flush=True)
     
     coords = mesh.coordinates()
 
-    x_min = np.min(coords[:, 0])
-    x_max = np.max(coords[:, 0])
+    x_min_local = np.min(coords[:, 0])
+    x_max_local = np.max(coords[:, 0])
+    
+    x_min = fe.MPI.min(comm, x_min_local)
+    x_max = fe.MPI.max(comm, x_max_local)
     
     L_x = x_max - x_min
     
     x0 = x_min + 0.5*L_x
 
     tol = h
+    
     Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
-    grad_c_fn = fe.project(fe.grad(c_n), Vvec)
+    grad_c_fn = fe.project(fe.grad(c_n), Vvec, solver_type="cg",
+                           preconditioner_type="jacobi")
     angles = []
     n_vec = np.array([0.0, 0.0, -1.0])
     
     barycenters = []
     barycenter_vals = []
+    
+    if rank == 0:
+        print("about to start creating nodal dictionary in compute angle fn.", flush=True)
     for cell in fe.cells(mesh):
         
         midpt = cell.midpoint().array()
@@ -49,6 +59,8 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
     for coord, val in zip(barycenters, barycenter_vals)
     }
 
+    if rank == 0:
+        print("in compute angle function, created nodal dictionary", flush=True)
     
     # Filter by z-coordinate
     nodal_dict = {
@@ -56,14 +68,23 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
         for coord, value in nodal_dict.items() 
         if coord[2] < 1.5*h}
     
+    if rank == 0:
+        print("in compute angle function, filtered nodal dictionary for small z", flush=True)
     # Filter by order parameter value
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
         if -0.15 < value < 0.15}
     
+    if rank == 0:
+        print("in compute function, filtered nodal dictionary for phi", flush=True)
     # Determine left-most interfacial point
-    min_y = min(coord[1] for coord in nodal_dict.keys())
+    if len(nodal_dict) > 0:
+        local_min_y = min(coord[1] for coord in nodal_dict.keys())
+    else:
+        local_min_y = np.inf
+    
+    min_y = fe.MPI.min(comm, local_min_y)
 
     # Filter points so we get rid of points near right CL
     nodal_dict = {
@@ -81,67 +102,236 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
 
     #print("Averaged over ", iter, " points")
         
-    theta_avg = np.mean(angles)
+    local_sum = np.sum(angles)
+    local_n = len(angles)
+    
+    global_sum = fe.MPI.sum(comm, local_sum)
+    global_n = fe.MPI.sum(comm, local_n)
+    
+    theta_avg = global_sum / global_n
     theta_avg = theta_avg * 180 / np.pi
     
     return theta_avg
 
-def computeContactAngle_heightDiam(phi_n, h, Cn, mesh):
-    
+
+
+
+def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
+
+    if rank == 0:
+        print("in compute angle fn", flush=True)
+
     coords = mesh.coordinates()
 
-    x_min = np.min(coords[:, 0])
-    x_max = np.max(coords[:, 0])
-    
-    L_x = x_max - x_min
-    
-    x0 = x_min + 0.5*L_x
+    x_min_local = np.min(coords[:, 0])
+    x_max_local = np.max(coords[:, 0])
 
+    x_min = fe.MPI.min(comm, x_min_local)
+    x_max = fe.MPI.max(comm, x_max_local)
+
+    L_x = x_max - x_min
+    x0 = x_min + 0.5 * L_x
+
+    tol = h
+
+    Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
+    grad_c_fn = fe.project(fe.grad(c_n), Vvec, solver_type="cg",
+                           preconditioner_type="jacobi")
+    angles = []
+    n_vec = np.array([0.0, 0.0, -1.0])
+
+    barycenters = []
+    barycenter_vals = []
+
+    # Safe, ghost-aware per-vertex values for c_n (P1), indexed by local vertex id.
+    c_vertex_vals = c_n.compute_vertex_values(mesh)
+
+    tdim = mesh.topology().dim()
+    ghost_offset = mesh.topology().ghost_offset(tdim)
+
+    # DG0 grad dofs, local vector (safe: only touched for owned cells below)
+    Vvec_dofmap = Vvec.dofmap()
+    grad_vals_local = grad_c_fn.vector().get_local()
+
+    if rank == 0:
+        print("about to start creating nodal dictionary in compute angle fn.", flush=True)
+
+    midpt_to_cell = {}
+
+    for cell in fe.cells(mesh):
+
+        # Skip ghost cells: only process cells this rank actually owns,
+        # otherwise points near partition boundaries get double-counted
+        # across ranks and ghost vertex dofs can be out of range.
+        if cell.index() >= ghost_offset:
+            continue
+
+        midpt = cell.midpoint().array()
+
+        if abs(midpt[0] - x0) > tol:
+            continue
+
+        vertex_ids = cell.entities(0)
+        c_val = c_vertex_vals[vertex_ids].mean()
+
+        midpt = tuple((midpt[0], midpt[1], midpt[2]))
+        barycenters.append(midpt)
+        barycenter_vals.append(c_val)
+        midpt_to_cell[midpt] = cell.index()
+
+    # Build dictionary
+    nodal_dict = {
+        tuple(coord): val
+        for coord, val in zip(barycenters, barycenter_vals)
+    }
+
+    if rank == 0:
+        print("in compute angle function, created nodal dictionary", flush=True)
+
+    # Filter by z-coordinate
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items()
+        if coord[2] < 1.5 * h}
+
+    if rank == 0:
+        print("in compute angle function, filtered nodal dictionary for small z", flush=True)
+
+    # Filter by order parameter value
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items()
+        if -0.15 < value < 0.15}
+
+    if rank == 0:
+        print("in compute function, filtered nodal dictionary for phi", flush=True)
+
+    # Determine left-most interfacial point
+    if len(nodal_dict) > 0:
+        local_min_y = min(coord[1] for coord in nodal_dict.keys())
+    else:
+        local_min_y = np.inf
+
+    min_y = fe.MPI.min(comm, local_min_y)
+
+    # Filter points so we get rid of points near right CL
+    nodal_dict = {
+        coord: value
+        for coord, value in nodal_dict.items()
+        if coord[1] > min_y + 5 * Cn}
+
+    iter = 0
+    for coord, value in nodal_dict.items():
+        iter += 1
+
+        cell_index = midpt_to_cell.get(coord, None)
+        if cell_index is None:
+            continue
+
+        cell_dofs = Vvec_dofmap.cell_dofs(cell_index)  # gdim dofs, one per component
+        grad_c = grad_vals_local[cell_dofs]
+
+        cos_theta = np.dot(grad_c, n_vec) / np.linalg.norm(grad_c)
+        angles.append(np.arccos(cos_theta))
+
+    local_sum = np.sum(angles)
+    local_n = len(angles)
+
+    global_sum = fe.MPI.sum(comm, local_sum)
+    global_n = fe.MPI.sum(comm, local_n)
+
+    theta_avg = global_sum / global_n
+    theta_avg = theta_avg * 180 / np.pi
+
+    return theta_avg
+
+
+
+def computeContactAngle_heightDiam(phi_n, h, Cn, mesh, comm, rank):
+
+    coords = mesh.coordinates()
+    x_min_local = np.min(coords[:, 0])
+    x_max_local = np.max(coords[:, 0])
+
+    x_min = fe.MPI.min(comm, x_min_local)
+    x_max = fe.MPI.max(comm, x_max_local)
+
+    L_x = x_max - x_min
+
+    x0 = x_min + 0.5 * L_x
     tol = h
 
     barycenters = []
     barycenter_vals = []
+
+    # Safe, ghost-aware per-vertex values for phi_n (P1), indexed by local vertex id.
+    phi_vertex_vals = phi_n.compute_vertex_values(mesh)
+
+    tdim = mesh.topology().dim()
+    ghost_offset = mesh.topology().ghost_offset(tdim)
+
     for cell in fe.cells(mesh):
-        
+
+        # Skip ghost cells: only process cells this rank actually owns,
+        # otherwise points near partition boundaries get double-counted
+        # across ranks and ghost vertex indices can be out of range.
+        if cell.index() >= ghost_offset:
+            continue
+
         midpt = cell.midpoint().array()
-        
+
         if abs(midpt[0] - x0) > tol:
             continue
-        
-        midpt = tuple( (midpt[0], midpt[1], midpt[2]) )
-        barycenters.append( midpt )
-        barycenter_vals.append( phi_n(midpt) )
-    
+
+        vertex_ids = cell.entities(0)
+        phi_val = phi_vertex_vals[vertex_ids].mean()
+
+        midpt = tuple((midpt[0], midpt[1], midpt[2]))
+        barycenters.append(midpt)
+        barycenter_vals.append(phi_val)
+
     # Build dictionary
     nodal_dict = {
-    tuple(coord): val
-    for coord, val in zip(barycenters, barycenter_vals)
+        tuple(coord): val
+        for coord, val in zip(barycenters, barycenter_vals)
     }
 
-    
     # Filter by order parameter value
     nodal_dict = {
         coord: value
-        for coord, value in nodal_dict.items() 
+        for coord, value in nodal_dict.items()
         if -0.15 < value < 0.15}
-    
+
     # Determine left-most interfacial point
-    min_y = min(coord[1] for coord in nodal_dict.keys())
+    if len(nodal_dict) > 0:
+        local_min_y = min(coord[1] for coord in nodal_dict.keys())
+    else:
+        local_min_y = np.inf
 
-    # Determine right-most interfacial point 
-    max_y = max(coord[1] for coord in nodal_dict.keys())
+    min_y = fe.MPI.min(comm, local_min_y)
 
-    diameter = max_y - min_y 
+    # Determine right-most interfacial point
+    if len(nodal_dict) > 0:
+        local_max_y = max(coord[1] for coord in nodal_dict.keys())
+    else:
+        local_max_y = -np.inf
 
-    # Determine height of droplet 
-    height = max(coord[2] for coord in nodal_dict.keys())
+    max_y = fe.MPI.max(comm, local_max_y)
+    diameter = max_y - min_y
+
+    # Determine height of droplet
+    if len(nodal_dict) > 0:
+        local_height = max(coord[2] for coord in nodal_dict.keys())
+    else:
+        local_height = -np.inf
+
+    height = fe.MPI.max(comm, local_height)
 
     # Compute contact angle in radians
-    theta_rad = 2*np.arctan(2*height/diameter)
+    theta_rad = 2 * np.arctan(2 * height / diameter)
+    theta_deg = theta_rad * 180 / np.pi
 
-    theta_deg = theta_rad*180/np.pi 
-
-    return theta_deg 
+    return theta_deg
 
         
 def computeContactAngle_regression(c_n, mesh):

@@ -107,6 +107,8 @@ mesh = fe.BoxMesh(
     nx, ny, nz
 )
 
+mesh0 = fe.Mesh()
+
 h = mesh.hmin()
 dt = 0.001*h**2 
 #dt = 0.0001
@@ -824,10 +826,21 @@ for n in range(num_steps):
                 print("max density is", np.max(rho_vals), flush=True)
                 print("min density is", np.min(rho_vals), flush=True)
 
+            if rank == 0:
+                print("About to compute LB mass", flush=True)
             LB_mass = fe.assemble(rho_n*fe.dx)
             
-            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
-            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
+            if rank == 0:
+                print("finished computing LB mass", flush=True)
+                print("about to enter compute angle fn", flush=True)
+            theta_avg = cca.computeContactAngle_gradPhi(phi_n, h,
+                                                        interfaceThickness,
+                                                        mesh, comm, rank)
+            if rank == 0:
+                print("finished computing CA using phi_n", flush=True)
+            theta_geom = cca.computeContactAngle_heightDiam(phi_n, h,
+                                                            interfaceThickness,
+                                                            mesh, comm, rank)
                 
             if rank == 0:
                 print("theta avg = ", theta_avg, flush=True)
