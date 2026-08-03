@@ -11,7 +11,7 @@ import time
 import mshr
 import shutil
 from scipy      import optimize
-import src.postProcessing.computeContactAngle as cca 
+#import src.postProcessing.computeContactAngle as cca 
  
 comm = fe.MPI.comm_world
 rank = fe.MPI.rank(comm)
@@ -32,8 +32,8 @@ initDropDiam = 2*R0
 L_x = 6*R0
 L_y = 6*R0
 L_z = 2*R0
-nx = 60
-ny = 60
+nx = 70
+ny = 70
 nz = 20
 h = min(L_x/nx, L_y/ ny)
 
@@ -53,12 +53,7 @@ c_s2 = 1/3
 
 theta = theta_deg * np.pi / 180
 
-WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"3D")
-if rank == 0:
-    if os.path.exists(outDirName):
-        shutil.rmtree(outDirName)
-os.makedirs(outDirName, exist_ok=True)
+
 
 
 xc, yc, zc = L_x/2, L_y/2, R0 - 0.6*R0
@@ -113,12 +108,19 @@ mesh = fe.BoxMesh(
 )
 
 h = mesh.hmin()
-dt = 0.05*h**2 
+dt = 0.001*h**2 
 #dt = 0.0001
 beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
+
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, f"forceInCollision")
+if rank == 0:
+    if os.path.exists(outDirName):
+        shutil.rmtree(outDirName)
+os.makedirs(outDirName, exist_ok=True)
 
 class PeriodicBoundary(fe.SubDomain):
     def inside(self, x, on_boundary):
@@ -252,7 +254,8 @@ force_density = -phi_n * fe.grad(mu_n)
 # Here we will take u_0 = 0.
 
 for idx in range(Q):
-    f_n[idx] = (fe.project(f_equil_init(idx, force_density), V))
+    f_n[idx] = fe.project(f_equil_init(idx, force_density), V, solver_type="cg",
+    preconditioner_type="jacobi")
     
 
     
@@ -353,6 +356,9 @@ bc_f13 = fe.DirichletBC(V, f13_upper_func, Bdy_Upper)
 bc_f14 = fe.DirichletBC(V, f14_upper_func, Bdy_Upper)
 bc_f17 = fe.DirichletBC(V, f17_upper_func, Bdy_Upper)
 bc_f18 = fe.DirichletBC(V, f18_upper_func, Bdy_Upper)
+
+if rank == 0:
+    print("Successfully projected distributions", flush=True)
 
 
 
@@ -748,7 +754,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 20== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n, flush=True)
