@@ -118,7 +118,7 @@ num_steps = int(np.ceil(T/dt))
 
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"forceInStreaming")
+outDirName = os.path.join(WORKDIR, f"forceInStreamingFaster")
 if rank == 0:
     if os.path.exists(outDirName):
         shutil.rmtree(outDirName)
@@ -573,6 +573,8 @@ inverse_cs2 = 1 / c_s**2
 inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 
+Force_vec = fe.Function(V)
+
 if rank == 0:
     print("About to enter time loop", flush=True)
 for n in range(num_steps):
@@ -642,27 +644,19 @@ for n in range(num_steps):
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
-    u_dot_prod_F = fe.dot(vel_star, force_density)
-    
     stream_FE_start_time = time.time()
+    xi_dot_F = xi_arr[:,0,None]*forceVals_x + xi_arr[:,1,None]*forceVals_y + xi_arr[:,2,None]*forceVals_z  # (Q, n_dofs)
+    u_dot_F  = ux*forceVals_x + uy*forceVals_y + uz*forceVals_z
+    xi_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy + xi_arr[:,2,None]*uz
+    Force_np = w[:,None]*(inverse_cs2*(xi_dot_F - u_dot_F) + inverse_cs4*xi_dot_u*xi_dot_F)
+    Force_np[0] = -w[0]*inverse_cs2*u_dot_F
+    
     for idx in range(Q):
         
-        if idx == 0:
-            Force = -w[idx]*(inverse_cs2* u_dot_prod_F)
-
-        else:
-    
-            xi_dot_prod_F = fe.dot( xi[idx], force_density)
-    
-            xi_dot_u = fe.dot(xi[idx], vel_star)
-    
-            Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
-                           + inverse_cs4*xi_dot_u*xi_dot_prod_F)
-        
-        advectionForceTerm = fe.assemble(
-            fe.dot(xi[idx], fe.grad(v))* Force * fe.dx)
-            
-        basicForceTerm = fe.assemble(v*Force*fe.dx)
+        Force_vec.vector().set_local(Force_np[idx])
+        Force_vec.vector().apply("insert")
+        basicForceTerm = M_lumped * Force_vec.vector()          # matrix-vector, not assembly
+        advectionForceTerm = advectionMats[idx] * Force_vec.vector()
         
         streamingPrevTimeVecs[idx].vec().pointwiseMult(
                 M_petsc,
@@ -679,7 +673,6 @@ for n in range(num_steps):
         rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
     stream_FE_end_time = time.time()
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
-    
     # f5_noSlope_func.vector()[:] = f_star[7].vector()[:]
     # f2_noSlope_func.vector()[:] = f_star[4].vector()[:]
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
@@ -760,20 +753,20 @@ for n in range(num_steps):
                 print("n = ", n, flush=True)
             
             
-            f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+            # f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
 
-            # Compute rho and u as numpy arrays over all DOFs
-            rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-            ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
-            uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-            uz  = (xi_arr[:,2,None] * f_vals).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
-            vel_cont.vector().set_local(np.stack([ux, uy, uz], axis=1).flatten())
+            # # Compute rho and u as numpy arrays over all DOFs
+            # rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+            # ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+            # uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+            # uz  = (xi_arr[:,2,None] * f_vals).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
+            # vel_cont.vector().set_local(np.stack([ux, uy, uz], axis=1).flatten())
 
             #div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
             #print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
-            vel_file.write(vel_cont, t)
+            vel_file.write(vel_star, t)
             pres_file.write(rho_n, t)
             #div_file.write(div_u, t)
             #mu_file.write(mu_n, t)
@@ -782,10 +775,14 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
+            
+            phi_local = phi_n.vector().get_local()
 
+            phi_max = fe.MPI.max(comm, np.max(phi_local) )
+            phi_min = fe.MPI.min(comm, np.min(phi_local))
             if rank == 0:
-                print("phi max = ", np.max(phi_n.vector().get_local()), flush=True)
-                print("phi min = ", np.min(phi_n.vector().get_local()), flush=True)
+                print("phi max = ", phi_max, flush=True)
+                print("phi min = ", phi_max, flush=True)
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             percent_mass_change = 100*float(mass_diff)/mass_init
@@ -795,7 +792,7 @@ for n in range(num_steps):
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
-            vel_vec = vel_cont.vector().get_local()
+            vel_vec = vel_star.vector().get_local()
             # Reshape to (num_nodes, dim)
             vel_vec = vel_vec.reshape((-1, dim))
 

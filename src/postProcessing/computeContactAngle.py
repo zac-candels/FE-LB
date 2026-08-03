@@ -12,114 +12,10 @@ def f_2(c):
     Ri = calc_R(*c)
     return Ri - Ri.mean()
 
-def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
-   
-    if rank == 0:
-        print("in compute angle fn", flush=True)
-    
-    coords = mesh.coordinates()
-
-    x_min_local = np.min(coords[:, 0])
-    x_max_local = np.max(coords[:, 0])
-    
-    x_min = fe.MPI.min(comm, x_min_local)
-    x_max = fe.MPI.max(comm, x_max_local)
-    
-    L_x = x_max - x_min
-    
-    x0 = x_min + 0.5*L_x
-
-    tol = h
-    
-    Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
-    grad_c_fn = fe.project(fe.grad(c_n), Vvec, solver_type="cg",
-                           preconditioner_type="jacobi")
-    angles = []
-    n_vec = np.array([0.0, 0.0, -1.0])
-    
-    barycenters = []
-    barycenter_vals = []
-    
-    if rank == 0:
-        print("about to start creating nodal dictionary in compute angle fn.", flush=True)
-    for cell in fe.cells(mesh):
-        
-        midpt = cell.midpoint().array()
-        
-        if abs(midpt[0] - x0) > tol:
-            continue
-        
-        midpt = tuple( (midpt[0], midpt[1], midpt[2]) )
-        barycenters.append( midpt )
-        barycenter_vals.append( c_n(midpt) )
-    
-    # Build dictionary
-    nodal_dict = {
-    tuple(coord): val
-    for coord, val in zip(barycenters, barycenter_vals)
-    }
-
-    if rank == 0:
-        print("in compute angle function, created nodal dictionary", flush=True)
-    
-    # Filter by z-coordinate
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if coord[2] < 1.5*h}
-    
-    if rank == 0:
-        print("in compute angle function, filtered nodal dictionary for small z", flush=True)
-    # Filter by order parameter value
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if -0.15 < value < 0.15}
-    
-    if rank == 0:
-        print("in compute function, filtered nodal dictionary for phi", flush=True)
-    # Determine left-most interfacial point
-    if len(nodal_dict) > 0:
-        local_min_y = min(coord[1] for coord in nodal_dict.keys())
-    else:
-        local_min_y = np.inf
-    
-    min_y = fe.MPI.min(comm, local_min_y)
-
-    # Filter points so we get rid of points near right CL
-    nodal_dict = {
-        coord: value
-        for coord, value in nodal_dict.items() 
-        if coord[1] > min_y + 5*Cn}
-    
-    iter = 0
-    for coord, value in nodal_dict.items():
-        iter += 1
-        #print("coord is", coord)
-        grad_c = np.array(grad_c_fn(coord))
-        cos_theta = np.dot(grad_c, n_vec) / np.linalg.norm(grad_c)
-        angles.append( np.arccos(cos_theta))
-
-    #print("Averaged over ", iter, " points")
-        
-    local_sum = np.sum(angles)
-    local_n = len(angles)
-    
-    global_sum = fe.MPI.sum(comm, local_sum)
-    global_n = fe.MPI.sum(comm, local_n)
-    
-    theta_avg = global_sum / global_n
-    theta_avg = theta_avg * 180 / np.pi
-    
-    return theta_avg
-
-
 
 
 def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
 
-    if rank == 0:
-        print("in compute angle fn", flush=True)
 
     coords = mesh.coordinates()
 
@@ -153,8 +49,6 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
     Vvec_dofmap = Vvec.dofmap()
     grad_vals_local = grad_c_fn.vector().get_local()
 
-    if rank == 0:
-        print("about to start creating nodal dictionary in compute angle fn.", flush=True)
 
     midpt_to_cell = {}
 
@@ -185,8 +79,6 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
         for coord, val in zip(barycenters, barycenter_vals)
     }
 
-    if rank == 0:
-        print("in compute angle function, created nodal dictionary", flush=True)
 
     # Filter by z-coordinate
     nodal_dict = {
@@ -194,8 +86,6 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
         for coord, value in nodal_dict.items()
         if coord[2] < 1.5 * h}
 
-    if rank == 0:
-        print("in compute angle function, filtered nodal dictionary for small z", flush=True)
 
     # Filter by order parameter value
     nodal_dict = {
@@ -203,8 +93,6 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh, comm, rank):
         for coord, value in nodal_dict.items()
         if -0.15 < value < 0.15}
 
-    if rank == 0:
-        print("in compute function, filtered nodal dictionary for phi", flush=True)
 
     # Determine left-most interfacial point
     if len(nodal_dict) > 0:
