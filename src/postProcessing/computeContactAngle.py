@@ -13,19 +13,33 @@ def f_2(c):
     return Ri - Ri.mean()
 
 def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
+   
     
-    V = c_n.function_space()
+    coords = mesh.coordinates()
+
+    x_min = np.min(coords[:, 0])
+    x_max = np.max(coords[:, 0])
+    
+    L_x = x_max - x_min
+    
+    x0 = x_min + 0.5*L_x
+
+    tol = h
     Vvec = fe.VectorFunctionSpace(mesh, "DG", 0)
     grad_c_fn = fe.project(fe.grad(c_n), Vvec)
     angles = []
-    n_vec = np.array([0.0, -1.0])
+    n_vec = np.array([0.0, 0.0, -1.0])
     
     barycenters = []
     barycenter_vals = []
     for cell in fe.cells(mesh):
         
         midpt = cell.midpoint().array()
-        midpt = tuple( (midpt[0], midpt[1]) )
+        
+        if abs(midpt[0] - x0) > tol:
+            continue
+        
+        midpt = tuple( (midpt[0], midpt[1], midpt[2]) )
         barycenters.append( midpt )
         barycenter_vals.append( c_n(midpt) )
     
@@ -36,26 +50,26 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
     }
 
     
-    # Filter by y-coordinate
+    # Filter by z-coordinate
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[1] < 1.5*h}
+        if coord[2] < 1.5*h}
     
     # Filter by order parameter value
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if -0.3 < value < 0.3}
+        if -0.15 < value < 0.15}
     
     # Determine left-most interfacial point
-    min_x = min(coord[0] for coord in nodal_dict.keys())
+    min_y = min(coord[1] for coord in nodal_dict.keys())
 
     # Filter points so we get rid of points near right CL
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if coord[0] > min_x + 5*Cn}
+        if coord[1] > min_y + 5*Cn}
     
     iter = 0
     for coord, value in nodal_dict.items():
@@ -73,13 +87,28 @@ def computeContactAngle_gradPhi(c_n, h, Cn, mesh):
     return theta_avg
 
 def computeContactAngle_heightDiam(phi_n, h, Cn, mesh):
+    
+    coords = mesh.coordinates()
+
+    x_min = np.min(coords[:, 0])
+    x_max = np.max(coords[:, 0])
+    
+    L_x = x_max - x_min
+    
+    x0 = x_min + 0.5*L_x
+
+    tol = h
 
     barycenters = []
     barycenter_vals = []
     for cell in fe.cells(mesh):
         
         midpt = cell.midpoint().array()
-        midpt = tuple( (midpt[0], midpt[1]) )
+        
+        if abs(midpt[0] - x0) > tol:
+            continue
+        
+        midpt = tuple( (midpt[0], midpt[1], midpt[2]) )
         barycenters.append( midpt )
         barycenter_vals.append( phi_n(midpt) )
     
@@ -94,18 +123,18 @@ def computeContactAngle_heightDiam(phi_n, h, Cn, mesh):
     nodal_dict = {
         coord: value
         for coord, value in nodal_dict.items() 
-        if -0.3 < value < 0.3}
+        if -0.15 < value < 0.15}
     
     # Determine left-most interfacial point
-    min_x = min(coord[0] for coord in nodal_dict.keys())
+    min_y = min(coord[1] for coord in nodal_dict.keys())
 
     # Determine right-most interfacial point 
-    max_x = max(coord[0] for coord in nodal_dict.keys())
+    max_y = max(coord[1] for coord in nodal_dict.keys())
 
-    diameter = max_x - min_x 
+    diameter = max_y - min_y 
 
     # Determine height of droplet 
-    height = max(coord[1] for coord in nodal_dict.keys())
+    height = max(coord[2] for coord in nodal_dict.keys())
 
     # Compute contact angle in radians
     theta_rad = 2*np.arctan(2*height/diameter)

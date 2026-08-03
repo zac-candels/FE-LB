@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, "/home/zcandels/FE-LB")
+sys.path.insert(0, "/home/zcandels/3D-feature")
 import fenics as fe
 import os
 import numpy as np
@@ -29,10 +29,12 @@ fe.parameters["form_compiler"]["cpp_optimize"] = True
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 8*R0
-L_y = 2*R0
-nx = 80
-ny = 20
+L_x = 6*R0
+L_y = 6*R0
+L_z = 2*R0
+nx = 70
+ny = 70
+nz = 20
 h = min(L_x/nx, L_y/ ny)
 
 A = 0.5
@@ -51,79 +53,110 @@ c_s2 = 1/3
 
 theta = theta_deg * np.pi / 180
 
-WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"LFIS")
-if os.path.exists(outDirName):
-    shutil.rmtree(outDirName)
-os.makedirs(outDirName, exist_ok=True)
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
 
-Q = 9
-# D2Q9 lattice velocities
+xc, yc, zc = L_x/2, L_y/2, R0 - 0.6*R0
+
+
+Q = 19
+# D3Q19 lattice velocities
 xi = [
-    fe.Constant((0.0,  0.0)),
-    fe.Constant((1.0,  0.0)),
-    fe.Constant((0.0,  1.0)),
-    fe.Constant((-1.0,  0.0)),
-    fe.Constant((0.0, -1.0)),
-    fe.Constant((1.0,  1.0)),
-    fe.Constant((-1.0,  1.0)),
-    fe.Constant((-1.0, -1.0)),
-    fe.Constant((1.0, -1.0)),
+    fe.Constant(( 0.0,  0.0,  0.0)),  # 0
+
+    # Face-centered directions
+    fe.Constant(( 1.0,  0.0,  0.0)),  # 1
+    fe.Constant((-1.0,  0.0,  0.0)),  # 2
+    fe.Constant(( 0.0,  1.0,  0.0)),  # 3
+    fe.Constant(( 0.0, -1.0,  0.0)),  # 4
+    fe.Constant(( 0.0,  0.0,  1.0)),  # 5
+    fe.Constant(( 0.0,  0.0, -1.0)),  # 6
+
+    # Edge-centered directions
+    fe.Constant(( 1.0,  1.0,  0.0)),  # 7
+    fe.Constant((-1.0,  1.0,  0.0)),  # 8
+    fe.Constant((-1.0, -1.0,  0.0)),  # 9
+    fe.Constant(( 1.0, -1.0,  0.0)),  # 10
+
+    fe.Constant(( 1.0,  0.0,  1.0)),  # 11
+    fe.Constant((-1.0,  0.0,  1.0)),  # 12
+    fe.Constant((-1.0,  0.0, -1.0)),  # 13
+    fe.Constant(( 1.0,  0.0, -1.0)),  # 14
+
+    fe.Constant(( 0.0,  1.0,  1.0)),  # 15
+    fe.Constant(( 0.0, -1.0,  1.0)),  # 16
+    fe.Constant(( 0.0, -1.0, -1.0)),  # 17
+    fe.Constant(( 0.0,  1.0, -1.0)),  # 18
 ]
 
-# Corresponding weights
+# Corresponding D3Q19 weights
 w = np.array([
-    4/9,
-    1/9, 1/9, 1/9, 1/9,
-    1/36, 1/36, 1/36, 1/36
+    1/3,              # Rest particle
+    1/18, 1/18, 1/18, 1/18, 1/18, 1/18,          # Face-centered
+    1/36, 1/36, 1/36, 1/36,
+    1/36, 1/36, 1/36, 1/36,
+    1/36, 1/36, 1/36, 1/36                       # Edge-centered
 ])
 
 # Set up domain. For simplicity, do unit square mesh.
 
-mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
-
-# def surfaceExpr(x):
-    
-#     return surface_amplitude*np.cos(surface_freq*(x - L_x/2) )
-
-# def surfExprDeriv(x):
-#     return - surface_amplitude*surface_freq*np.sin(surface_freq*(x-L_x/2))
-
-# domain_n_points = 61
-# domain_points = []
-# for n in range(domain_n_points + 1):
-#     x = n*L_x/domain_n_points
-#     domain_points.append(fe.Point(x, surfaceExpr(x) ))
-# domain_points.append(fe.Point(L_x,  surface_amplitude))
-# domain_points.append(fe.Point(L_x, L_y))
-# domain_points.append(fe.Point(0., L_y))
-# domain_points.append(fe.Point(0., surface_amplitude))
-# domain1 = mshr.Polygon(domain_points)
-# if rank == 0:
-#     mesh = mshr.generate_mesh(domain1, domain_n_points)
-#     fe.File("mesh.xml") << mesh  # save to disk
-# mesh = fe.Mesh("mesh.xml")  # load on all ranks
+mesh = fe.BoxMesh(
+    comm,
+    fe.Point(0.0, 0.0, 0.0),
+    fe.Point(L_x, L_y, L_z),
+    nx, ny, nz
+)
 
 h = mesh.hmin()
-dt = 0.01*h**2
+dt = 0.001*h**2 
 #dt = 0.0001
-beta_mass_diff =  0.1*dt
+beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
 
+WORKDIR = os.getcwd()
+outDirName = os.path.join(WORKDIR, f"forceInStreaming")
+if rank == 0:
+    if os.path.exists(outDirName):
+        shutil.rmtree(outDirName)
+os.makedirs(outDirName, exist_ok=True)
+
 class PeriodicBoundary(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return bool(x[0] < fe.DOLFIN_EPS and x[0] > -fe.DOLFIN_EPS and on_boundary)
-    def map(self, x, y):
-        y[0] = x[0] - L_x
-        y[1] = x[1]
+        return bool(on_boundary and
+            (fe.near(x[0], 0) or fe.near(x[1], 0)) and
+            not ((fe.near(x[0], 0) and fe.near(x[1], L_y)) or
+                 (fe.near(x[0], L_x) and fe.near(x[1], 0))))
 
+    def map(self, x, y):
+        if fe.near(x[0], L_x) and fe.near(x[1], L_y):
+            y[0] = x[0] - L_x
+            y[1] = x[1] - L_y
+        elif fe.near(x[0], L_x):
+            y[0] = x[0] - L_x
+            y[1] = x[1]
+        elif fe.near(x[1], L_y):
+            y[0] = x[0]
+            y[1] = x[1] - L_y
+        else:
+            y[0] = x[0]
+            y[1] = x[1]
+        y[2] = x[2]
 
 pbc = PeriodicBoundary()
+
+# bmesh = fe.BoundaryMesh(mesh, "exterior")
+# bcoords = bmesh.coordinates()
+
+# pbc_test = PeriodicBoundary()
+# n_master = sum(pbc_test.inside(x, True) for x in bcoords)
+# n_x0 = sum(fe.near(x[0], 0.0) for x in bcoords)
+# n_y0 = sum(fe.near(x[1], 0.0) for x in bcoords)
+
+# print(f"boundary vertices total: {len(bcoords)}")
+# print(f"marked as periodic master (inside()==True): {n_master}")
+# print(f"actual vertices at x=0: {n_x0}, at y=0: {n_y0}")
 
 
 V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
@@ -144,13 +177,14 @@ phi_n = fe.Function(V)
 V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(V_cont)
+vel_star = fe.Function(V_dis)
 vel_cont = fe.Function(V_cont)
 vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
 rho_n = fe.Function(V)
 forceDensity_x = fe.Function(V)
 forceDensity_y = fe.Function(V)
+forceDensity_z = fe.Function(V)
 
 v = fe.TestFunction(V)
 v_vec = fe.TestFunction(V_cont)
@@ -175,20 +209,17 @@ force_fn = fe.Function(V_dis)
 
 # Define dynamic pressure
 def getDens(f_list):
-    return f_list[0] + f_list[1] + f_list[2] + f_list[3] + f_list[4]\
-        + f_list[5] + f_list[6] + f_list[7] + f_list[8]
+    return sum(f_list)
 
 
 # Define velocity
 
 def getVel(f_list, force_density):
-    distr_fn_sum = f_list[0]*xi[0] + f_list[1]*xi[1] + f_list[2]*xi[2]\
-        + f_list[3]*xi[3] + f_list[4]*xi[4] + f_list[5]*xi[5]\
-        + f_list[6]*xi[6] + f_list[7]*xi[7] + f_list[8]*xi[8]
+    momentumDensity = sum(f_list[i] * xi[i] for i in range(len(xi)))
 
     density = getDens(f_list)
 
-    vel_term1 = distr_fn_sum/density
+    vel_term1 = momentumDensity/density
 
     vel_term2 = force_density * dt / (2 * density)
 
@@ -201,37 +232,15 @@ def f_equil_init(vel_idx, force_density):
     rho_expr = fe.Constant(1.0)
 
     vel_0 = - (dt/2)*force_density/rho_init
-    
-    vel_grad = fe.grad(vel_0)
 
     ci = xi[vel_idx]
     ci_dot_u = fe.dot(ci, vel_0)
-    
-    
-    f_eq  = w[vel_idx] * rho_expr * (
+    return w[vel_idx] * rho_expr * (
         1
         + ci_dot_u / c_s**2
         + ci_dot_u**2 / (2*c_s**4)
         - fe.dot(vel_0, vel_0) / (2*c_s**2)
     )
-    
-    c_c_outer = fe.outer(ci, ci)
-    
-    I = fe.Identity(2)
-    
-    Q = c_c_outer - c_s2 * I
-    
-    F_u_outer1 = fe.outer( force_density, vel_0 )
-    u_F_outer2 = fe.outer(vel_0, force_density) 
-    force_vel_outer = F_u_outer1 + u_F_outer2
-    c_dot_F = fe.inner( ci, force_density)
-    
-    f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
-        - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\
-                                 + 1/(2*c_s2) * fe.inner(Q, force_vel_outer) )
-    
-    
-    return f_eq + f_neq
 
 
 xi_array = np.array([[float(c.values()[0]), float(c.values()[1])] for c in xi])
@@ -245,14 +254,18 @@ force_density = -phi_n * fe.grad(mu_n)
 # Here we will take u_0 = 0.
 
 for idx in range(Q):
-    f_n[idx] = (fe.project(f_equil_init(idx, force_density), V))
+    f_n[idx] = fe.project(f_equil_init(idx, force_density), V, solver_type="cg",
+    preconditioner_type="jacobi")
+    
+
     
 # Initialize \phi
 c_init_expr = fe.Expression(
-    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2)) - R) / (sqrt(2)*eps) )",
+    "-tanh( (sqrt(pow(x[0]-xc,2) + pow(x[1]-yc,2) + pow(x[2]-zc,2)) - R) / (sqrt(2)*eps) )",
     degree=2,  # polynomial degree used for interpolation
     xc=xc,
     yc=yc,
+    zc=zc,
     R=initDropDiam/2,
     eps=interfaceThickness
 )
@@ -268,7 +281,7 @@ forceDensity_n = fe.project(force_density, V_dis)
 
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 0, tol):
+        if fe.near(x[2], 0, tol):
             return True
         else:
             return False
@@ -276,23 +289,34 @@ def Bdy_Lower(x, on_boundary):
         return False
 
 
-rho_expr = sum(fk for fk in f_n)
-
-f5_lower = f_n[7]  # rho_expr
-f2_lower = f_n[4]  # rho_expr
-f6_lower = f_n[8]  # rho_expr
+f5_lower = f_n[6]  
+f11_lower = f_n[13]  
+f12_lower = f_n[14]
+f15_lower = f_n[17]
+f16_lower = f_n[18]
 
 f5_lower_func = fe.Function(V)
-f2_lower_func = fe.Function(V)
-f6_lower_func = fe.Function(V)
+f11_lower_func = fe.Function(V)
+f12_lower_func = fe.Function(V)
+f15_lower_func = fe.Function(V)
+f16_lower_func = fe.Function(V)
 
-fe.project(f5_lower, V, function=f5_lower_func)
-fe.project(f2_lower, V, function=f2_lower_func)
-fe.project(f6_lower, V, function=f6_lower_func)
+fe.project(f5_lower, V, function=f5_lower_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f11_lower, V, function=f11_lower_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f12_lower, V, function=f12_lower_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f15_lower, V, function=f15_lower_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f16_lower, V, function=f16_lower_func,  solver_type="cg",
+preconditioner_type="jacobi")
 
 bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
-bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
-bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
+bc_f11 = fe.DirichletBC(V, f11_lower_func, Bdy_Lower)
+bc_f12 = fe.DirichletBC(V, f12_lower_func, Bdy_Lower)
+bc_f15 = fe.DirichletBC(V, f15_lower_func, Bdy_Lower)
+bc_f16 = fe.DirichletBC(V, f16_lower_func, Bdy_Lower)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -304,7 +328,7 @@ tol = 1e-8
 
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], L_y, tol):
+        if fe.near(x[2], L_z, tol):
             return True
         else:
             return False
@@ -314,23 +338,37 @@ def Bdy_Upper(x, on_boundary):
 
 rho_expr = sum(fk for fk in f_n)
 
-f7_upper = f_n[5]  # rho_expr
-f4_upper = f_n[2]  # rho_expr
-f8_upper = f_n[6]  # rho_expr
+f6_upper = f_n[5]  # rho_expr
+f13_upper = f_n[11]  # rho_expr
+f14_upper = f_n[12]  # rho_expr
+f17_upper = f_n[15]
+f18_upper = f_n[16]
 
-f7_upper_func = fe.Function(V)
-f4_upper_func = fe.Function(V)
-f8_upper_func = fe.Function(V)
+f6_upper_func = fe.Function(V)
+f13_upper_func = fe.Function(V)
+f14_upper_func = fe.Function(V)
+f17_upper_func = fe.Function(V)
+f18_upper_func = fe.Function(V)
 
-fe.project(f7_upper, V, function=f7_upper_func)
-fe.project(f4_upper, V, function=f4_upper_func)
-fe.project(f8_upper, V, function=f8_upper_func)
+fe.project(f6_upper, V, function=f6_upper_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f13_upper, V, function=f13_upper_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f14_upper, V, function=f14_upper_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f17_upper, V, function=f17_upper_func,  solver_type="cg",
+preconditioner_type="jacobi")
+fe.project(f18_upper, V, function=f18_upper_func,  solver_type="cg",
+preconditioner_type="jacobi")
 
-bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
-bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
-bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
+bc_f6 = fe.DirichletBC(V, f6_upper_func, Bdy_Upper)
+bc_f13 = fe.DirichletBC(V, f13_upper_func, Bdy_Upper)
+bc_f14 = fe.DirichletBC(V, f14_upper_func, Bdy_Upper)
+bc_f17 = fe.DirichletBC(V, f17_upper_func, Bdy_Upper)
+bc_f18 = fe.DirichletBC(V, f18_upper_func, Bdy_Upper)
 
-
+if rank == 0:
+    print("Successfully projected distributions", flush=True)
 
 # Define variational problems
 
@@ -346,7 +384,7 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0)
+        return on_boundary and fe.near(x[2], 0.0)
 
 bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
@@ -409,8 +447,6 @@ rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
 prevTimeAcVec = f_star[0].vector().copy()
 rhsVecTemp = f_star[0].vector().copy()
 
-xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
-                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
 
 phi_mat = fe.assemble(bilin_form_AC)
 mu_mat = fe.assemble(bilin_form_mu)
@@ -425,9 +461,11 @@ rhs_mu = fe.assemble(lin_form_mu)
 
 forceVec_x = rhs_mu.copy()
 forceVec_y = rhs_mu.copy()
+forceVec_z = rhs_mu.copy()
 
-if 1==1:
-    log_file = open(outDirName + "/simulation_log.txt", "w")
+
+log_file = open(outDirName + "/simulation_log.txt", "w")
+if rank == 0:
     log_file.write(f"{'n' :>15}"
                    f"{'% mass change':>15}"
                    f"{'max ||u||':>15}"
@@ -464,38 +502,77 @@ pres_file.parameters["flush_output"] = True
 pres_file.parameters["functions_share_mesh"] = True 
 pres_file.parameters["rewrite_function_mesh"] = False
 
-# # Apply BCs for upSlope boundary
-# bc_f5_upSlope.apply(sys_mat[5])
-# bc_f2_upSlope.apply(sys_mat[2])
-# bc_f6_upSlope.apply(sys_mat[6])
-# bc_f3_upSlope.apply(sys_mat[3])
+dofCoords = V.tabulate_dof_coordinates()
+dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
 
-# # Apply BCs for downSlope boundary
-# bc_f1_downSlope.apply(sys_mat[1])
-# bc_f5_downSlope.apply(sys_mat[5])
-# bc_f2_downSlope.apply(sys_mat[2])
-# bc_f6_downSlope.apply(sys_mat[6])
+# Extract bottom boundary mesh
+bottom_mesh = fe.BoundaryMesh(mesh, "exterior")
 
-# # Apply BCs for top boundary
-# bc_f7_upper.apply(sys_mat[7])
-# bc_f4_upper.apply(sys_mat[4])
-# bc_f8_upper.apply(sys_mat[8])
+# Mark facets belonging to z = 0
+bottom_file = fe.XDMFFile(outDirName + "/BottomWall.pvd")
 
-xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
-                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+V0 = fe.FunctionSpace(bottom_mesh, "DG", 0)
+wall = fe.Function(V0)
+wall.vector()[:] = 0.0
 
-dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
-wall_dofs = np.where(
-    (np.abs(dof_coords[:, 1]) < 1e-10) |
-    (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
-)[0]
+coords = bottom_mesh.coordinates()
+values = wall.vector().get_local()
+
+cells = bottom_mesh.cells()
+
+for cell in range(len(cells)):
+    verts = cells[cell]
+    z = np.mean(coords[verts, 2])
+    if abs(z) < 1e-10:
+        values[cell] = 1.0
+
+wall.vector().set_local(values)
+wall.vector().apply("insert")
+
+bottom_file.write(wall)
+
+xi_arr = np.array([
+    [ 0,  0,  0],  # rest
+
+    [ 1,  0,  0],  # axis directions
+    [-1,  0,  0],
+    [ 0,  1,  0],
+    [ 0, -1,  0],
+    [ 0,  0,  1],
+    [ 0,  0, -1],
+
+    [ 1,  1,  0],  # edge directions
+    [-1,  1,  0],
+    [-1, -1,  0],
+    [ 1, -1,  0],
+
+    [ 1,  0,  1],
+    [-1,  0,  1],
+    [-1,  0, -1],
+    [ 1,  0, -1],
+
+    [ 0,  1,  1],
+    [ 0, -1,  1],
+    [ 0, -1, -1],
+    [ 0,  1, -1]
+], dtype=float)
+
+# dof_coords = V.tabulate_dof_coordinates().reshape((-1, 2))
+# wall_dofs = np.where(
+#     (np.abs(dof_coords[:, 1]) < 1e-10) |
+#     (np.abs(dof_coords[:, 1] - L_y) < 1e-10)
+# )[0]
 # Timestepping
 t = 0.0
 forceVals_x = []
 forceVals_y = []
+forceVals_z = []
 inverse_cs2 = 1 / c_s**2
 inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
+
+if rank == 0:
+    print("About to enter time loop", flush=True)
 for n in range(num_steps):
     t += dt
     
@@ -515,35 +592,50 @@ for n in range(num_steps):
     
     fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
+    fe.assemble(-phi_n * fe.grad(mu_n)[2]*v*fe.dx, tensor=forceVec_z)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    
+    #fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
 
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    petscForce_z = fe.as_backend_type(forceVec_z)
+    forceDensity_z.vector().vec().pointwiseDivide(petscForce_z.vec(), M_petsc)
     
     forceVals_x = forceDensity_x.vector().get_local()
     #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
     
     forceVals_y = forceDensity_y.vector().get_local()
     #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
+    forceVals_z = forceDensity_z.vector().get_local()
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
     ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    uz  = (xi_arr[:,2,None] * f_vals).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
     # ux[wall_dofs] = 0.0
     # uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
-    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy + xi_arr[:,2,None]*uz        # (9, n_dofs)
+    u2 = ux**2 + uy**2 + uz**2                                # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
 
     f_star_np = f_vals - dt/(tau)*(f_vals - feq)
-    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx,:])
+        f_star[idx].vector().apply("insert")
     rho = f_star_np.sum(axis=0)
     ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
-    vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    uz  = (xi_arr[:,2,None] * f_star_np).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
+    vel_star.vector().set_local(np.stack([ux, uy, uz], axis=1).flatten())
+    vel_star.vector().apply("insert")
+
 
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
@@ -570,7 +662,9 @@ for n in range(num_steps):
             
         basicForceTerm = fe.assemble(v*Force*fe.dx)
         
-        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        streamingPrevTimeVecs[idx].vec().pointwiseMult(
+                M_petsc,
+                f_star[idx].vector().vec())
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
@@ -589,22 +683,17 @@ for n in range(num_steps):
     # f6_noSlope_func.vector()[:] = f_star[8].vector()[:]
 
     assignApplyTimeStart = time.time()
-    f5_lower_func.assign(f_star[7])
-    f2_lower_func.assign( f_star[4])
-    f6_lower_func.assign(f_star[8])
-    f7_upper_func.assign(f_star[5])
-    f4_upper_func.assign(f_star[2])
-    f8_upper_func.assign(f_star[6])
+    f5_lower_func.assign(f_star[6])
+    f11_lower_func.assign(f_star[13])
+    f12_lower_func.assign(f_star[14])
+    f15_lower_func.assign(f_star[17])
+    f16_lower_func.assign(f_star[18])
 
-    # # Apply BCs for distribution functions 5, 2, and 6
-    # bc_f5.apply( rhsVecStreaming[5])
-    # bc_f2.apply( rhsVecStreaming[2])
-    # bc_f6.apply( rhsVecStreaming[6])
-
-    # # # Apply BCs for distribution functions 7, 4, 8
-    # bc_f7.apply( rhsVecStreaming[7])
-    # bc_f4.apply(rhsVecStreaming[4])
-    # bc_f8.apply(rhsVecStreaming[8])
+    f6_upper_func.assign(f_star[5])
+    f13_upper_func.assign(f_star[11])
+    f14_upper_func.assign(f_star[12])
+    f17_upper_func.assign(f_star[15])
+    f18_upper_func.assign(f_star[16])
 
     solveTimeStart = time.time()
     # # Solve linear system in each timestep, get f^{n+1}
@@ -615,13 +704,18 @@ for n in range(num_steps):
         
     # Apply BCs for lower boundary
     bc_f5.apply( f_nP1[5].vector())
-    bc_f2.apply(f_nP1[2].vector())
-    bc_f6.apply( f_nP1[6].vector())
+    bc_f11.apply(f_nP1[11].vector())
+    bc_f12.apply( f_nP1[12].vector())
+    bc_f15.apply(f_nP1[15].vector())
+    bc_f16.apply(f_nP1[16].vector())
+    
     
     # Apply BCs for top boundary
-    bc_f7.apply( f_nP1[7].vector())
-    bc_f4.apply( f_nP1[4].vector())
-    bc_f8.apply( f_nP1[8].vector())
+    bc_f6.apply( f_nP1[6].vector())
+    bc_f13.apply( f_nP1[13].vector())
+    bc_f14.apply( f_nP1[14].vector())
+    bc_f17.apply(f_nP1[17].vector())
+    bc_f18.apply(f_nP1[18].vector())
         
     #phi_solver.solve(phi_nP1.vector(), rhs_AC)
     rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
@@ -658,19 +752,24 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 5000== 0:  # plot every 10 steps
-            print("n = ", n)
+        if n % 1== 0:  # plot every 10 steps
+
+            if rank == 0:
+                print("n = ", n, flush=True)
             
             
-            rho_expr = getDens(f_n)
-            fe.project(rho_expr, V, function=rho_n)
-            
-            vel_expr = getVel(f_n, force_density)
-            #fe.project(vel_expr, V_dis, function=vel_dis)
-            fe.project(vel_expr, V_cont, function=vel_cont)
+            f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
+
+            # Compute rho and u as numpy arrays over all DOFs
+            rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+            ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+            uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+            uz  = (xi_arr[:,2,None] * f_vals).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
+            vel_cont.vector().set_local(np.stack([ux, uy, uz], axis=1).flatten())
+
             #div_u = fe.project(fe.div(vel_cont), V)
             iteration_time = time.time()
-            print("time elapsed ", iteration_time - start_time, "\n")
+            #print("time elapsed ", iteration_time - start_time, "\n")
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
@@ -681,12 +780,16 @@ for n in range(num_steps):
             
             #print("mass_n = ", mass_nP1)
             #massDiffNonLinTerm = fe.assemble(fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx)
-            print("phi max = ", np.max(phi_n.vector().get_local()))
-            print("phi min = ", np.min(phi_n.vector().get_local()))
+
+            if rank == 0:
+                print("phi max = ", np.max(phi_n.vector().get_local()), flush=True)
+                print("phi min = ", np.min(phi_n.vector().get_local()), flush=True)
             
             #print("gradPhi norm = ", np.linalg.norm(.vector().get_local()))
             percent_mass_change = 100*float(mass_diff)/mass_init
-            print("mass change = ", percent_mass_change, "%")
+
+            if rank == 0:
+                print("mass change = ", percent_mass_change, "%", flush=True)
             
             # Determine spatial dimension
             dim = vel_cont.geometric_dimension()
@@ -700,7 +803,8 @@ for n in range(num_steps):
 
             # Maximum nodal value
             max_vel = vel_norm.max()
-            print("umax = ", max_vel)
+            if rank == 0:
+                print("umax = ", max_vel, flush=True)
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
                 min_index = np.argmin(f_vec)
@@ -715,26 +819,29 @@ for n in range(num_steps):
             min_distr = distr_dict[min_coord]
             
             rho_vals = rho_n.vector().get_local()
-            print("max density is", np.max(rho_vals))
-            print("min density is", np.min(rho_vals))
+
+            if rank == 0:
+                print("max density is", np.max(rho_vals), flush=True)
+                print("min density is", np.min(rho_vals), flush=True)
 
             LB_mass = fe.assemble(rho_n*fe.dx)
             
             theta_avg = cca.computeContactAngle_gradPhi(phi_n, h, interfaceThickness, mesh)
             theta_geom = cca.computeContactAngle_heightDiam(phi_n, h, interfaceThickness, mesh)
                 
-            print("theta avg = ", theta_avg, flush=True)
-            print("theta geom = ", theta_geom, "\n\n", flush=True)
+            if rank == 0:
+                print("theta avg = ", theta_avg, flush=True)
+                print("theta geom = ", theta_geom, "\n\n", flush=True)
 
-            log_file.write(f"{n:15d}"
-                           f"{percent_mass_change:15.3f}"
-                           f"{max_vel:15.8g}"
-                           f"{theta_avg:15.2f}"
-                           f"{min_distr:15.3f}"
-                           f"{min_coord[0]:15.2f}"
-                           f"{min_coord[1]:15.2f}"
-                           f"{LB_mass:15.3f} \n")
-            log_file.flush()
+                log_file.write(f"{n:15d}"
+                            f"{percent_mass_change:15.3f}"
+                            f"{max_vel:15.8g}"
+                            f"{theta_avg:15.2f}"
+                            f"{min_distr:15.3f}"
+                            f"{min_coord[0]:15.2f}"
+                            f"{min_coord[1]:15.2f}"
+                            f"{LB_mass:15.3f} \n")
+                log_file.flush()
             
 
 if rank == 0:

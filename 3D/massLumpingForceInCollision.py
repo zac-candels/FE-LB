@@ -54,7 +54,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"forceInCollision2")
+outDirName = os.path.join(WORKDIR, f"3D")
 if rank == 0:
     if os.path.exists(outDirName):
         shutil.rmtree(outDirName)
@@ -113,36 +113,48 @@ mesh = fe.BoxMesh(
 )
 
 h = mesh.hmin()
-dt = 5.1e-4#0.1*h**2 
+dt = 0.05*h**2 
 #dt = 0.0001
-beta_mass_diff =  0.001*dt
+beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
 
 class PeriodicBoundary(fe.SubDomain):
-
     def inside(self, x, on_boundary):
-        return bool(
-            on_boundary and
-            (
-                (x[0] < fe.DOLFIN_EPS and x[0] != 0) or
-                (x[1] < fe.DOLFIN_EPS and x[1] != 0)
-            )
-        )
+        return bool(on_boundary and
+            (fe.near(x[0], 0) or fe.near(x[1], 0)) and
+            not ((fe.near(x[0], 0) and fe.near(x[1], L_y)) or
+                 (fe.near(x[0], L_x) and fe.near(x[1], 0))))
 
     def map(self, x, y):
-        y[0] = x[0]
-        y[1] = x[1]
+        if fe.near(x[0], L_x) and fe.near(x[1], L_y):
+            y[0] = x[0] - L_x
+            y[1] = x[1] - L_y
+        elif fe.near(x[0], L_x):
+            y[0] = x[0] - L_x
+            y[1] = x[1]
+        elif fe.near(x[1], L_y):
+            y[0] = x[0]
+            y[1] = x[1] - L_y
+        else:
+            y[0] = x[0]
+            y[1] = x[1]
         y[2] = x[2]
 
-        if x[0] > L_x - fe.DOLFIN_EPS:
-            y[0] = x[0] - L_x
-
-        if x[1] > L_y - fe.DOLFIN_EPS:
-            y[1] = x[1] - L_y
-
 pbc = PeriodicBoundary()
+
+# bmesh = fe.BoundaryMesh(mesh, "exterior")
+# bcoords = bmesh.coordinates()
+
+# pbc_test = PeriodicBoundary()
+# n_master = sum(pbc_test.inside(x, True) for x in bcoords)
+# n_x0 = sum(fe.near(x[0], 0.0) for x in bcoords)
+# n_y0 = sum(fe.near(x[1], 0.0) for x in bcoords)
+
+# print(f"boundary vertices total: {len(bcoords)}")
+# print(f"marked as periodic master (inside()==True): {n_master}")
+# print(f"actual vertices at x=0: {n_x0}, at y=0: {n_y0}")
 
 
 V = fe.FunctionSpace(mesh, "Lagrange", 1, constrained_domain=pbc)
@@ -241,6 +253,8 @@ force_density = -phi_n * fe.grad(mu_n)
 
 for idx in range(Q):
     f_n[idx] = (fe.project(f_equil_init(idx, force_density), V))
+    
+
     
 # Initialize \phi
 c_init_expr = fe.Expression(
@@ -578,7 +592,7 @@ for n in range(num_steps):
     forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
     #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
     
-    fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
+    #fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
     petscForce_y = fe.as_backend_type(forceVec_y)
     forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
 
@@ -734,23 +748,21 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 10== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n, flush=True)
             
             
-            rho_expr = getDens(f_n)
-            fe.project(rho_expr, V, function=rho_n)
-            
-            vel_expr = getVel(f_n, force_density)
-            #fe.project(vel_expr, V_dis, function=vel_dis)
-            fe.project(vel_expr, V_cont, function=vel_cont)
-            #div_u = fe.project(fe.div(vel_cont), V)
-            iteration_time = time.time()
+            f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
 
-            if rank == 0:
-                print("time elapsed ", iteration_time - start_time, "\n", flush=True)
+            # Compute rho and u as numpy arrays over all DOFs
+            rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
+            ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+            uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+            uz  = (xi_arr[:,2,None] * f_vals).sum(axis=0) / rho + forceVals_z*dt/(2*rho)
+            vel_cont.vector().set_local(np.stack([ux, uy, uz], axis=1).flatten())
+
             phi_file.write(phi_n, t)
             vel_file.write(vel_cont, t)
             pres_file.write(rho_n, t)
