@@ -69,7 +69,7 @@ def main():
     
     
     h = mesh.hmin()
-    dt = 0.005*h/np.sqrt(2)
+    dt = 0.01*h/np.sqrt(2)
     beta_mass_diff = 0.01*dt
     num_steps = int(np.ceil(T/dt))
     
@@ -85,7 +85,7 @@ def main():
                  M_tilde, beta_mass_diff, A, kappa,
                  theta)
     
-    forceDensity = ac.phi_n*fe.grad(ac.mu_n)
+    forceDensity = -ac.phi_n*fe.grad(ac.mu_n)
     
     simState.f_n= initialize.initializeDistributionsMultiPhase(simState.f_n,
                                                                forceDensity,
@@ -159,6 +159,7 @@ def main():
                                                            simState.f_n,
                                                            Bdy_Upper,
                                                            upper_pairs)
+    
     lower_bcs = distrBoundaryConditions.BounceBackBoundary(V,
                                                            streamer,
                                                            simState.f_n,
@@ -169,6 +170,19 @@ def main():
     vel_file.parameters["flush_output"] = True
     vel_file.parameters["functions_share_mesh"] = True
     vel_file.parameters["rewrite_function_mesh"] = False
+    
+    phi_file = fe.XDMFFile(comm, f"{outDirName}/phi.xdmf")
+    phi_file.parameters["flush_output"] = True
+    phi_file.parameters["functions_share_mesh"] = True
+    phi_file.parameters["rewrite_function_mesh"] = False
+    
+    
+    xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
+                       [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+    pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
+    pres_file.parameters["flush_output"] = True 
+    pres_file.parameters["functions_share_mesh"] = True 
+    pres_file.parameters["rewrite_function_mesh"] = False
     
     
     
@@ -184,9 +198,13 @@ def main():
     for n in range(num_steps):
         t += dt
         
-        ac.assembleRhsPhiLumping()
+        rhs_AC = ac.assembleRhsPhiLumping(simState.f_n,
+                                   xi, dt, forceDensity,
+                                   streamer.M_petsc)
         
-        forceVals_x, forceVals_y = collision.computeForce(forceDensity,
+        rhs_mu = ac.assembleRhsMu(ds_bottom)
+        
+        forceVals_x, forceVals_y = collision.computeForceMultiPhase(forceDensity,
                                                             simState.v,
                                                             forceVec_x,
                                                             forceVec_y,
@@ -208,7 +226,7 @@ def main():
         pre_stream_time = time.time()
         # Assemble RHS vectors for streaming step
         
-        streamer.assembleRhsLumping(simState.f_star, dt, Force_density)
+        streamer.assembleRhsLumping(simState.f_star, dt, forceDensity)
         #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
     
         lower_bcs.update(simState.f_star)
@@ -224,6 +242,10 @@ def main():
         lower_bcs.applyF_nP1(simState.f_nP1)
         upper_bcs.applyF_nP1(simState.f_nP1)
         
+        ac.phi_n = ac.solvePhi(rhs_AC, streamer.M_petsc)
+        
+        ac.mu_n = ac.solveMu(rhs_mu, streamer.M_petsc)
+        
         #print("time to solve stream sys ", post_stream_time - pre_stream_time, "\n\n\n\n")
     
         # Update previous solutions
@@ -233,19 +255,12 @@ def main():
             
 
     
-        if n % 5000 == 0:
-            testOutput.writeOutput(n, xi,
-                                                simState.f_n,
-                                                V,
-                                                Vvec,
-                                                simState.vel_n,
-                                                u_max,
-                                                L_x,
-                                                L_y,
-                                                tau,
-                                                dt,
-                                                Force_density,
-                                                outDirName )
+        if n % 1000 == 0:
+            testOutput.writeOutputMultiPhase(t, simState.f_n, Vvec,
+                                             xi, forceDensity,
+                                             dt, ac.phi_n,
+                                             simState.vel_star, outDirName,
+                                             phi_file, vel_file, pres_file)
 
     
 

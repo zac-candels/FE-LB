@@ -50,12 +50,13 @@ def f_equil_init(vel_idx, Force_density, dt, xi, w, c_s):
     )
 
 
-def f_equil_init_multiPhase(vel_idx, force_density, dt, xi, w, c_s, tau):
+def f_equil_init_multiPhase(vel_idx, forceDensity, dt, xi, w, c_s, tau):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
     c_s2 = c_s**c_s
+    dt = fe.Constant(dt)
 
-    vel_0 = - (dt/2)*force_density/rho_init
+    vel_0 = - (dt/2)*forceDensity/rho_init
     
     vel_grad = fe.grad(vel_0)
 
@@ -76,10 +77,10 @@ def f_equil_init_multiPhase(vel_idx, force_density, dt, xi, w, c_s, tau):
     
     Q = c_c_outer - c_s2 * I
     
-    F_u_outer1 = fe.outer( force_density, vel_0 )
-    u_F_outer2 = fe.outer(vel_0, force_density) 
+    F_u_outer1 = fe.outer( forceDensity, vel_0 )
+    u_F_outer2 = fe.outer(vel_0, forceDensity) 
     force_vel_outer = F_u_outer1 + u_F_outer2
-    c_dot_F = fe.inner( ci, force_density)
+    c_dot_F = fe.inner( ci, forceDensity)
     
     f_neq = - w[vel_idx]*tau/c_s2 * rho_expr * fe.inner(Q, vel_grad)\
         - w[vel_idx]*dt/(2*c_s2) * ( c_dot_F\

@@ -157,7 +157,7 @@ def main():
         # We will try to do collision locally, since it is a pure
         # time-dependnet ODE
         
-        forceVals_x, forceVals_y = collision.computeForce(Force_density,
+        forceVals_x, forceVals_y = collision.computeForcePoiseuille(Force_density,
                                                             simState.v,
                                                             forceVec_x,
                                                             forceVec_y,
@@ -206,7 +206,7 @@ def main():
 
     
         if n % 5000 == 0:
-            testOutput.writeOutput(n, xi,
+            testOutput.writeOutputPoiseuille(n, xi,
                                                 simState.f_n,
                                                 V,
                                                 Vvec,
