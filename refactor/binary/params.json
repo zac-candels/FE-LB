@@ -1,0 +1,31 @@
+
+
+{
+    "dim": 2,
+    "Tfinal": 100000,
+    "R0": 2,
+
+    "c_s": 0.5773502691896257,
+    "L_x": 16,
+    "L_y": 4,
+    "nx": 80,
+    "ny": 20,
+    
+    "xc": 8,
+    "yc": 1,
+
+    "Q": 9,
+    
+    "A": 0.5,
+    "kappa": 0.02,
+    "M_tilde": 10,
+    "theta_deg": 30,
+
+
+    "tau": 0.1,
+    
+    "lumping": "yes",
+    
+    "forceInCollisionStreaming": "streaming"
+
+}

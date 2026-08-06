@@ -44,6 +44,8 @@ class StreamingOperator:
         self.massMat = None
         
         self.M_lumped = None
+        
+        self.M_petsc = None
 
         self._assembleMatrices(V, state)
         
@@ -134,7 +136,7 @@ class StreamingOperator:
 
         M_vect = fe.assemble(mass_action)
 
-        M_petsc = fe.as_backend_type(M_vect).vec()
+        self.M_petsc = fe.as_backend_type(M_vect).vec()
 
 
         for i in range(self.Q):
@@ -142,7 +144,7 @@ class StreamingOperator:
             self.sysMatStream.append(fe.assemble(bilinear_forms[i]))
 
 
-            self.sysMatLumped.append(M_petsc.copy())
+            self.sysMatLumped.append(self.M_petsc.copy())
 
 
             self.advectionMats.append(fe.assemble(advection_forms[i]))
