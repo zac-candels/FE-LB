@@ -71,16 +71,17 @@ def trackMeniscus(phi_n, mesh):
 T = 300
 R0 = 2
 initDropDiam = 2*R0
-L_x = 8*R0
-L_y = 2*R0
-nx = 80
-ny = 20
+L_x = 15*R0
+L_y = 1*R0
+nx = 60
+ny = 15
 
 A_param = 0.125
 kappa = 0.005
 interfaceThickness = np.sqrt(kappa/A_param)
 M_tilde = 10
-theta_deg = 30
+theta_deg = 60
+surfTen = np.sqrt(A_param*kappa)
 
 # Lattice speed of sound
 c_s = np.sqrt(1/3)
@@ -92,20 +93,20 @@ rho_l = 1
 
 # Relaxation times for heavier and lighter phases
 tau_h = 1
-tau_l = 0.55
+tau_l = tau_h/2
 
-theta_deg = 30
+theta_deg = 60
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"CA{theta_deg}_tauH{tau_h}_tauL{tau_l}_coarseMesh")
+outDirName = os.path.join(WORKDIR, "test")#f"CA{theta_deg}_tauH{tau_h}_tauL{tau_l}_surfTen{surfTen:1g}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 
 
-xc, yc = L_x/2, R0 - 0.6*R0
+xc, yc = L_x/3, R0 - 0.6*R0
 
 Q = 9
 # D2Q9 lattice velocities
@@ -130,82 +131,49 @@ w = np.array([
 
 # Set up domain. For simplicity, do unit square mesh.
 
+mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagonal="crossed")
 
-capTubeLeft      = L_x/4;
-capTubeRight     = 3*L_x/4;
-capTubeElevation = L_y/2;
-capTubeHeight    = L_y/5;
-
-gmsh.initialize()
-occ = gmsh.model.occ
-
-# Main rectangle
-main = occ.addRectangle(0, 0, 0, L_x, L_y)
-
-# Lower notch
-lower = occ.addRectangle(
-    capTubeLeft,
-    0,
-    0,
-    capTubeRight-capTubeLeft,
-    capTubeElevation-capTubeHeight
-)
-
-# Upper notch
-upper = occ.addRectangle(
-    capTubeLeft,
-    capTubeElevation+capTubeHeight,
-    0,
-    capTubeRight-capTubeLeft,
-    L_y-(capTubeElevation+capTubeHeight)
-)
-
-occ.cut([(2, main)], [(2, lower), (2, upper)])
-occ.synchronize()
-
-gmsh.option.setNumber("Mesh.CharacteristicLengthMin", L_x/200)
-gmsh.option.setNumber("Mesh.CharacteristicLengthMax", L_x/100)
-
-gmsh.model.mesh.generate(2)
-gmsh.write("capillary.msh")
-
-gmsh.finalize()
-
-import meshio
-
-msh = meshio.read("capillary.msh")
-
-triangle_cells = msh.get_cells_type("triangle")
-
-triangle_data = meshio.Mesh(
-    points=msh.points[:, :2],
-    cells=[("triangle", triangle_cells)]
-)
-
-meshio.write("tube.xdmf", triangle_data)
-
-mesh = fe.Mesh()
-
-with fe.XDMFFile("tube.xdmf") as infile:
-    infile.read(mesh)
-
-boundary_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 
 h = mesh.hmin()
-dt = 0.05*h**2
+dt = 0.001*h**2
 #dt = 0.0001
 beta_mass_diff =  0.1*dt
 num_steps = int(np.ceil(T/dt))
+# Set periodic boundary conditions at left and right endpoints
 
+periodicBdyXLeft = L_x/5 
+periodicBdyXRight = 4*L_x/5
 class PeriodicBoundary(fe.SubDomain):
+
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[0], 0.0)
+
+        left = fe.near(x[0], 0.0)
+
+        bottom_periodic = (
+            fe.near(x[1], 0.0)
+            and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)
+        )
+
+        return bool((left or bottom_periodic)
+                    and on_boundary)
 
     def map(self, x, y):
-        y[0] = x[0] - L_x
-        y[1] = x[1]
 
+        # x-periodicity
+        if fe.near(x[0], L_x):
+            y[0] = x[0] - L_x
+            y[1] = x[1]
 
+        # y-periodicity on selected intervals
+        elif (fe.near(x[1], L_y)
+              and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)):
+            y[0] = x[0]
+            y[1] = x[1] - L_y
+
+        else:
+            y[0] = x[0]
+            y[1] = x[1]
+            
 pbc = PeriodicBoundary()
 
 
@@ -225,6 +193,7 @@ phi_n = fe.Function(V)
 V_vec = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 vel_n = fe.Function(V_vec)
 mu_n = fe.Function(V)
+pres_n = fe.Function(V)
 
 v = fe.TestFunction(V)
 
@@ -303,8 +272,8 @@ def f_equil(f_list, phi, idx):
     # Compute velocity at each DoF
     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / (density_vec*c_s**2)
     uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / (density_vec*c_s**2)
-    ux_vec[wall_dofs] = 0.0
-    uy_vec[wall_dofs] = 0.0
+    # ux_vec[wall_dofs] = 0.0
+    # uy_vec[wall_dofs] = 0.0
 
     u2 = ux_vec**2 + uy_vec**2
 
@@ -364,9 +333,9 @@ class InitialConditions(fe.UserExpression):
         random.seed(2 + fe.MPI.rank(fe.MPI.comm_world))
         super().__init__(**kwargs)
     def eval(self, values, x):
-        if x[0] <= capTubeLeft - L_x/5:
-            values[0] = -1
-        elif x[0] > capTubeLeft - L_x/5 and x[0] < capTubeLeft + L_x/15:
+        if x[0] <= xc:
+            values[0] = 1
+        elif x[0] > L_x - L_x/8:
             values[0] = 1
         else:
             values[0] = -1
@@ -390,10 +359,9 @@ mass_diff = fe.Constant(0.0)
 
 tol = 1e-4
 
-
-def fullDomLower(x, on_boundary):
+def Bdy_Lower(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 0):
+        if fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
             return True
         else:
             return False
@@ -403,21 +371,21 @@ def fullDomLower(x, on_boundary):
 
 rho_expr = sum(fk for fk in f_n)
 
-f5_fullDomLower = f_n[7]  # rho_expr
-f2_fullDomLower = f_n[4]  # rho_expr
-f6_fullDomLower = f_n[8]  # rho_expr
+f5_lower = f_n[7]  # rho_expr
+f2_lower = f_n[4]  # rho_expr
+f6_lower = f_n[8]  # rho_expr
 
-f5_fullDomLower_func = fe.Function(V)
-f2_fullDomLower_func = fe.Function(V)
-f6_fullDomLower_func = fe.Function(V)
+f5_lower_func = fe.Function(V)
+f2_lower_func = fe.Function(V)
+f6_lower_func = fe.Function(V)
 
-fe.project(f5_fullDomLower, V, function=f5_fullDomLower_func)
-fe.project(f2_fullDomLower, V, function=f2_fullDomLower_func)
-fe.project(f6_fullDomLower, V, function=f6_fullDomLower_func)
+fe.project(f5_lower, V, function=f5_lower_func)
+fe.project(f2_lower, V, function=f2_lower_func)
+fe.project(f6_lower, V, function=f6_lower_func)
 
-bc_f5fullDom = fe.DirichletBC(V, f5_fullDomLower_func, fullDomLower)
-bc_f2fullDom = fe.DirichletBC(V, f2_fullDomLower_func, fullDomLower)
-bc_f6fullDom = fe.DirichletBC(V, f6_fullDomLower_func, fullDomLower)
+bc_f5 = fe.DirichletBC(V, f5_lower_func, Bdy_Lower)
+bc_f2 = fe.DirichletBC(V, f2_lower_func, Bdy_Lower)
+bc_f6 = fe.DirichletBC(V, f6_lower_func, Bdy_Lower)
 
 # Similarly, we will define boundary conditions for f_7, f_4, and f_8
 # at the upper wall. Once again, boundary conditions simply reduce
@@ -427,9 +395,9 @@ bc_f6fullDom = fe.DirichletBC(V, f6_fullDomLower_func, fullDomLower)
 tol = 1e-8
 
 
-def fullDomUpper(x, on_boundary):
+def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], L_y):
+        if fe.near(x[1], L_y) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
             return True
         else:
             return False
@@ -439,129 +407,22 @@ def fullDomUpper(x, on_boundary):
 
 rho_expr = sum(fk for fk in f_n)
 
-f7_fullDomUpper = f_n[5]  # rho_expr
-f4_fullDomUpper = f_n[2]  # rho_expr
-f8_fullDomUpper = f_n[6]  # rho_expr
+f7_upper = f_n[5]  # rho_expr
+f4_upper = f_n[2]  # rho_expr
+f8_upper = f_n[6]  # rho_expr
 
-f7_fullDomUpper_func = fe.Function(V)
-f4_fullDomUpper_func = fe.Function(V)
-f8_fullDomUpper_func = fe.Function(V)
+f7_upper_func = fe.Function(V)
+f4_upper_func = fe.Function(V)
+f8_upper_func = fe.Function(V)
 
-fe.project(f7_fullDomUpper, V, function=f7_fullDomUpper_func)
-fe.project(f4_fullDomUpper, V, function=f4_fullDomUpper_func)
-fe.project(f8_fullDomUpper, V, function=f8_fullDomUpper_func)
+fe.project(f7_upper, V, function=f7_upper_func)
+fe.project(f4_upper, V, function=f4_upper_func)
+fe.project(f8_upper, V, function=f8_upper_func)
 
-bc_f7fullDom = fe.DirichletBC(V, f7_fullDomUpper_func, fullDomUpper)
-bc_f4fullDom = fe.DirichletBC(V, f4_fullDomUpper_func, fullDomUpper)
-bc_f8fullDom = fe.DirichletBC(V, f8_fullDomUpper_func, fullDomUpper)
+bc_f7 = fe.DirichletBC(V, f7_upper_func, Bdy_Upper)
+bc_f4 = fe.DirichletBC(V, f4_upper_func, Bdy_Upper)
+bc_f8 = fe.DirichletBC(V, f8_upper_func, Bdy_Upper)
 
-def capTubeLower(x, on_boundary):
-    if on_boundary:
-        if abs(x[1] - (capTubeElevation-capTubeHeight) ) < 1e-4:
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f5_capTubeLower = f_n[7]  # rho_expr
-f2_capTubeLower = f_n[4]  # rho_expr
-f6_capTubeLower = f_n[8]  # rho_expr
-
-f5_capTubeLower_func = fe.Function(V)
-f2_capTubeLower_func = fe.Function(V)
-f6_capTubeLower_func = fe.Function(V)
-
-fe.project(f5_capTubeLower, V, function=f5_capTubeLower_func)
-fe.project(f2_capTubeLower, V, function=f2_capTubeLower_func)
-fe.project(f6_capTubeLower, V, function=f6_capTubeLower_func)
-
-bc_f5capTube = fe.DirichletBC(V, f5_capTubeLower_func, capTubeLower)
-bc_f2capTube = fe.DirichletBC(V, f2_capTubeLower_func, capTubeLower)
-bc_f6capTube = fe.DirichletBC(V, f6_capTubeLower_func, capTubeLower)
-
-def capTubeUpper(x, on_boundary):
-    if on_boundary:
-        if abs(x[1] - (capTubeElevation + capTubeHeight) ) < 1e-4:
-            return True
-        else:
-            return False
-    else:
-        return False
-
-
-rho_expr = sum(fk for fk in f_n)
-
-f7_capTubeUpper = f_n[5]  # rho_expr
-f4_capTubeUpper = f_n[2]  # rho_expr
-f8_capTubeUpper = f_n[6]  # rho_expr
-
-f7_capTubeUpper_func = fe.Function(V)
-f4_capTubeUpper_func = fe.Function(V)
-f8_capTubeUpper_func = fe.Function(V)
-
-fe.project(f7_capTubeUpper, V, function=f7_capTubeUpper_func)
-fe.project(f4_capTubeUpper, V, function=f4_capTubeUpper_func)
-fe.project(f8_capTubeUpper, V, function=f8_capTubeUpper_func)
-
-bc_f7capTube = fe.DirichletBC(V, f7_capTubeUpper_func, capTubeUpper)
-bc_f4capTube = fe.DirichletBC(V, f4_capTubeUpper_func, capTubeUpper)
-bc_f8capTube = fe.DirichletBC(V, f8_capTubeUpper_func, capTubeUpper)
-
-def Bdy_Left(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[0], capTubeLeft):
-            return True
-        else:
-            return False
-    else:
-        return False    
-    
-    
-f6_left = f_n[8]  # rho_expr
-f3_left = f_n[1]  # rho_expr
-f7_left = f_n[5]  # rho_expr
-
-f6_left_func = fe.Function(V)
-f3_left_func = fe.Function(V)
-f7_left_func = fe.Function(V)
-
-fe.project(f6_left, V, function=f6_left_func)
-fe.project(f3_left, V, function=f3_left_func)
-fe.project(f7_left, V, function=f7_left_func)
-
-bc_f6Left = fe.DirichletBC(V, f6_left_func, Bdy_Left)
-bc_f3Left = fe.DirichletBC(V, f3_left_func, Bdy_Left)
-bc_f7Left = fe.DirichletBC(V, f7_left_func, Bdy_Left)
-
-def Bdy_Right(x, on_boundary):
-    if on_boundary:
-        if fe.near(x[0], capTubeRight):
-            return True
-        else:
-            return False
-    else:
-        return False    
-    
-    
-f8_right = f_n[6]  # rho_expr
-f1_right = f_n[3]  # rho_expr
-f5_right = f_n[7]  # rho_expr
-
-f8_right_func = fe.Function(V)
-f1_right_func = fe.Function(V)
-f5_right_func = fe.Function(V)
-
-fe.project(f8_right, V, function=f8_right_func)
-fe.project(f1_right, V, function=f1_right_func)
-fe.project(f5_right, V, function=f5_right_func)
-
-bc_f8Right = fe.DirichletBC(V, f8_right_func, Bdy_Right)
-bc_f1Right = fe.DirichletBC(V, f1_right_func, Bdy_Right)
-bc_f5Right = fe.DirichletBC(V, f5_right_func, Bdy_Right)
 
 # Define variational problems
 
@@ -581,12 +442,12 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], capTubeElevation-capTubeHeight) and x[0] > capTubeLeft and x[0] < capTubeRight
+        return on_boundary and fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight
     
 # Subdomain for bottom wall
 class Top(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], capTubeElevation+capTubeHeight) and x[0] > capTubeLeft and x[0] < capTubeRight
+        return on_boundary and fe.near(x[1], L_y) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight
 
 bottom = Bottom()
 bottom.mark(boundaries, 1)   # assign ID = 1 to bottom boundary
@@ -692,10 +553,10 @@ phi_file.parameters["flush_output"] = True
 phi_file.parameters["functions_share_mesh"] = True
 phi_file.parameters["rewrite_function_mesh"] = False
 
-# mu_file = fe.XDMFFile(comm, f"{outDirName}/mu.xdmf")
-# mu_file.parameters["flush_output"] = True
-# mu_file.parameters["functions_share_mesh"] = True
-# mu_file.parameters["rewrite_function_mesh"] = False
+pres_file = fe.XDMFFile(comm, f"{outDirName}/pres.xdmf")
+pres_file.parameters["flush_output"] = True
+pres_file.parameters["functions_share_mesh"] = True
+pres_file.parameters["rewrite_function_mesh"] = False
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
 vel_file.parameters["flush_output"] = True
@@ -722,9 +583,12 @@ for n in range(num_steps):
     # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     
-    tau_fn = getTau(phi_n)
-    tau_func = fe.project(tau_fn, V)
-    tau_vec = tau_func.vector().get_local()
+    # tau_fn = getTau(phi_n)
+    # tau_func = fe.project(tau_fn, V)
+    # tau_vec = tau_func.vector().get_local()
+    
+    phi_local = phi_n.vector().get_local()
+    tau_vec = 1/( (phi_local+1)/(2*tau_h) + (1 - phi_local)/(2*tau_l) )
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, phi_n, idx)
         #f_eq_vec = f_eq.vector().get_local()
@@ -752,53 +616,24 @@ for n in range(num_steps):
     for idx in range(Q):
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
 
-    f5_fullDomLower_func.assign(f_star[7])
-    f2_fullDomLower_func.assign( f_star[4])
-    f6_fullDomLower_func.assign(f_star[8])
-    f5_capTubeLower_func.assign(f_star[7])
-    f2_capTubeLower_func.assign( f_star[4])
-    f6_capTubeLower_func.assign(f_star[8])
-    
-    f7_fullDomUpper_func.assign(f_star[5])
-    f4_fullDomUpper_func.assign(f_star[2])
-    f8_fullDomUpper_func.assign(f_star[6])
-    f7_capTubeUpper_func.assign(f_star[5])
-    f4_capTubeUpper_func.assign(f_star[2])
-    f8_capTubeUpper_func.assign(f_star[6])
-    
-    
-    f6_left_func.assign(f_star[8])
-    f3_left_func.assign(f_star[1])
-    f7_left_func.assign(f_star[5])
-    f5_right_func.assign(f_star[7])
-    f1_right_func.assign(f_star[3])
-    f8_right_func.assign(f_star[6])
+    f5_lower_func.assign(f_star[7])
+    f2_lower_func.assign( f_star[4])
+    f6_lower_func.assign(f_star[8])
+    f7_upper_func.assign(f_star[5])
+    f4_upper_func.assign(f_star[2])
+    f8_upper_func.assign(f_star[6])
     
     
     # Apply BCs for lower boundary
-    bc_f5fullDom.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2fullDom.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6fullDom.apply(sys_mat[6], rhs_vec_streaming[6])
-    
-    bc_f5capTube.apply(sys_mat[5], rhs_vec_streaming[5] )
-    bc_f2capTube.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6capTube.apply(sys_mat[6], rhs_vec_streaming[6])
+    # Apply BCs for lower boundary
+    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
+    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
     
     # Apply BCs for top boundary
-    bc_f7fullDom.apply(sys_mat[7], rhs_vec_streaming[7] )
-    bc_f4fullDom.apply(sys_mat[4], rhs_vec_streaming[4] )
-    bc_f8fullDom.apply(sys_mat[8], rhs_vec_streaming[8] )
-    bc_f7capTube.apply(sys_mat[7], rhs_vec_streaming[7] )
-    bc_f4capTube.apply(sys_mat[4], rhs_vec_streaming[4] )
-    bc_f8capTube.apply(sys_mat[8], rhs_vec_streaming[8] )
-    
-    bc_f6Left.apply(sys_mat[6], rhs_vec_streaming[6] )
-    bc_f3Left.apply(sys_mat[3], rhs_vec_streaming[3] )
-    bc_f7Left.apply(sys_mat[7], rhs_vec_streaming[7] )
-    
-    bc_f8Right.apply(sys_mat[8], rhs_vec_streaming[8] )
-    bc_f1Right.apply(sys_mat[1], rhs_vec_streaming[1])
-    bc_f5Right.apply(sys_mat[5], rhs_vec_streaming[5])
+    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
+    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
+    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
 
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
@@ -821,16 +656,23 @@ for n in range(num_steps):
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 1000 == 0:  # plot every 10 steps
+        if n % 2000 == 0:  # plot every 10 steps
+        
+
+            f_stack = np.array([f.vector().get_local() for f in f_n])
+
+            # Compute pressure at each DoF
+            pres_np = np.sum(f_stack, axis=0) 
+            pres_n.vector().set_local(pres_np)
+            pres_n.vector().apply("insert")
+            pres_file.write(pres_n, t)
+            
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             print("n = ", n)
             print("total mass = ", mass_n, flush=True)
             #outfile.write(phi_n, t)
             print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
-
-            vel_expr = getVel(f_n, phi_n)
-            fe.project(vel_expr, V_vec, function=vel_n)
 
             vel_vec = vel_n.vector().get_local()
 
@@ -847,8 +689,6 @@ for n in range(num_steps):
             max_vel = vel_norm.max()
 
             print("Max||u||:", max_vel, flush=True)
-            
-            f_stack = np.array([f.vector().get_local() for f in f_n])
             
             print("Time elapsed = ", time.time() - start_time, flush=True)
 
