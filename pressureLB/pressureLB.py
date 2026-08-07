@@ -26,8 +26,8 @@ R0 = 2
 initDropDiam = 2*R0
 L_x = 8*R0
 L_y = 2*R0
-nx = 80
-ny = 20
+nx = 240
+ny = 60
 
 A_param = 0.5
 kappa = 0.02
@@ -51,7 +51,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"lumpingDistributions") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"test2") #f"figures_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -372,7 +372,7 @@ ds_bottom = fe.Measure("ds", domain=mesh, subdomain_data=boundaries, subdomain_i
 bilin_form_AC = f_trial * v * fe.dx
 bilin_form_mu = f_trial * v * fe.dx
 
-lin_form_AC = phi_n * v * fe.dx - dt*v*fe.dot(getVel(f_n, phi_n), fe.grad(phi_n))*fe.dx\
+lin_form_AC = - dt*v*fe.dot(getVel(f_n, phi_n), fe.grad(phi_n))*fe.dx\
     - dt*M_tilde*v*mu_n*fe.dx - (beta_mass_diff/dt)*mass_diff*fe.sqrt( fe.dot(fe.grad(phi_n), fe.grad(phi_n)) )*v*fe.dx\
         - 0.5*dt**2 * fe.dot(getVel(f_n, phi_n), fe.grad(v)) * fe.dot(getVel(f_n, phi_n), fe.grad(phi_n)) *fe.dx
 
@@ -413,7 +413,9 @@ for idx in range(Q):
         + dot_product_force_term + surface_term
 
     linear_forms_stream.append(lin_form_idx)
-    
+ 
+rhs_AC = fe.assemble(lin_form_AC)
+rhs_mu = fe.assemble(lin_form_mu)
     
 massForm = f_trial*v*fe.dx
 massMat = fe.assemble(massForm)
@@ -498,8 +500,11 @@ for n in range(num_steps):
     
     #print("n = ", n)
     
-    rhs_AC = fe.assemble(lin_form_AC)
-    rhs_mu = fe.assemble(lin_form_mu)
+    prevTimeAcVec.zero()
+    fe.as_backend_type(prevTimeAcVec).vec().pointwiseMult(phi_n.vector().vec(), sysMatLumped[0])
+    fe.assemble(lin_form_AC, tensor=rhsVecTemp)
+    rhs_AC = prevTimeAcVec + rhsVecTemp
+    fe.assemble(lin_form_mu, tensor=rhs_mu)
 
     
     # f_pre_stack = np.array([fi.vector().get_local() for fi in f_n])   # shape (Q,N)
@@ -512,12 +517,30 @@ for n in range(num_steps):
     
     phi_local = phi_n.vector().get_local()
     tau_vec = 1/( (phi_local+1)/(2*tau_h) + (1 - phi_local)/(2*tau_l) )
+    
+    f_stack = np.array([f.vector().get_local() for f in f_n])
+
+    # Compute pressure at each DoF
+    pres = np.sum(f_stack, axis=0)  # shape (N,)
+
+    density_vec = (1+phi_local)/2 * rho_h + (1 - phi_local)/2 * rho_l
+
+    # Compute velocity at each DoF
+    ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / (density_vec*c_s**2)
+    uy_vec = np.sum(f_stack * xi_array[:,1][:,None], axis=0) / (density_vec*c_s**2)
+    ux_vec[wall_dofs] = 0.0
+    uy_vec[wall_dofs] = 0.0
+    
+    u2 = ux_vec**2 + uy_vec**2
+    omega = dt/(tau_vec) 
     for idx in range(Q):
-        f_eq_vec = f_equil(f_n, phi_n, idx)
-        #f_eq_vec = f_eq.vector().get_local()
-        f_n_vec = f_n[idx].vector().get_local()
+        cu = xi_array[idx,0]*ux_vec + xi_array[idx,1]*uy_vec
         
-        f_new = f_n_vec - dt/(tau_vec) * (f_n_vec - f_eq_vec)
+        f_eq = w[idx]*( 
+            pres + density_vec*c_s2 * ( cu / c_s2 + (cu**2 - c_s2*u2)/(2*c_s2**2) ) )
+        #f_n_vec = f_n[idx].vector().get_local()
+        
+        f_new = f_stack[idx] -  omega*(f_stack[idx] - f_eq)
     
         # f_post_stack[idx, :] = f_new
         f_star[idx].vector().set_local(f_new)
@@ -537,7 +560,9 @@ for n in range(num_steps):
 
     # Assemble RHS vectors
     for idx in range(Q):
-        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        #M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        streamingPrevTimeVecs[idx].vec().pointwiseMult(
+            M_petsc, fe.as_backend_type(f_star[idx].vector()).vec())
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
         rhs_vec_streaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
 
@@ -573,8 +598,11 @@ for n in range(num_steps):
     bc_f4.apply(f_nP1[4].vector())
     bc_f8.apply(f_nP1[8].vector())
         
-    phi_solver.solve(phi_nP1.vector(), rhs_AC)
-    mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
+    phi_nP1.vector().vec().pointwiseDivide(rhsPhiVec, sysMatLumped[0])
+    rhsMuVec = fe.as_backend_type(rhs_mu).vec()
+    #mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
     
 
 
@@ -589,14 +617,14 @@ for n in range(num_steps):
     mass_diff.assign( (mass_n - mass_init) )
     
     endTime = time.time()
-    #print("Time elapsed = ", endTime-  startTime, " original")
+    print("Time elapsed = ", endTime-  startTime, " original")
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
         if n % 20 == 0:  # plot every 10 steps
-            vel_expr = getVel(f_n, phi_n)
-            fe.project(vel_expr, V_vec, function=vel_n)
-            
+            #vel_expr = getVel(f_n, phi_n)
+            #fe.project(vel_expr, V_vec, function=vel_n)
+            vel_n.vector().set_local(np.stack([ux_vec, uy_vec], axis=1).flatten())
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             print("n = ", n)
