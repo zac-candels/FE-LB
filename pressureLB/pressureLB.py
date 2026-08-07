@@ -194,9 +194,9 @@ def f_equil(f_list, phi, idx):
     pres = np.sum(f_stack, axis=0)  # shape (N,)
     
     # Compute density at each DoF
-    density_ufl = getDens(phi)
-    density_fn = fe.project(density_ufl, V)
-    density_vec = density_fn.vector().get_local()
+    phi_local = phi.vector().get_local()
+
+    density_vec = (1+phi_local)/2 * rho_h + (1 - phi_local)/2 * rho_l
 
     # Compute velocity at each DoF
     ux_vec = np.sum(f_stack * xi_array[:,0][:,None], axis=0) / (density_vec*c_s**2)
@@ -469,6 +469,7 @@ vel_file.parameters["rewrite_function_mesh"] = False
 t = 0.0
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
 for n in range(num_steps):
+    startTime = time.time()
     t += dt
     
     #print("n = ", n)
@@ -485,9 +486,8 @@ for n in range(num_steps):
     # f_post_stack = np.zeros_like(f_pre_stack)
     # Perform collision, get post-collision distributions f_i^*
     
-    tau_fn = getTau(phi_n)
-    tau_func = fe.project(tau_fn, V)
-    tau_vec = tau_func.vector().get_local()
+    phi_local = phi_n.vector().get_local()
+    tau_vec = 1/( (phi_local+1)/(2*tau_h) + (1 - phi_local)/(2*tau_l) )
     for idx in range(Q):
         f_eq_vec = f_equil(f_n, phi_n, idx)
         #f_eq_vec = f_eq.vector().get_local()
@@ -550,6 +550,9 @@ for n in range(num_steps):
     mu_n.assign(mu_nP1)
     mass_n = fe.assemble( (phi_n+1)/2*fe.dx)
     mass_diff.assign( (mass_n - mass_init) )
+    
+    endTime = time.time()
+    #print("Time elapsed = ", endTime-  startTime, " original")
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
