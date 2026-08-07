@@ -51,7 +51,7 @@ theta_deg = 30
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"0vel_in_feq_tauH{tau_h}_tauL{tau_l}_rhoH{rho_h}_rhoL{rho_l}") #f"figures_CA{theta_deg}")
+outDirName = os.path.join(WORKDIR, f"lumpingDistributions") #f"figures_CA{theta_deg}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -89,7 +89,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y), nx, ny, diagon
 # Set periodic boundary conditions at left and right endpoints
 
 h = mesh.hmin()
-dt = 0.05*h**2
+dt = 0.01*h**2
 #dt = 0.00001
 beta_mass_diff = 0.1*dt
 num_steps = int(np.ceil(T/dt))
@@ -407,13 +407,37 @@ for idx in range(Q):
         # no surface contribution for this idx
         surface_term = fe.Constant(0.0) * v * fe.ds
 
-    lin_form_idx = f_star[idx]*v*fe.dx\
-        - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
+    lin_form_idx = - dt*v*fe.dot(xi[idx], fe.grad(f_star[idx]))*fe.dx\
         + dt*v*body_Force(f_star, phi_n, mu_n, idx)*fe.dx\
         + double_dot_product_term\
         + dot_product_force_term + surface_term
 
     linear_forms_stream.append(lin_form_idx)
+    
+    
+massForm = f_trial*v*fe.dx
+massMat = fe.assemble(massForm)
+mass_action_form = fe.action(massForm, fe.Constant(1))
+M_lumped = fe.assemble(massForm)
+M_lumped.zero()
+M_lumped.set_diagonal(fe.assemble(mass_action_form))
+M_vect = fe.assemble(mass_action_form)
+M_petsc = fe.as_backend_type(M_vect).vec()
+
+sys_mat = []
+sys_mat2 = []
+sysMatLumped = []
+advectionMats = []
+advectionTransposeMats = []
+doubleAdvectionMats = []
+for idx in range(Q):
+    sysMatLumped.append(M_petsc.copy())
+massMat = fe.assemble(f_trial*v*fe.dx)
+
+streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
+rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+prevTimeAcVec = f_star[0].vector().copy()
+rhsVecTemp = f_star[0].vector().copy()
 
 # Assemble matrices for first step
 
@@ -513,7 +537,9 @@ for n in range(num_steps):
 
     # Assemble RHS vectors
     for idx in range(Q):
+        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
         rhs_vec_streaming[idx] = (fe.assemble(linear_forms_stream[idx]))
+        rhs_vec_streaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
 
     f5_lower_func.assign(f_star[7])
     f2_lower_func.assign( f_star[4] )
@@ -523,18 +549,29 @@ for n in range(num_steps):
     f8_upper_func.assign( f_star[6] )
 
     # # Apply BCs for distribution functions 5, 2, and 6
-    bc_f5.apply(sys_mat[5], rhs_vec_streaming[5])
-    bc_f2.apply(sys_mat[2], rhs_vec_streaming[2])
-    bc_f6.apply(sys_mat[6], rhs_vec_streaming[6])
+    bc_f5.apply(rhs_vec_streaming[5])
+    bc_f2.apply(rhs_vec_streaming[2])
+    bc_f6.apply(rhs_vec_streaming[6])
 
     # # Apply BCs for distribution functions 7, 4, 8
-    bc_f7.apply(sys_mat[7], rhs_vec_streaming[7])
-    bc_f4.apply(sys_mat[4], rhs_vec_streaming[4])
-    bc_f8.apply(sys_mat[8], rhs_vec_streaming[8])
+    bc_f7.apply(rhs_vec_streaming[7])
+    bc_f4.apply(rhs_vec_streaming[4])
+    bc_f8.apply(rhs_vec_streaming[8])
 
     # # Solve linear system in each timestep, get f^{n+1}
     for idx in range(Q):
-        solver_list[idx].solve(f_nP1[idx].vector(), rhs_vec_streaming[idx])
+        vi = fe.as_backend_type(rhs_vec_streaming[idx]).vec()
+        f_nP1[idx].vector().vec().pointwiseDivide(vi, sysMatLumped[idx])
+        
+    # # Apply BCs for distribution functions 5, 2, and 6
+    bc_f5.apply(f_nP1[5].vector())
+    bc_f2.apply(f_nP1[2].vector())
+    bc_f6.apply(f_nP1[6].vector())
+
+    # # Apply BCs for distribution functions 7, 4, 8
+    bc_f7.apply(f_nP1[7].vector())
+    bc_f4.apply(f_nP1[4].vector())
+    bc_f8.apply(f_nP1[8].vector())
         
     phi_solver.solve(phi_nP1.vector(), rhs_AC)
     mu_solver.solve(mu_nP1.vector(), rhs_mu)
@@ -556,7 +593,10 @@ for n in range(num_steps):
     
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if 1 == 1:
-        if n % 10 == 0:  # plot every 10 steps
+        if n % 20 == 0:  # plot every 10 steps
+            vel_expr = getVel(f_n, phi_n)
+            fe.project(vel_expr, V_vec, function=vel_n)
+            
             phi_file.write(phi_n, t)
             vel_file.write(vel_n, t)
             print("n = ", n)
@@ -564,8 +604,7 @@ for n in range(num_steps):
             #outfile.write(phi_n, t)
             print("percent change in mass is ", 100*float(mass_diff)/mass_init, flush=True)
 
-            vel_expr = getVel(f_n, phi_n)
-            fe.project(vel_expr, V_vec, function=vel_n)
+
 
             vel_vec = vel_n.vector().get_local()
 
