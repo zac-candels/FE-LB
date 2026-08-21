@@ -1,3 +1,4 @@
+import sys
 import gmsh
 import numpy as np
 import fenics as fe
@@ -82,8 +83,8 @@ if rank == 0:
     
     thresh_field = gmsh.model.mesh.field.add("Threshold")
     gmsh.model.mesh.field.setNumber(thresh_field, "InField", dist_field)
-    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin", 0.01*radius)   # fine near circle
-    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 0.025*radius)    # coarser away
+    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMin", 0.025*radius)   # fine near circle
+    gmsh.model.mesh.field.setNumber(thresh_field, "SizeMax", 0.05*radius)    # coarser away
     gmsh.model.mesh.field.setNumber(thresh_field, "DistMin", 0.5*radius)
     gmsh.model.mesh.field.setNumber(thresh_field, "DistMax", 2.0*radius)
     
@@ -163,9 +164,13 @@ def trackDropletTop(phi_n, mesh):
 T = 300
 initDropDiam = 2*R0
 
+print(sys.executable)
+print(sys.path)
+import gmsh
+print(gmsh.__file__)
 
-A = 0.5
-kappa = 0.01
+A = 0.25
+kappa = 0.005
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
@@ -181,11 +186,10 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
+print("ocw = ", WORKDIR)
 outDirName = os.path.join(WORKDIR, f"spreadOnSphere_CA{theta_deg}")
-if os.path.exists(outDirName):
-    shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
-
+print("directory created")
 
 xc, yc = L_x/2, L_y/2 + L_y/4
 
@@ -306,7 +310,7 @@ print("h = ", h)
 print()
 dt = 0.25*h**2
 #dt = 0.0001
-beta_mass_diff =  0.1*dt
+beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -915,15 +919,18 @@ for n in range(num_steps):
     fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
     
+    #fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
+
     forceVals_x = forceDensity_x.vector().get_local()
     #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
     
     forceVals_y = forceDensity_y.vector().get_local()
-    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
@@ -1139,9 +1146,9 @@ for n in range(num_steps):
     #phi_solver.solve(phi_nP1.vector(), rhs_AC)
     rhsPhiVec = fe.as_backend_type(rhs_AC).vec()
     phi_nP1.vector().vec().pointwiseDivide(rhsPhiVec, sysMatLumped[0])
-    #rhsMuVec = fe.as_backend_type(rhs_mu).vec()
-    mu_solver.solve(mu_nP1.vector(), rhs_mu)
-    #mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
+    rhsMuVec = fe.as_backend_type(rhs_mu).vec()
+    #mu_solver.solve(mu_nP1.vector(), rhs_mu)
+    mu_nP1.vector().vec().pointwiseDivide(rhsMuVec, sysMatLumped[0])
 
     solveTimeEnd = time.time()
     #print("solve time = ", solveTimeEnd - solveTimeStart)
@@ -1171,7 +1178,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n, flush=True)

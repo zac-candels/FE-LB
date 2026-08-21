@@ -52,7 +52,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"LFIS")
+outDirName = os.path.join(WORKDIR, f"correctSign")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -577,7 +577,7 @@ for n in range(num_steps):
         rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        rhsVecStreaming[idx].axpy(-0.5*dt**2, doubleAdvectionVecs[idx])
         
         rhsVecStreaming[idx].axpy(dt, basicForceTerm)
         rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
@@ -658,7 +658,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 5== 0:  # plot every 10 steps
+        if n % 2000== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n)
