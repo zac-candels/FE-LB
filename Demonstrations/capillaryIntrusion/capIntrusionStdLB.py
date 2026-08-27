@@ -69,7 +69,7 @@ A = 0.5
 kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
 tau_h = 1
-tau_l = tau_h/20
+tau_l = tau_h/2
 M_tilde = 10
 theta_deg = 60
 
@@ -266,10 +266,11 @@ class InitialConditions(fe.UserExpression):
         super().__init__(**kwargs)
     def eval(self, values, x):
         if x[0] <= xc:
-            values[0] = np.tanh( np.sqrt( pow(x[0]-xc,2) + pow(x[1]-yc,2) )\
+            values[0] = np.tanh( np.sqrt( pow(x[0]-(xc+L_y),2) + pow(x[1]-yc,2) )\
                                  - 0.5*L_y / (interfaceThickness) )
         elif x[0] > L_x - L_x/8:
-            values[0] = 1
+            values[0] = np.tanh( np.sqrt( pow(x[0]-(L_x - L_x/8),2) )\
+                                  / (interfaceThickness) )
         else:
             values[0] = -1
 
@@ -288,7 +289,7 @@ forceDensity_n = fe.project(force_density, V_dis)
 
 def Bdy_Lower(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
+        if fe.near(x[1], 0.0) and x[0] >= periodicBdyXLeft and x[0] <= periodicBdyXRight:
             return True
         else:
             return False
@@ -324,7 +325,7 @@ tol = 1e-8
 
 def Bdy_Upper(x, on_boundary):
     if on_boundary:
-        if fe.near(x[1], L_y) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight:
+        if fe.near(x[1], L_y) and x[0] >= periodicBdyXLeft and x[0] <= periodicBdyXRight:
             return True
         else:
             return False
