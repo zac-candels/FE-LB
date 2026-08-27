@@ -985,7 +985,7 @@ for n in range(num_steps):
         rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        rhsVecStreaming[idx].axpy(-0.5*dt**2, doubleAdvectionVecs[idx])
         
         rhsVecStreaming[idx].axpy(dt, basicForceTerm)
         rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
