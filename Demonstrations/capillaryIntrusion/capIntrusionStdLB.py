@@ -61,7 +61,7 @@ R0 = 2
 initDropDiam = 2*R0
 L_x = 15*R0
 L_y = 1*R0
-nx = 100
+nx = 150
 ny = 30
 h = min(L_x/nx, L_y/ ny)
 
@@ -83,7 +83,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"stdLB")
+outDirName = os.path.join(WORKDIR, f"tauRatio_{tau_h/tau_l}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -124,7 +124,7 @@ mesh = fe.RectangleMesh(comm, fe.Point(0, 0), fe.Point(L_x, L_y),
 h = mesh.hmin()
 dt = 0.05*h**2
 #dt = 0.0001
-beta_mass_diff =  0.1*dt
+beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
@@ -133,30 +133,26 @@ periodicBdyXRight = 4*L_x/5
 class PeriodicBoundary(fe.SubDomain):
 
     def inside(self, x, on_boundary):
-
-        left = fe.near(x[0], 0.0)
-
+        left = fe.near(x[0], 0.0) and not fe.near(x[1], L_y)   # exclude (0, L_y): it's a slave, not master
         bottom_periodic = (
             fe.near(x[1], 0.0)
+            and not fe.near(x[0], L_x)                          # exclude (L_x, 0): it's a slave, not master
             and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)
         )
-
-        return bool((left or bottom_periodic)
-                    and on_boundary)
+        return bool((left or bottom_periodic) and on_boundary)
 
     def map(self, x, y):
-
-        # x-periodicity
-        if fe.near(x[0], L_x):
+        # top-right corner needs BOTH x- and y-periodicity: resolve directly to (0,0), one hop
+        if fe.near(x[0], L_x) and fe.near(x[1], L_y):
+            y[0] = 0.0
+            y[1] = 0.0
+        elif fe.near(x[0], L_x):
             y[0] = x[0] - L_x
             y[1] = x[1]
-
-        # y-periodicity on selected intervals
         elif (fe.near(x[1], L_y)
               and (x[0] < periodicBdyXLeft or x[0] > periodicBdyXRight)):
             y[0] = x[0]
             y[1] = x[1] - L_y
-
         else:
             y[0] = x[0]
             y[1] = x[1]
@@ -270,7 +266,8 @@ class InitialConditions(fe.UserExpression):
         super().__init__(**kwargs)
     def eval(self, values, x):
         if x[0] <= xc:
-            values[0] = 1
+            values[0] = np.tanh( np.sqrt( pow(x[0]-xc,2) + pow(x[1]-yc,2) )\
+                                 - 0.5*L_y / (interfaceThickness) )
         elif x[0] > L_x - L_x/8:
             values[0] = 1
         else:
@@ -369,7 +366,7 @@ boundaries = fe.MeshFunction("size_t", mesh, mesh.topology().dim()-1, 0)
 # Subdomain for bottom wall
 class Bottom(fe.SubDomain):
     def inside(self, x, on_boundary):
-        return on_boundary and fe.near(x[1], 0.0) and x[0] > periodicBdyXLeft and x[0] < periodicBdyXRight
+        return on_boundary and fe.near(x[1], 0.0) and x[0] >= periodicBdyXLeft and x[0] <= periodicBdyXRight
     
 # Subdomain for bottom wall
 class Top(fe.SubDomain):
@@ -528,6 +525,8 @@ forceVals_y = []
 inverse_cs2 = 1 / c_s**2
 inverse_cs4 = 1 / c_s**4
 mass_init = fe.assemble( (phi_n+1)/2*fe.dx)
+
+Force_vec = fe.Function(V)
 for n in range(num_steps):
     t += dt
     
@@ -544,12 +543,17 @@ for n in range(num_steps):
     
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
     
+    
     fe.assemble(-phi_n * fe.grad(mu_n)[0]*v*fe.dx, tensor=forceVec_x )
     fe.assemble(-phi_n * fe.grad(mu_n)[1]*v*fe.dx, tensor=forceVec_y)
     
-    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
-
-    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    petscForce_x = fe.as_backend_type(forceVec_x)
+    forceDensity_x.vector().vec().pointwiseDivide(petscForce_x.vec(), M_petsc)
+    #fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    
+    #fe.solve(massMat, forceDensity_z.vector(), forceVec_z)
+    petscForce_y = fe.as_backend_type(forceVec_y)
+    forceDensity_y.vector().vec().pointwiseDivide(petscForce_y.vec(), M_petsc)
     
     forceVals_x = forceDensity_x.vector().get_local()
     #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
@@ -564,45 +568,43 @@ for n in range(num_steps):
     # ux[wall_dofs] = 0.0
     # uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
-    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
-    u2 = ux**2 + uy**2                                    # (n_dofs,)
+    cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy      # (9, n_dofs)
+    u2 = ux**2 + uy**2                             # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
     
     phi_vals = phi_n.vector().get_local()
     tau_vals = (1 + phi_vals)*tau_h/2 + (1 - phi_vals)*tau_l/2
     f_star_np = f_vals - dt/(tau_vals)*(f_vals - feq)
-    [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    for idx in range(Q):
+        f_star[idx].vector().set_local(f_star_np[idx,:])
+        f_star[idx].vector().apply("insert")
     rho_vals = f_star_np.sum(axis=0)
     ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho_vals + forceVals_x*dt/(2*rho)
     uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho_vals + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
+    vel_star.vector().apply("insert")
+
 
     post_coll_time_lb = time.time()
     #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
 
-    u_dot_prod_F = fe.dot(vel_star, force_density)
-    
     stream_FE_start_time = time.time()
+    xi_dot_F = xi_arr[:,0,None]*forceVals_x + xi_arr[:,1,None]*forceVals_y  # (Q, n_dofs)
+    u_dot_F  = ux*forceVals_x + uy*forceVals_y
+    xi_dot_u = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy
+    Force_np = w[:,None]*(inverse_cs2*(xi_dot_F - u_dot_F) + inverse_cs4*xi_dot_u*xi_dot_F)
+    Force_np[0] = -w[0]*inverse_cs2*u_dot_F
+    
     for idx in range(Q):
         
-        if idx == 0:
-            Force = -w[idx]*(inverse_cs2* u_dot_prod_F)
-
-        else:
-    
-            xi_dot_prod_F = fe.dot( xi[idx], force_density)
-    
-            xi_dot_u = fe.dot(xi[idx], vel_star)
-    
-            Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
-                           + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+        Force_vec.vector().set_local(Force_np[idx])
+        Force_vec.vector().apply("insert")
+        basicForceTerm = M_lumped * Force_vec.vector()          # matrix-vector, not assembly
+        advectionForceTerm = advectionMats[idx] * Force_vec.vector()
         
-        advectionForceTerm = fe.assemble(
-            fe.dot(xi[idx], fe.grad(v))* Force * fe.dx)
-            
-        basicForceTerm = fe.assemble(v*Force*fe.dx)
-        
-        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        streamingPrevTimeVecs[idx].vec().pointwiseMult(
+                M_petsc,
+                f_star[idx].vector().vec())
         advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
         doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
 
@@ -613,6 +615,7 @@ for n in range(num_steps):
         
         rhsVecStreaming[idx].axpy(dt, basicForceTerm)
         rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
+    stream_FE_end_time = time.time()
     stream_FE_end_time = time.time()
     #print("stream FE time = ", stream_FE_end_time - stream_FE_start_time)
     
@@ -690,7 +693,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1000== 0:  # plot every 10 steps
+        if n % 100== 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n)
@@ -727,10 +730,11 @@ for n in range(num_steps):
             # Compute nodal norms
             vel_norm = np.linalg.norm(vel_vec, axis=1)
         
-
+            print("phi_max:", phi_vals.max())
+            print("phi_min:", phi_vals.min())
             # Maximum nodal value
             max_vel = vel_norm.max()
-            print("umax = ", max_vel)
+            print("umax = ", max_vel, "\n\n\n")
             for idx in range(Q):
                 f_vec = f_n[idx].vector().get_local()
                 min_index = np.argmin(f_vec)
