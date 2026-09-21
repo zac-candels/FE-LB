@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, "/home/zcandels/3D-feature")
+sys.path.insert(0, "/data/users/s2767572/3D-feature")
 import fenics as fe
 import os
 import numpy as np
@@ -26,7 +26,7 @@ fe.parameters["form_compiler"]["optimize"] = True
 fe.parameters["form_compiler"]["cpp_optimize"] = True
       
 
-T = 300
+T = 1000
 R0 = 2
 initDropDiam = 2*R0
 L_x = 6*R0
@@ -42,7 +42,7 @@ kappa = 0.02
 interfaceThickness = np.sqrt(kappa/A)
 tau = 0.1
 M_tilde = 10
-theta_deg = 30
+theta_deg = 150
 
 
 # Lattice speed of sound
@@ -118,7 +118,7 @@ num_steps = int(np.ceil(T/dt))
 
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"forceInStreamingFaster")
+outDirName = os.path.join(WORKDIR, f"forceInStreaming_CA{theta_deg}")
 if rank == 0:
     if os.path.exists(outDirName):
         shutil.rmtree(outDirName)
@@ -179,7 +179,7 @@ phi_n = fe.Function(V)
 V_cont = fe.VectorFunctionSpace(mesh, "P", 1, constrained_domain=pbc)
 V_dis = fe.VectorFunctionSpace(mesh, "DG", 0, constrained_domain=pbc)
 
-vel_star = fe.Function(V_dis)
+vel_star = fe.Function(V_cont)
 vel_cont = fe.Function(V_cont)
 vel_dis = fe.Function(V_dis)
 mu_n = fe.Function(V)
@@ -511,7 +511,9 @@ dofCoords = dofCoords.reshape((-1, mesh.geometry().dim()))
 bottom_mesh = fe.BoundaryMesh(mesh, "exterior")
 
 # Mark facets belonging to z = 0
-bottom_file = fe.XDMFFile(outDirName + "/BottomWall.pvd")
+bottom_file = fe.XDMFFile(outDirName + "/BottomWall.xdmf")
+bottom_file.parameters["flush_output"] = True 
+
 
 V0 = fe.FunctionSpace(bottom_mesh, "DG", 0)
 wall = fe.Function(V0)
@@ -667,7 +669,7 @@ for n in range(num_steps):
         rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        rhsVecStreaming[idx].axpy(-0.5*dt**2, doubleAdvectionVecs[idx])
         
         rhsVecStreaming[idx].axpy(dt, basicForceTerm)
         rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
@@ -747,7 +749,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 1== 0:  # plot every 10 steps
+        if n % 1000== 0:  # plot every 10 steps
 
             if rank == 0:
                 print("n = ", n, flush=True)
