@@ -16,31 +16,35 @@ plt.close('all')
 
 
 T = 10000000
-dt=0.001
 
-num_steps = int(np.ceil(T/dt))
+nu = float(1/3)
+c_s = np.sqrt(1/3)
+tau = 1
+
 
 
 Re = 0.96
 L_x = 32
 L_y = 32
-nx = 2
-ny = 2
+nx = 30
+ny = 30
 h = L_x/nx
+dt = 0.00125*h
 
-Force_density = np.array([2.6014e-5, 0.0])
+num_steps = int(np.ceil(T/dt))
+
+Force_density = fe.Constant((2.601466e-5, 0.0))
 
 # Where to save the plots
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, "lowSpatialResolution")#f"Lx{L_x}_Ly{L_y}_nx{nx}_ny{ny}_dt{dt}_force{Force_density[0]}")
+outDirName = os.path.join(WORKDIR, f"tau{tau}_dt{dt:1g}_nx{nx}")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
 
 # Lattice speed of sound
-c_s = np.sqrt(1/3)
-nu = float(1/3)
-tau = nu/c_s**2 + 0.5*dt
+
+
 
 max_U_vels = []
 
@@ -54,7 +58,7 @@ rho_wall = 1.0
 rho_init = 1.0
 u_wall = (0.0, 0.0)
 
-u_max = Force_density[0]*L_y**2/(8 * rho_init * tau/3)
+u_max = Force_density.values()[0]*L_y**2/(8 * rho_init * tau/3)
 
 
 # D2Q9 lattice velocities
@@ -122,8 +126,8 @@ for idx in range(Q):
 forceFn0 = fe.Function(V)
 forceFn1 = fe.Function(V)
 forceVelFn = fe.Function(V)
-doubleForceVelFn0 = fe.Function(V)
-doubleForceVelFn1 = fe.Function(V)
+forceDensity_x = fe.Function(V)
+forceDensity_y = fe.Function(V)
 
 # Define density
 def getDens(f_list):
@@ -142,7 +146,7 @@ def getVel(f_list):
 
     vel_term1 = distr_fn_sum/density
 
-    F = fe.Constant((Force_density[0], Force_density[1]))
+    F = fe.Constant((Force_density.values()[0], Force_density.values()[1]))
     vel_term2 = F * dt / (2 * density)
 
     return vel_term1 + vel_term2
@@ -153,8 +157,8 @@ def f_equil_init(vel_idx, Force_density):
     rho_init = fe.Constant(1.0)
     rho_expr = fe.Constant(1.0)
 
-    vel_0 = -fe.Constant((Force_density[0]*dt/(2*rho_init),
-                          Force_density[1]*dt/(2*rho_init)))
+    vel_0 = -fe.Constant((Force_density.values()[0]*dt/(2*rho_init),
+                          Force_density.values()[1]*dt/(2*rho_init)))
 
     # u_expr = fe.project(V_vec, vel_0)
 
@@ -197,14 +201,7 @@ def body_Force(vel, vel_idx, Force_density):
 
     return Force
 
-def uflVelForce(Force_density, vel_n):
-    return fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
 
-def uflDoubleForceVel0(Force_density, vel_n):
-    return Force_density[0]*fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
-
-def uflDoubleForceVel1(Force_density, vel_n):
-    return Force_density[1]*fe.dot(vel_n, fe.Constant((Force_density[0],Force_density[1])))
 
 # # Initialize distribution functions. We will use
 # f_i^{0} \gets f_i^{0, eq}( \rho_0, \bar{u}_0 ),
@@ -310,6 +307,8 @@ for idx in range(Q):
     linear_forms_collision.append(lin_form_coll)
 
 
+# Assemble matrices for first step
+
 massForm = f_trial*v*fe.dx
 massMat = fe.assemble(massForm)
 mass_action_form = fe.action(massForm, fe.Constant(1))
@@ -319,38 +318,29 @@ M_lumped.set_diagonal(fe.assemble(mass_action_form))
 M_vect = fe.assemble(mass_action_form)
 M_petsc = fe.as_backend_type(M_vect).vec()
 
-
-# Assemble matrices for first step
-sysMatStream = []
-sysMatColl = []
+sys_mat = []
+sys_mat2 = []
 sysMatLumped = []
-solverListStream = []
-solverListColl = []
-rhsVecStreaming = []
-rhsVecCollision = []
 advectionMats = []
 advectionTransposeMats = []
 doubleAdvectionMats = []
 for idx in range(Q):
-    sysMatStream.append(fe.assemble(bilinear_forms_stream[idx]))
     sysMatLumped.append(M_petsc.copy())
-    sysMatColl.append(fe.assemble(bilinear_forms_collision[idx]))
-    rhsVecStreaming.append( fe.assemble(linear_forms_stream[idx]) )
-    rhsVecCollision.append( fe.assemble(linear_forms_collision[idx]) )
-    
     advectionMats.append(fe.assemble(advection_forms[idx]))
     A_T = advectionMats[idx].copy()
     advectionTransposeMats.append(A_T)
     doubleAdvectionMats.append(fe.assemble(double_advection_forms[idx]))
+massMat = fe.assemble(f_trial*v*fe.dx)
 
-for idx in range(Q):
-    A = sysMatStream[idx]
-    solver = fe.LUSolver(A)
-    solverListStream.append(solver)
-    
-    A2 = sysMatColl[idx]
-    solver2 = fe.LUSolver(A2)
-    solverListColl.append(solver2)
+streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
+advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
+doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
+rhsVecStreaming = [f_star[0].vector().copy() for _ in range(Q)]
+prevTimeAcVec = f_star[0].vector().copy()
+rhsVecTemp = f_star[0].vector().copy()
+
+forceVec_x = f_star[0].vector().copy()
+forceVec_y = f_star[0].vector().copy()
 
 
 vel_file = fe.XDMFFile(comm, f"{outDirName}/vel.xdmf")
@@ -359,46 +349,6 @@ vel_file.parameters["functions_share_mesh"] = True
 vel_file.parameters["rewrite_function_mesh"] = False
 
 
-# Apply BCs to matrices for distribution functions 5, 2, and 6
-bc_f5.apply(sysMatStream[5])
-bc_f5.apply(advectionMats[5])
-bc_f5.apply(doubleAdvectionMats[5])
-
-bc_f2.apply(sysMatStream[2])
-bc_f2.apply(advectionMats[2])
-bc_f2.apply(doubleAdvectionMats[2])
-
-bc_f6.apply(sysMatStream[6])
-bc_f6.apply(advectionMats[6])
-bc_f6.apply(doubleAdvectionMats[6])
-
-# Apply BCs to matrices for distribution functions 7, 4, 8
-bc_f7.apply(sysMatStream[7])
-bc_f7.apply(advectionMats[7])
-bc_f7.apply(doubleAdvectionMats[7])
-
-bc_f4.apply(sysMatStream[4])
-bc_f4.apply(advectionMats[4])
-bc_f4.apply(doubleAdvectionMats[4])
-
-bc_f8.apply(sysMatStream[8])
-bc_f8.apply(advectionMats[8])
-bc_f8.apply(doubleAdvectionMats[8])
-
-massMat = fe.assemble(f_trial*v*fe.dx)
-streamingPrevTimeVecs= [f_star[0].vector().copy() for _ in range(Q)]
-advectionVecs = [f_star[0].vector().copy() for _ in range(Q)]
-doubleAdvectionVecs =[f_star[0].vector().copy() for _ in range(Q)]
-forceTermVecs = [f_star[0].vector().copy() for _ in range(Q)]
-E_vecs = [f_star[0].vector().copy() for _ in range(Q)]
-G_vecs = [f_star[0].vector().copy() for _ in range(Q)]
-
-forceTerm1 = f_star[0].vector().copy()
-forceTerm2 = f_star[0].vector().copy()
-forceTerm3 = f_star[0].vector().copy()
-forceTerm4 = f_star[0].vector().copy()
-forceTerm5 = f_star[0].vector().copy()
-forceTermVec = f_star[0].vector().copy()
 
 forceVecs = [0,0]
 forceVelVec = 0
@@ -408,6 +358,9 @@ doubleForceVelVecs = [0,0]
 
 xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
                    [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+
+inverse_cs2 = 1 / c_s**2
+inverse_cs4 = 1 / c_s**4
     
 # Timestepping
 t = 0.0
@@ -417,128 +370,77 @@ while t < tMax:
     n+=1
     t += dt
     
-    pre_coll_time = time.time()
-    # We will try to do collision locally, since it is a pure
-    # time-dependnet ODE
     f_vals = np.array([f_n[idx].vector().get_local() for idx in range(Q)])
-    xi_arr = np.array([[0,0],[1,0],[0,1],[-1,0],[0,-1],
-                   [1,1],[-1,1],[-1,-1],[1,-1]], dtype=float)
+    
+    fe.assemble(Force_density.values()[0]*v*fe.dx, tensor=forceVec_x )
+    fe.assemble(v*fe.dx, tensor=forceVec_y)
+    forceVec_y.vec().scale(0)
+    
+    fe.solve(massMat, forceDensity_x.vector(), forceVec_x)
+
+    fe.solve(massMat, forceDensity_y.vector(), forceVec_y)
+    
+    forceVals_x = forceDensity_x.vector().get_local()
+    #forceVals_x = forceVals_x.reshape((-1, mesh.geometry().dim()))
+    
+    forceVals_y = forceDensity_y.vector().get_local()
+    #forceVals_y = forceVals_y.reshape((-1, mesh.geometry().dim()))
 
     # Compute rho and u as numpy arrays over all DOFs
     rho = f_vals.sum(axis=0)                          # shape (n_dofs,)
-    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + Force_density[0]*dt/(2*rho)
-    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + Force_density[1]*dt/(2*rho)
+    ux  = (xi_arr[:,0,None] * f_vals).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_vals).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
+    # ux[wall_dofs] = 0.0
+    # uy[wall_dofs] = 0.0
     vel = np.stack([ux, uy])
     cu = xi_arr[:,0,None]*ux + xi_arr[:,1,None]*uy        # (9, n_dofs)
     u2 = ux**2 + uy**2                                    # (n_dofs,)
     feq = w[:,None] * rho * (1 + 3*cu + 4.5*cu**2 - 1.5*u2)
+    
 
-    f_star_np = f_vals - (dt/tau)*(f_vals - feq)
+    f_star_np = f_vals - dt/(tau)*(f_vals - feq)
     [f_star[idx].vector().set_local(f_star_np[idx,:]) for idx in range(Q)]
+    rho = f_star_np.sum(axis=0)
+    ux  = (xi_arr[:,0,None] * f_star_np).sum(axis=0) / rho + forceVals_x*dt/(2*rho)
+    uy  = (xi_arr[:,1,None] * f_star_np).sum(axis=0) / rho + forceVals_y*dt/(2*rho)
     vel_star.vector().set_local(np.stack([ux, uy], axis=1).flatten())
-    post_coll_time = time.time()
-    #print("collision_time =", post_coll_time - pre_coll_time)
-    
-    
-    fe.project(Force_density[0], V, function=forceFn0)
-    fe.project(fe.Constant(Force_density[1]), V, function=forceFn1)
-    fe.project(uflVelForce(Force_density, vel_star), V, function=forceVelFn)
-    fe.project(uflDoubleForceVel0(Force_density, vel_star), V, function=doubleForceVelFn0)
-    #fe.project(uflDoubleForceVel1(Force_density, vel_star), V, function=doubleForceVelFn1)
-    
-    forceVec0 = forceFn0.vector()
-    forceVec1 = forceFn1.vector()
-    forceVelVec = forceVelFn.vector()
-    doubleForceVelVec0 = doubleForceVelFn0.vector()
-    doubleForceVelVec1 = doubleForceVelFn1.vector()
 
-    pre_stream_time = time.time()
-    # Assemble RHS vectors for streaming step
-    forceTerm1 =  1/c_s**2 * forceVec0
-    forceTerm2 =  1/c_s**2 * forceVec1 
-    forceTerm3 =  1/c_s**4 * doubleForceVelVec0 
-    forceTerm4 =  1/c_s**4 * doubleForceVelVec1 
-    forceTerm5 =  1/c_s**2 * forceVelVec
+    post_coll_time_lb = time.time()
+    #print("collision_time =", post_coll_time_lb - pre_coll_time_lb)
+
+    u_dot_prod_F = fe.dot(vel_star, Force_density)
+    
+    stream_FE_start_time = time.time()
     for idx in range(Q):
-        rhsVecStreaming[idx].zero()
-        forceTermVec.zero()
-        f_vec = f_star[idx].vector()
-        M_lumped.mult(f_vec, streamingPrevTimeVecs[idx])
-        advectionMats[idx].mult(f_vec, advectionVecs[idx])
-        doubleAdvectionMats[idx].mult(f_vec, doubleAdvectionVecs[idx])
-        if idx == 0:
-            forceTermVec.axpy(1.0, forceTerm5)
-            #forceTermVec = forceTerm5
-            #print(fe.norm(forceTermVec))
-        elif idx == 1:
-            #forceTermVec = forceTerm1 + forceTerm3 + forceTerm5 
-            forceTermVec.axpy(1.0, forceTerm1)
-            forceTermVec.axpy(1.0, forceTerm3)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 2:
-            #forceTermVec = forceTerm2 + forceTerm4 + forceTerm5 
-            forceTermVec.axpy(1.0, forceTerm2)
-            forceTermVec.axpy(1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 3:
-            #forceTermVec = -forceTerm1 - forceTerm3 + forceTerm5
-            forceTermVec.axpy(-1.0, forceTerm1)
-            forceTermVec.axpy(-1.0, forceTerm3)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 4:
-            #forceTermVec = -forceTerm2 - forceTerm4 + forceTerm5
-            forceTermVec.axpy(-1.0, forceTerm2)
-            forceTermVec.axpy(-1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 5:
-            #forceTermVec = forceTerm1 + forceTerm2 + forceTerm3\
-            #    + forceTerm4 + forceTerm5
-            forceTermVec.axpy(1.0, forceTerm1)
-            forceTermVec.axpy(1.0, forceTerm2)
-            forceTermVec.axpy(1.0, forceTerm3)
-            forceTermVec.axpy(1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 6:
-            #forceTermVec = -forceTerm1 + forceTerm2  - forceTerm3\
-            #    + forceTerm4 + forceTerm5 
-            forceTermVec.axpy(-1.0, forceTerm1)
-            forceTermVec.axpy(1.0, forceTerm2)
-            forceTermVec.axpy(-1.0, forceTerm3)
-            forceTermVec.axpy(1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 7:
-            #forceTermVec = -forceTerm1 - forceTerm2 - forceTerm3\
-            #    -forceTerm4 + forceTerm5 
-            forceTermVec.axpy(-1.0, forceTerm1)
-            forceTermVec.axpy(-1.0, forceTerm2)
-            forceTermVec.axpy(-1.0, forceTerm3)
-            forceTermVec.axpy(-1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-        elif idx == 8:
-            #forceTermVec = forceTerm1 - forceTerm2 + forceTerm3\
-            #    -forceTerm4 + forceTerm5
-            forceTermVec.axpy(1.0, forceTerm1)
-            forceTermVec.axpy(-1.0, forceTerm2)
-            forceTermVec.axpy(1.0, forceTerm3)
-            forceTermVec.axpy(-1.0, forceTerm4)
-            forceTermVec.axpy(1.0, forceTerm5)
-            #print(fe.norm(forceTermVec))
-
-        massMat.mult(w[idx]*forceTermVec, E_vecs[idx])
-        advectionTransposeMats[idx].mult(w[idx]*forceTermVec, G_vecs[idx])
         
+        if idx == 0:
+            Force = -w[idx]*(inverse_cs2* u_dot_prod_F)
+
+        else:
+    
+            xi_dot_prod_F = fe.dot( xi[idx], Force_density)
+    
+            xi_dot_u = fe.dot(xi[idx], vel_star)
+    
+            Force = w[idx]*(inverse_cs2*(xi_dot_prod_F - u_dot_prod_F)
+                           + inverse_cs4*xi_dot_u*xi_dot_prod_F)
+        
+        advectionForceTerm = fe.assemble(
+            fe.dot(xi[idx], fe.grad(v))* Force * fe.dx)
+            
+        basicForceTerm = fe.assemble(v*Force*fe.dx)
+        
+        M_lumped.mult(f_star[idx].vector(), streamingPrevTimeVecs[idx])
+        advectionMats[idx].mult(f_star[idx].vector(), advectionVecs[idx])
+        doubleAdvectionMats[idx].mult(f_star[idx].vector(), doubleAdvectionVecs[idx])
+
+        rhsVecStreaming[idx].zero()
         rhsVecStreaming[idx].axpy(1.0, streamingPrevTimeVecs[idx])
         rhsVecStreaming[idx].axpy(-dt, advectionVecs[idx])
-        rhsVecStreaming[idx].axpy(dt, E_vecs[idx])
-        rhsVecStreaming[idx].axpy(-0.5*dt**2, G_vecs[idx])
-        rhsVecStreaming[idx].axpy(0.5*dt**2, doubleAdvectionVecs[idx])
+        rhsVecStreaming[idx].axpy(-0.5*dt**2, doubleAdvectionVecs[idx])
+        
+        rhsVecStreaming[idx].axpy(dt, basicForceTerm)
+        rhsVecStreaming[idx].axpy(0.5*dt**2, advectionForceTerm)
     post_assemble_stream_time = time.time() 
     #print("stream assemble =", post_assemble_stream_time - pre_stream_time)
 
@@ -596,19 +498,8 @@ while t < tMax:
         
     #fe.project(getVel(f_n), Vvec, function=vel_n)
     #fe.project(getDens(f_n), V, function=rho_n)
-    if n%5000 == 0:
-        print("n = ", n)
-        vel_expr = getVel(f_n)
-        fe.project(vel_expr, Vvec, function=vel_n)
-        #vel_file.write(vel_n, t)
-        
-        # print("max |drho|   =", np.max(np.abs(rho_diff)), flush=True)
-        # print("max |d_momentum_x|=", np.max(np.abs(momx_diff)), flush=True)
-        # print("max |d_momentum_y|=", np.max(np.abs(momy_diff)), flush=True)
+    if n%10000 == 0:
 
-        # log_file.write(f"{np.max(np.abs(rho_diff)):15.4f} {np.max(np.abs(momx_diff)):15.4f}  {np.max(np.abs(momy_diff)):15.4f} \n")
-        # log_file.flush()
-        
         u_new, v_new = 0, 0
         
         for i in range(Q):
@@ -616,48 +507,55 @@ while t < tMax:
             u_new += f_n[i].vector().get_local()*xi_new[0]
             v_new += f_n[i].vector().get_local()*xi_new[1]
 
+        vel_n.vector().set_local(np.stack([u_new, v_new], axis=1).flatten())
         u_e = fe.Expression('u_max*( 1 - pow( (2*x[1]/L_y -1), 2 ) )',
                             degree=2, u_max=u_max, L_y=L_y)
         u_e = fe.interpolate(u_e, V)
-        error = np.linalg.norm(u_e.vector().get_local() - u_new)
-        time_elapsed = time.time() - start_time
-        print('t = %.4f: error = %.3g' % (t, error), flush=True)
-        print('max u:', u_new.max(), flush=True)
-        print("Time elapsed = ", time_elapsed, "\n\n", flush=True)
-        
-        max_U_vels.append(u_new.max())
 
+        vel_file.write(vel_n, t)
+        print("Interpolated error expression", flush=True)
+
+        if rank == 0:
+            error = np.linalg.norm(u_e.vector().get_local() - u_new)
+            print('t = %.4f: error = %.3g' % (t, error), flush=True)
+            print('max(u_num)/max(u_ex):', u_new.max()/u_max, flush=True)
+
+    
         num_points_analytical = 200
-        num_points_numerical = 10
+        num_points_numerical = 21
         y_values_analytical = np.linspace(0, L_y, num_points_analytical)
         y_values_numerical = np.linspace(0, L_y, num_points_numerical)
         x_fixed = L_x/2
         points = [(x_fixed, y) for y in y_values_numerical]
         u_x_values = []
         u_ex = np.linspace(0, L_y, num_points_analytical)
-        nu = tau/3
-        u_max = 0.1
+
         for i in range(num_points_analytical):
             u_ex[i] = (1 - (2*y_values_analytical[i]/L_y - 1)**2)
-
+    
         for point in points:
             u_at_point = vel_n(point)
             u_x_values.append(u_at_point[0] / u_max)
 
+    
+        if rank == 0:
+            fig_name = "felb_dt" + str(dt) + "_simTime" + str(n) + ".png"
+            output = os.path.join(outDirName, fig_name)
+    
+            plt.figure()
+            plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
+            plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
+            plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
+            plt.xlabel(r"$y/L_y$", fontsize=20)
+            plt.legend()
+            plt.tick_params(direction="in")
+    
+    
+            print("Saving figure to:", os.path.abspath(output), flush=True)
+            plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
+            
+            print("\n\n\n")
+    
 
 
-        fig_name = "felb_dt" + str(dt) + ".png"
-        output = os.path.join(outDirName, fig_name)
-
-        plt.figure()
-        plt.plot(y_values_numerical/L_y, u_x_values, 'o', label="FE soln.")
-        plt.plot(y_values_analytical/L_y, u_ex, label="Analytical soln.")
-        plt.ylabel(r"$u_x/u_{{max}}$", fontsize=20)
-        plt.xlabel(r"$y/L_y$", fontsize=20)
-        plt.legend()
-        plt.tick_params(direction="in")
-
-
-        print("Saving figure to:", os.path.abspath(output))
-        plt.savefig(output, dpi=400, format='png', bbox_inches='tight')
 

@@ -56,22 +56,23 @@ def trackMeniscus(phi_n, mesh):
     return min_x
 
 
-T = 300
+T = 1000
 R0 = 2
 initDropDiam = 2*R0
-L_x = 15*R0
+L_x = 30*R0
 L_y = 1*R0
-nx = 150
-ny = 30
+nx = 300
+ny = 40
 h = min(L_x/nx, L_y/ ny)
 
-A = 0.5
-kappa = 0.02
+A = 0.0625/2
+kappa = 0.0025/2
 interfaceThickness = np.sqrt(kappa/A)
-tau_h = 1
-tau_l = tau_h/2
-M_tilde = 10
-theta_deg = 60
+tau_h = 0.1
+tau_l = tau_h/50
+M_tilde = 5
+theta_deg = 70
+surfTen = np.sqrt(kappa*A)
 
 
 # Lattice speed of sound
@@ -83,7 +84,7 @@ c_s2 = 1/3
 theta = theta_deg * np.pi / 180
 
 WORKDIR = os.getcwd()
-outDirName = os.path.join(WORKDIR, f"tauRatio_{tau_h/tau_l}")
+outDirName = os.path.join(WORKDIR, f"tauH{tau_h}_tauL{tau_l}_theta{theta_deg}_M{M_tilde}_gamma{surfTen:1g}_longer")
 if os.path.exists(outDirName):
     shutil.rmtree(outDirName)
 os.makedirs(outDirName, exist_ok=True)
@@ -128,8 +129,8 @@ beta_mass_diff =  0.01*dt
 num_steps = int(np.ceil(T/dt))
 # Set periodic boundary conditions at left and right endpoints
 
-periodicBdyXLeft = L_x/5 
-periodicBdyXRight = 4*L_x/5
+periodicBdyXLeft = L_x/10
+periodicBdyXRight = 9*L_x/10
 class PeriodicBoundary(fe.SubDomain):
 
     def inside(self, x, on_boundary):
@@ -268,8 +269,8 @@ class InitialConditions(fe.UserExpression):
         if x[0] <= xc:
             values[0] = np.tanh( np.sqrt( pow(x[0]-(xc+L_y),2) + pow(x[1]-yc,2) )\
                                  - 0.5*L_y / (interfaceThickness) )
-        elif x[0] > L_x - L_x/8:
-            values[0] = np.tanh( np.sqrt( pow(x[0]-(L_x - L_x/8),2) )\
+        elif x[0] > L_x - L_x/15:
+            values[0] = np.tanh( np.sqrt( pow(x[0]-(L_x - L_x/15),2) )\
                                   / (interfaceThickness) )
         else:
             values[0] = -1
@@ -694,7 +695,7 @@ for n in range(num_steps):
     #if rank == 0:
     #if fe.MPI.rank(comm) == 0 and os.environ.get("SLURM_PROCID") == "0":
     if n < 40000000:
-        if n % 100== 0:  # plot every 10 steps
+        if n % 500== 0:  # plot every 10 steps
         
             if rank == 0:
                 print("n = ", n)
